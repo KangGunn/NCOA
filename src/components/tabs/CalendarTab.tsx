@@ -270,7 +270,7 @@ export default function CalendarTab() {
                             <div
                                 key={e.id}
                                 className={cn(
-                                    "text-[10px] font-black px-1.5 py-0.5 rounded truncate",
+                                    "text-[8.5px] font-black px-1 py-0.5 rounded truncate leading-tight",
                                     e.type === 'vacation' ? "bg-blue-100 text-blue-700" : 
                                     e.type === 'duty' ? "bg-yellow-100 text-yellow-700" : "bg-indigo-100 text-indigo-700"
                                 )}
