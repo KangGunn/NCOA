@@ -3,7 +3,7 @@ import { Copy, Check } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { db, auth } from '../../lib/firebase';
 import { calculateRank } from '../../lib/rankUtils';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, query } from 'firebase/firestore';
 import Papa from 'papaparse';
 
 

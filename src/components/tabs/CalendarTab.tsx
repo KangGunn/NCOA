@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db, auth } from '../../lib/firebase';
 import { Trash2, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -17,6 +17,7 @@ export default function CalendarTab() {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [isAdding, setIsAdding] = useState(false);
     const [selectedDate, setSelectedDate] = useState<string | null>(null);
+    const [activeAction, setActiveAction] = useState<{ id: string, mode: 'replace' | 'swap' } | null>(null);
 
     // Form states
     const [type, setType] = useState<'vacation' | 'pass'>('vacation');
@@ -27,7 +28,7 @@ export default function CalendarTab() {
     // Duty states
     const [isBatchDutyAdding, setIsBatchDutyAdding] = useState(false);
     const [dutyHistory, setDutyHistory] = useState<string[]>([]);
-    
+
     // Members state
     const [members, setMembers] = useState<{ id: string; name: string; enlistmentDate: string }[]>([]);
 
@@ -121,11 +122,37 @@ export default function CalendarTab() {
         }
     };
 
+    const handleReplace = async (eventId: string, newName: string) => {
+        try {
+            await updateDoc(doc(db, "schedules", eventId), {
+                memo: newName
+            });
+            setActiveAction(null);
+        } catch (error) {
+            console.error("Error replacing duty:", error);
+            alert("대체 중 오류가 발생했습니다.");
+        }
+    };
+
+    const handleRealSwap = async (id1: string, name1: string, id2: string, name2: string) => {
+        if (!confirm(`${name1}님과 ${name2}님의 근무 날짜를 교환하시겠습니까?`)) return;
+        try {
+            await Promise.all([
+                updateDoc(doc(db, "schedules", id1), { memo: name2 }),
+                updateDoc(doc(db, "schedules", id2), { memo: name1 })
+            ]);
+            setActiveAction(null);
+        } catch (error) {
+            console.error("Error swapping duties:", error);
+            alert("교환 중 오류가 발생했습니다.");
+        }
+    };
+
     const openBatchDutyModal = () => {
         const year = currentDate.getFullYear();
         const month = currentDate.getMonth();
         const totalDays = daysInMonth(year, month);
-        
+
         const existingDuties = events.filter(e => {
             if (e.type !== 'duty') return false;
             const eYear = new Date(e.startDate).getFullYear();
@@ -143,7 +170,7 @@ export default function CalendarTab() {
                 newHistory[d - 1] = '';
             }
         }
-        
+
         // Remove trailing empty strings so that the "next" index is correct
         while (newHistory.length > 0 && newHistory[newHistory.length - 1] === '') {
             newHistory.pop();
@@ -172,7 +199,7 @@ export default function CalendarTab() {
             const year = currentDate.getFullYear();
             const month = currentDate.getMonth();
             const batchPromises = [];
-            
+
             // Find and delete existing duties for this month to overwrite
             const currentMonthDuties = events.filter(e => {
                 if (e.type !== 'duty') return false;
@@ -278,8 +305,8 @@ export default function CalendarTab() {
                                 key={e.id}
                                 className={cn(
                                     "text-[8.5px] font-black px-1 py-0.5 rounded truncate leading-tight",
-                                    e.type === 'vacation' ? "bg-blue-100 text-blue-700" : 
-                                    e.type === 'duty' ? "bg-yellow-100 text-yellow-700" : "bg-indigo-100 text-indigo-700"
+                                    e.type === 'vacation' ? "bg-blue-100 text-blue-700" :
+                                        e.type === 'duty' ? "bg-yellow-100 text-yellow-700" : "bg-indigo-100 text-indigo-700"
                                 )}
                             >
                                 {e.type === 'vacation' ? '휴가' : e.type === 'duty' ? e.memo : '외박'}
@@ -320,7 +347,7 @@ export default function CalendarTab() {
                     onClick={openBatchDutyModal}
                     className="px-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-white rounded-2xl font-black text-sm shadow-xl shadow-yellow-100 active:scale-95 transition-all outline-none"
                 >
-                    당직 등록하기
+                    당직 일괄 등록하기
                 </button>
             </div>
 
@@ -338,46 +365,82 @@ export default function CalendarTab() {
                         {/* Event List for Selected Date */}
                         <div className="space-y-3">
                             {selectedDate && getEventsForDate(selectedDate).map(e => (
-                                <div key={e.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                                    <div className="flex items-center gap-3">
-                                        <div className={cn("w-2 h-2 rounded-full", e.type === 'vacation' ? "bg-blue-500" : e.type === 'duty' ? "bg-yellow-500" : "bg-indigo-500")} />
-                                        <div>
-                                            <div className="font-black text-sm text-gray-900">{e.type === 'vacation' ? '휴가' : e.type === 'duty' ? '당직' : '외박'}</div>
-                                            <div className="text-[10px] font-bold text-gray-400">{e.startDate} ~ {e.endDate}</div>
-                                            {e.memo && <div className="text-xs text-gray-500 font-medium mt-0.5">{e.memo}</div>}
+                                <div key={e.id} className="flex flex-col gap-3 p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className={cn("w-2 h-2 rounded-full", e.type === 'vacation' ? "bg-blue-500" : e.type === 'duty' ? "bg-yellow-500" : "bg-indigo-500")} />
+                                            <div>
+                                                <div className="font-black text-sm text-gray-900">{e.type === 'vacation' ? '휴가' : e.type === 'duty' ? '당직' : '외박'}</div>
+                                                {e.memo && <div className="text-xs text-gray-500 font-medium mt-0.5">{e.memo}</div>}
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                            {e.type === 'duty' && (
+                                                <>
+                                                    <button 
+                                                        onClick={() => setActiveAction(activeAction?.id === e.id && activeAction.mode === 'replace' ? null : { id: e.id, mode: 'replace' })}
+                                                        className={cn(
+                                                            "px-2 py-1.5 rounded-lg text-[10px] font-black transition-all",
+                                                            activeAction?.id === e.id && activeAction.mode === 'replace' ? "bg-blue-600 text-white" : "bg-white border border-gray-200 text-blue-600 hover:bg-blue-50"
+                                                        )}
+                                                    >
+                                                        대체
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => setActiveAction(activeAction?.id === e.id && activeAction.mode === 'swap' ? null : { id: e.id, mode: 'swap' })}
+                                                        className={cn(
+                                                            "px-2 py-1.5 rounded-lg text-[10px] font-black transition-all",
+                                                            activeAction?.id === e.id && activeAction.mode === 'swap' ? "bg-indigo-600 text-white" : "bg-white border border-gray-200 text-indigo-600 hover:bg-indigo-50"
+                                                        )}
+                                                    >
+                                                        교환
+                                                    </button>
+                                                </>
+                                            )}
+                                            <button onClick={() => handleDeleteEvent(e.id)} className="p-2 text-gray-300 hover:text-red-500">
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
                                         </div>
                                     </div>
-                                    <button onClick={() => handleDeleteEvent(e.id)} className="p-2 text-gray-300 hover:text-red-500">
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
+                                    
+                                    {activeAction?.id === e.id && (
+                                        <div className="pt-2 border-t border-gray-100 animate-in fade-in slide-in-from-top-2">
+                                            {activeAction.mode === 'replace' ? (
+                                                <div className="grid grid-cols-4 gap-1">
+                                                    {members.map(m => (
+                                                        <button
+                                                            key={m.id}
+                                                            onClick={() => handleReplace(e.id, m.name)}
+                                                            className="py-2 bg-white border border-gray-100 rounded-lg text-[10px] font-bold text-gray-600 hover:border-blue-300 hover:text-blue-600 transition-all truncate px-1"
+                                                        >
+                                                            {m.name}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-1">
+                                                    <p className="text-[9px] font-bold text-gray-400 mb-2 ml-1">교환할 다른 날짜의 당직을 선택하세요:</p>
+                                                    <div className="grid grid-cols-2 gap-1 max-h-40 overflow-y-auto custom-scrollbar p-1">
+                                                        {events.filter(other => other.type === 'duty' && other.id !== e.id).sort((a,b) => a.startDate.localeCompare(b.startDate)).map(other => (
+                                                            <button
+                                                                key={other.id}
+                                                                onClick={() => handleRealSwap(e.id, e.memo, other.id, other.memo)}
+                                                                className="py-2.5 px-3 bg-white border border-gray-100 rounded-xl text-[10px] font-bold text-left hover:border-indigo-300 hover:bg-indigo-50 transition-all flex flex-col"
+                                                            >
+                                                                <span className="text-[8px] text-indigo-400">{other.startDate}</span>
+                                                                <span className="truncate">{other.memo}</span>
+                                                            </button>
+                                                        ))}
+                                                        {events.filter(other => other.type === 'duty' && other.id !== e.id).length === 0 && (
+                                                            <div className="col-span-2 py-4 text-center text-[10px] text-gray-400 font-medium italic">교환 가능한 다른 당직이 없습니다.</div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             ))}
-                        </div>
-
-                        <div className="h-px bg-gray-100" />
-
-                        <div className="space-y-4">
-                            <div className="flex p-1 bg-gray-50 rounded-2xl">
-                                <button onClick={() => setType('vacation')} className={cn("flex-1 py-3 rounded-xl font-bold text-sm transition-all", type === 'vacation' ? "bg-white text-blue-600 shadow-sm" : "text-gray-400")}>휴가</button>
-                                <button onClick={() => setType('pass')} className={cn("flex-1 py-3 rounded-xl font-bold text-sm transition-all", type === 'pass' ? "bg-white text-indigo-600 shadow-sm" : "text-gray-400")}>외박</button>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-1.5">
-                                    <label className="text-[10px] font-black text-gray-400 ml-1 uppercase">시작일</label>
-                                    <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full px-4 py-3 bg-gray-50 rounded-2xl border-none font-bold text-sm outline-none" />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-[10px] font-black text-gray-400 ml-1 uppercase">종료일</label>
-                                    <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full px-4 py-3 bg-gray-50 rounded-2xl border-none font-bold text-sm outline-none" />
-                                </div>
-                            </div>
-
-                            <input type="text" value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="메모 입력 (선택사항)" className="w-full px-4 py-4 bg-gray-50 rounded-2xl border-none font-bold text-sm outline-none" />
-
-                            <button onClick={handleAddEvent} className="w-full py-4 bg-blue-600 text-white rounded-[1.5rem] font-black text-lg shadow-xl shadow-blue-100 active:scale-95 transition-all">
-                                일정 저장하기
-                            </button>
                         </div>
                     </div>
                 </div>
@@ -396,10 +459,10 @@ export default function CalendarTab() {
                                 <X className="w-5 h-5 text-gray-400" />
                             </button>
                         </div>
-                        
+
                         <div className="grid grid-cols-5 gap-1.5 shrink-0 py-2 border-b border-gray-100">
                             {members.map(m => (
-                                <button 
+                                <button
                                     key={m.id}
                                     onClick={() => handleNameClick(m.name)}
                                     className="py-2.5 bg-blue-50 text-blue-700 hover:bg-blue-100 active:bg-blue-200 rounded-xl text-[11px] font-black transition-colors truncate px-1"
@@ -409,7 +472,7 @@ export default function CalendarTab() {
                                 </button>
                             ))}
                             {/* Skip Button */}
-                            <button 
+                            <button
                                 onClick={() => handleNameClick('')}
                                 className="py-2.5 bg-gray-100 text-gray-500 hover:bg-gray-200 active:bg-gray-300 rounded-xl text-[11px] font-black transition-colors"
                             >
@@ -425,8 +488,8 @@ export default function CalendarTab() {
                                     return (
                                         <div key={day} className={cn(
                                             "flex flex-col items-center justify-center p-1 rounded-xl border-2 transition-all",
-                                            assignedTo ? "border-yellow-200 bg-yellow-50" : 
-                                            isNext ? "border-blue-400 bg-blue-50 shadow-inner scale-105" : "border-gray-50 bg-gray-50/50 opacity-50"
+                                            assignedTo ? "border-yellow-200 bg-yellow-50" :
+                                                isNext ? "border-blue-400 bg-blue-50 shadow-inner scale-105" : "border-gray-50 bg-gray-50/50 opacity-50"
                                         )}>
                                             <span className="text-[9px] font-black text-gray-400 mb-0.5">{day}일</span>
                                             <span className={cn(
@@ -442,8 +505,8 @@ export default function CalendarTab() {
                         </div>
 
                         <div className="pt-2 shrink-0 flex gap-2">
-                            <button 
-                                onClick={handleUndo} 
+                            <button
+                                onClick={handleUndo}
                                 disabled={dutyHistory.length === 0}
                                 className="px-6 py-4 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-[1.5rem] font-black text-lg shadow-sm active:scale-95 transition-all outline-none disabled:opacity-50"
                             >
