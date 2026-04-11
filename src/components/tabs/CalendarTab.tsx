@@ -19,11 +19,7 @@ export default function CalendarTab() {
     const [selectedDate, setSelectedDate] = useState<string | null>(null);
     const [activeAction, setActiveAction] = useState<{ id: string, mode: 'replace' | 'swap' } | null>(null);
 
-    // Form states
-    const [type, setType] = useState<'vacation' | 'pass'>('vacation');
-    const [startDate, setStartDate] = useState('');
-    const [endDate, setEndDate] = useState('');
-    const [memo, setMemo] = useState('');
+
 
     // Duty states
     const [isBatchDutyAdding, setIsBatchDutyAdding] = useState(false);
@@ -89,32 +85,34 @@ export default function CalendarTab() {
     const prevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1));
     const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1));
 
-    const handleAddEvent = async () => {
-        const user = auth.currentUser;
-        if (!user || !startDate || !endDate) return;
 
+    const handleAddDuty = async (date: string, name: string) => {
+        setIsAdding(false);
+        setSelectedDate(null);
+
+        const user = auth.currentUser;
+        if (!user) return;
         try {
             await addDoc(collection(db, "schedules"), {
                 uid: user.uid,
-                type,
-                startDate,
-                endDate,
-                memo,
+                type: 'duty',
+                startDate: date,
+                endDate: date,
+                memo: name.trim(),
                 createdAt: serverTimestamp()
             });
-            setIsAdding(false);
-            setStartDate('');
-            setEndDate('');
-            setMemo('');
-            setSelectedDate(null);
         } catch (error) {
-            console.error("Error adding event:", error);
-            alert("저장 중 오류가 발생했습니다.");
+            console.error("Error adding duty:", error);
+            alert("당직 추가 중 오류가 발생했습니다.");
         }
     };
 
     const handleDeleteEvent = async (id: string) => {
         if (!confirm("일정을 삭제하시겠습니까?")) return;
+        
+        setIsAdding(false);
+        setSelectedDate(null);
+
         try {
             await deleteDoc(doc(db, "schedules", id));
         } catch (error) {
@@ -123,11 +121,14 @@ export default function CalendarTab() {
     };
 
     const handleReplace = async (eventId: string, newName: string) => {
+        setIsAdding(false);
+        setSelectedDate(null);
+        setActiveAction(null);
+
         try {
             await updateDoc(doc(db, "schedules", eventId), {
                 memo: newName
             });
-            setActiveAction(null);
         } catch (error) {
             console.error("Error replacing duty:", error);
             alert("대체 중 오류가 발생했습니다.");
@@ -136,12 +137,16 @@ export default function CalendarTab() {
 
     const handleRealSwap = async (id1: string, name1: string, id2: string, name2: string) => {
         if (!confirm(`${name1}님과 ${name2}님의 근무 날짜를 교환하시겠습니까?`)) return;
+        
+        setIsAdding(false);
+        setSelectedDate(null);
+        setActiveAction(null);
+
         try {
             await Promise.all([
                 updateDoc(doc(db, "schedules", id1), { memo: name2 }),
                 updateDoc(doc(db, "schedules", id2), { memo: name1 })
             ]);
-            setActiveAction(null);
         } catch (error) {
             console.error("Error swapping duties:", error);
             alert("교환 중 오류가 발생했습니다.");
@@ -198,25 +203,27 @@ export default function CalendarTab() {
         try {
             const year = currentDate.getFullYear();
             const month = currentDate.getMonth();
-            const batchPromises = [];
-
-            // Find and delete existing duties for this month to overwrite
+            
+            // 1. 해당 월의 모든 기존 당직 찾기 (중복 방지를 위해 전체 조회 결과 사용)
             const currentMonthDuties = events.filter(e => {
                 if (e.type !== 'duty') return false;
-                const eYear = new Date(e.startDate).getFullYear();
-                const eMonth = new Date(e.startDate).getMonth();
-                return eYear === year && eMonth === month;
+                const eDate = new Date(e.startDate);
+                return eDate.getFullYear() === year && eDate.getMonth() === month;
             });
-            for (const d of currentMonthDuties) {
-                batchPromises.push(deleteDoc(doc(db, "schedules", d.id)));
+
+            // 2. 기존 데이터 삭제 작업을 먼저 완료
+            if (currentMonthDuties.length > 0) {
+                await Promise.all(currentMonthDuties.map(d => deleteDoc(doc(db, "schedules", d.id))));
             }
 
+            // 3. 삭제가 확인된 후 새로운 데이터 추가
+            const addPromises = [];
             for (let i = 0; i < dutyHistory.length; i++) {
                 const name = dutyHistory[i];
                 if (name && name.trim()) {
                     const d = i + 1;
                     const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                    batchPromises.push(addDoc(collection(db, "schedules"), {
+                    addPromises.push(addDoc(collection(db, "schedules"), {
                         uid: user.uid,
                         type: 'duty',
                         startDate: dateStr,
@@ -226,7 +233,11 @@ export default function CalendarTab() {
                     }));
                 }
             }
-            await Promise.all(batchPromises);
+            
+            if (addPromises.length > 0) {
+                await Promise.all(addPromises);
+            }
+
             setIsBatchDutyAdding(false);
             setDutyHistory([]);
         } catch (error) {
@@ -284,8 +295,6 @@ export default function CalendarTab() {
                     key={d}
                     onClick={() => {
                         setSelectedDate(dateStr);
-                        setStartDate(dateStr);
-                        setEndDate(dateStr);
                         setIsAdding(true);
                     }}
                     className={cn(
@@ -442,6 +451,27 @@ export default function CalendarTab() {
                                 </div>
                             ))}
                         </div>
+
+                        {/* 당직 지정 UI (당직이 없는 경우에만 노출) */}
+                        {selectedDate && getEventsForDate(selectedDate).filter(e => e.type === 'duty').length === 0 && (
+                            <div className="pt-4 border-t border-gray-100 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="text-sm font-black text-gray-900 ml-1">당직 지정</h3>
+                                    <span className="text-[10px] font-bold text-blue-500 bg-blue-50 px-2 py-1 rounded-lg">비어있음</span>
+                                </div>
+                                <div className="grid grid-cols-4 gap-1.5">
+                                    {members.map(m => (
+                                        <button
+                                            key={m.id}
+                                            onClick={() => handleAddDuty(selectedDate, m.name)}
+                                            className="py-2.5 bg-gray-50 text-gray-600 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 border border-transparent rounded-xl text-[10px] font-black transition-all truncate px-1"
+                                        >
+                                            {m.name}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
