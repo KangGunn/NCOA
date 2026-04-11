@@ -81,7 +81,7 @@ export default function RollCallTab() {
         let unsubEvents: () => void = () => { };
         const authUnsub = auth.onAuthStateChanged(user => {
             if (user) {
-                const qEvents = query(collection(db, "schedules"), where("uid", "==", user.uid));
+                const qEvents = query(collection(db, "schedules"));
                 unsubEvents = onSnapshot(qEvents, (snapshot) => {
                     const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
                     setEvents(data);

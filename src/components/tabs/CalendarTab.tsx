@@ -39,8 +39,7 @@ export default function CalendarTab() {
             if (user) {
                 // 1. 일정(schedules) 구독
                 const qSchedules = query(
-                    collection(db, "schedules"),
-                    where("uid", "==", user.uid)
+                    collection(db, "schedules")
                 );
                 unsubscribeSchedules = onSnapshot(qSchedules, (snapshot) => {
                     const data = snapshot.docs.map(doc => ({
