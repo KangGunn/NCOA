@@ -270,7 +270,7 @@ export default function CalendarTab() {
                             <div
                                 key={e.id}
                                 className={cn(
-                                    "text-[10px] font-black px-1.5 py-0.5 rounded truncate leading-tight",
+                                    "text-[8.5px] font-black px-1 py-0.5 rounded truncate leading-tight",
                                     e.type === 'vacation' ? "bg-blue-100 text-blue-700" : 
                                     e.type === 'duty' ? "bg-yellow-100 text-yellow-700" : "bg-indigo-100 text-indigo-700"
                                 )}
@@ -285,22 +285,18 @@ export default function CalendarTab() {
 
         return (
             <div className="bg-white rounded-[2.5rem] border-2 border-gray-50 p-4 shadow-sm overflow-hidden">
-                <div className="overflow-x-auto pb-2 custom-scrollbar">
-                    <div className="min-w-[600px]">
-                        <div className="grid grid-cols-7 mb-2">
-                            {['일', '월', '화', '수', '목', '금', '토'].map((day, i) => (
-                                <div key={day} className={cn(
-                                    "text-center text-[10px] font-black uppercase tracking-widest pb-2",
-                                    i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-gray-300"
-                                )}>
-                                    {day}
-                                </div>
-                            ))}
+                <div className="grid grid-cols-7 mb-2">
+                    {['일', '월', '화', '수', '목', '금', '토'].map((day, i) => (
+                        <div key={day} className={cn(
+                            "text-center text-[10px] font-black uppercase tracking-widest pb-2",
+                            i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-gray-300"
+                        )}>
+                            {day}
                         </div>
-                        <div className="grid grid-cols-7 border-collapse">
-                            {days}
-                        </div>
-                    </div>
+                    ))}
+                </div>
+                <div className="grid grid-cols-7 border-collapse">
+                    {days}
                 </div>
             </div>
         );
