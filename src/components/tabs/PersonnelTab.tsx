@@ -7,6 +7,9 @@ import {
     doc,
     onSnapshot,
     query,
+    where,
+    getDocs,
+    writeBatch,
     serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
@@ -155,7 +158,9 @@ export default function PersonnelTab() {
                             <div className="flex flex-col min-w-0 flex-1">
                                 <span className="text-base font-black truncate">{m.name}</span>
                                 <div className="flex items-center gap-2 mt-0.5">
-                                    <span className="text-sm font-bold text-indigo-500/80 shrink-0">{m.rank}</span>
+                                    <span className="text-sm font-bold text-indigo-500/80 shrink-0">
+                                        {m.role === 'runner' ? m.rank.split(' ')[0] : m.rank}
+                                    </span>
                                     {m.sections && m.sections.length > 0 && (
                                         <div className="flex gap-1 flex-wrap">
                                             {m.sections.map(s => (
@@ -241,6 +246,21 @@ function MemberFormModal({
             };
 
             if (initial) {
+                // 이름이 바뀌었으면 관련 일정도 모두 업데이트
+                if (initial.name !== n) {
+                    try {
+                        const q = query(collection(db, "schedules"), where("memo", "==", initial.name));
+                        const snapshots = await getDocs(q);
+                        const batch = writeBatch(db);
+                        snapshots.forEach(d => {
+                            batch.update(d.ref, { memo: n });
+                        });
+                        await batch.commit();
+                    } catch (syncError) {
+                        console.error("Schedule name sync error:", syncError);
+                        // 일정 동기화 실패해도 인원 정보는 저장 진행
+                    }
+                }
                 await updateDoc(doc(db, 'members', initial.id), dataToSave);
             } else {
                 await addDoc(collection(db, 'members'), dataToSave);
@@ -437,8 +457,10 @@ function MemberDetailModal({
                     <div>
                         <div className="text-xs font-black text-gray-400 uppercase tracking-wide mb-1">계급</div>
                         <div className="flex items-center gap-2">
-                            <div className="text-lg font-bold text-gray-800">{member.rank}</div>
-                            {member.earlyPromotion && member.earlyPromotion > 0 && (
+                            <div className="text-lg font-bold text-gray-800">
+                                {member.role === 'runner' ? member.rank.split(' ')[0] : member.rank}
+                            </div>
+                            {member.role !== 'runner' && member.earlyPromotion && member.earlyPromotion > 0 && (
                                 <span className="px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-600 text-[10px] font-black italic">
                                     조기진급 {member.earlyPromotion}개월 적용됨
                                 </span>

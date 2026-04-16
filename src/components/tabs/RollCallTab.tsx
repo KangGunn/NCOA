@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type Dispatch, type SetStateAction } from 'react';
 import { Copy, Check, Clock, FileText } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { db, auth } from '../../lib/firebase';
@@ -9,44 +9,42 @@ import Papa from 'papaparse';
 
 
 
-export default function RollCallTab() {
-    const [healthNote, setHealthNote] = useState('');
-    const [tomorrowNote, setTomorrowNote] = useState('');
-    const [scheduleText, setScheduleText] = useState(() => {
-        const today = new Date();
-        const day = today.getDay(); // 0(일)~6(토)
-        // 오늘이 일(0)~목(4)이면 내일이 월~금 평일이므로 기본값 설정
-        return (day >= 0 && day <= 4) ? '0620 HQ PT' : '';
-    });
+interface RollCallTabProps {
+    healthNote: string;
+    setHealthNote: Dispatch<SetStateAction<string>>;
+    tomorrowNote: string;
+    setTomorrowNote: Dispatch<SetStateAction<string>>;
+    baseDate: Date;
+    setBaseDate: Dispatch<SetStateAction<Date>>;
+    scheduleText: string;
+    setScheduleText: Dispatch<SetStateAction<string>>;
+    scheduleParticipants: Record<string, string[]>;
+    setScheduleParticipants: Dispatch<SetStateAction<Record<string, string[]>>>;
+    customSchedules: { name: string; participants: string[] }[];
+    setCustomSchedules: Dispatch<SetStateAction<{ name: string; participants: string[] }[]>>;
+}
 
-    // 익일 일정 참여 여원 관리
-    const [baseDate, setBaseDate] = useState(new Date());
-
-    const [scheduleParticipants, setScheduleParticipants] = useState<Record<string, string[]>>({
-        'HQ PT': [],
-        'KTA 업무지원': [],
-        'MEDIC 의무지원': [],
-        'BLC 업무지원': []
-    });
-
-    useEffect(() => {
-        const day = baseDate.getDay();
-        // 일(0)~목(4)이면 내일이 월~금 평일이므로 기본값 설정
-        if (day >= 0 && day <= 4) {
-            setScheduleText('0620 HQ PT');
-        } else {
-            setScheduleText('');
-        }
-    }, [baseDate]);
-
-    const [customSchedules, setCustomSchedules] = useState<{ name: string; participants: string[] }[]>([]);
+export default function RollCallTab({
+    healthNote,
+    setHealthNote,
+    tomorrowNote,
+    setTomorrowNote,
+    baseDate,
+    setBaseDate,
+    scheduleText,
+    setScheduleText,
+    scheduleParticipants,
+    setScheduleParticipants,
+    customSchedules,
+    setCustomSchedules
+}: RollCallTabProps) {
     const [newScheduleName, setNewScheduleName] = useState('');
 
     const addCustomSchedule = () => {
         const trimmed = newScheduleName.trim();
         if (!trimmed) return;
         if (customSchedules.find(s => s.name === trimmed)) return;
-        setCustomSchedules(prev => [...prev, { name: trimmed, participants: [] }]);
+        setCustomSchedules((prev: { name: string; participants: string[] }[]) => [...prev, { name: trimmed, participants: [] }]);
         setNewScheduleName('');
     };
 
@@ -328,7 +326,9 @@ export default function RollCallTab() {
                 const realRank = calculateRank(new Date(member.enlistmentDate), member.earlyPromotion || 0);
                 return `${member.name} ${realRank.split(' ')[0]}`;
             }
-            return `${member.name} ${member.rank}`;
+            // 미군 러너인 경우 계급에서 불필요한 숫자 제거
+            const cleanRank = member.role === 'runner' ? member.rank.split(' ')[0] : member.rank;
+            return `${member.name} ${cleanRank}`;
         };
 
         // 익일 특이사항 (당직, 리커버리, 출발)
@@ -453,7 +453,9 @@ export default function RollCallTab() {
                 const realRank = calculateRank(new Date(member.enlistmentDate), member.earlyPromotion || 0);
                 return `${member.name} ${realRank.split(' ')[0]}`;
             }
-            return `${member.name} ${member.rank}`;
+            // 미군 러너인 경우 계급에서 불필요한 숫자 제거
+            const cleanRank = member.role === 'runner' ? member.rank.split(' ')[0] : member.rank;
+            return `${member.name} ${cleanRank}`;
         };
 
         const offNames = [
@@ -574,21 +576,21 @@ export default function RollCallTab() {
                     if (isSelectedHere) {
                         // 현재 카테고리에서 제거
                         if (scheduleParticipants[currentCategory]) {
-                            setScheduleParticipants(prev => ({
+                            setScheduleParticipants((prev: Record<string, string[]>) => ({
                                 ...prev,
-                                [currentCategory]: prev[currentCategory].filter(n => n !== m.name)
+                                [currentCategory]: prev[currentCategory].filter((n: string) => n !== m.name)
                             }));
                         } else {
-                            setCustomSchedules(prev => prev.map(s =>
-                                s.name === currentCategory ? { ...s, participants: s.participants.filter(n => n !== m.name) } : s
+                            setCustomSchedules((prev: { name: string; participants: string[] }[]) => prev.map((s: { name: string; participants: string[] }) =>
+                                s.name === currentCategory ? { ...s, participants: s.participants.filter((n: string) => n !== m.name) } : s
                             ));
                         }
                     } else {
                         // 다른 모든 곳에서 제거하고 현재 카테고리에 추가 (반전 로직)
-                        setScheduleParticipants(prev => {
+                        setScheduleParticipants((prev: Record<string, string[]>) => {
                             const updated = { ...prev };
-                            Object.keys(updated).forEach(cat => {
-                                updated[cat] = updated[cat].filter(n => n !== m.name);
+                            Object.keys(updated).forEach((cat: string) => {
+                                updated[cat] = updated[cat].filter((n: string) => n !== m.name);
                             });
                             // 고정 일정인 경우 여기서 바로 추가
                             if (updated[currentCategory]) {
@@ -597,8 +599,8 @@ export default function RollCallTab() {
                             return updated;
                         });
 
-                        setCustomSchedules(prev => prev.map(s => {
-                            const filteredParticipants = s.participants.filter(n => n !== m.name);
+                        setCustomSchedules((prev: { name: string; participants: string[] }[]) => prev.map((s: { name: string; participants: string[] }) => {
+                            const filteredParticipants = s.participants.filter((n: string) => n !== m.name);
                             // 임시 일정인 경우 여기서 바로 추가
                             if (s.name === currentCategory) {
                                 return { ...s, participants: [...filteredParticipants, m.name] };

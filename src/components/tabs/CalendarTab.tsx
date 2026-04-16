@@ -21,8 +21,8 @@ export default function CalendarTab() {
 
 
 
-    // Duty states
     const [isBatchDutyAdding, setIsBatchDutyAdding] = useState(false);
+    const [isBatchSaving, setIsBatchSaving] = useState(false);
     const [dutyHistory, setDutyHistory] = useState<string[]>([]);
 
     // Members state
@@ -197,8 +197,11 @@ export default function CalendarTab() {
     };
 
     const handleBatchSaveDuties = async () => {
+        if (isBatchSaving) return;
         const user = auth.currentUser;
         if (!user) return;
+
+        setIsBatchSaving(true);
 
         try {
             const year = currentDate.getFullYear();
@@ -238,11 +241,13 @@ export default function CalendarTab() {
                 await Promise.all(addPromises);
             }
 
+            setIsBatchSaving(false);
             setIsBatchDutyAdding(false);
             setDutyHistory([]);
         } catch (error) {
             console.error("Error setting batch duties:", error);
             alert("당직 일괄 저장 중 오류가 발생했습니다.");
+            setIsBatchSaving(false);
         }
     };
 
@@ -542,8 +547,17 @@ export default function CalendarTab() {
                             >
                                 실행 취소
                             </button>
-                            <button onClick={handleBatchSaveDuties} className="flex-1 py-4 bg-yellow-500 hover:bg-yellow-600 text-white rounded-[1.5rem] font-black text-lg shadow-xl shadow-yellow-100 active:scale-95 transition-all outline-none">
-                                당직 일괄 저장
+                            <button 
+                                onClick={handleBatchSaveDuties} 
+                                disabled={isBatchSaving}
+                                className={cn(
+                                    "flex-1 py-4 rounded-[1.5rem] font-black text-lg transition-all outline-none",
+                                    isBatchSaving 
+                                        ? "bg-gray-300 text-gray-500 cursor-not-allowed" 
+                                        : "bg-yellow-500 hover:bg-yellow-600 text-white shadow-xl shadow-yellow-100 active:scale-95"
+                                )}
+                            >
+                                {isBatchSaving ? '저장 중...' : '당직 일괄 저장'}
                             </button>
                         </div>
                     </div>
