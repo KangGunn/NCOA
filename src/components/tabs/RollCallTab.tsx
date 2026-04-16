@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, Clock, FileText } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { db, auth } from '../../lib/firebase';
 import { calculateRank } from '../../lib/rankUtils';
@@ -11,6 +11,7 @@ import Papa from 'papaparse';
 
 export default function RollCallTab() {
     const [healthNote, setHealthNote] = useState('');
+    const [tomorrowNote, setTomorrowNote] = useState('');
     const [scheduleText, setScheduleText] = useState(() => {
         const today = new Date();
         const day = today.getDay(); // 0(일)~6(토)
@@ -47,6 +48,19 @@ export default function RollCallTab() {
         if (customSchedules.find(s => s.name === trimmed)) return;
         setCustomSchedules(prev => [...prev, { name: trimmed, participants: [] }]);
         setNewScheduleName('');
+    };
+
+    const handleSortSchedules = () => {
+        const sorted = scheduleText
+            .split('\n')
+            .filter(line => line.trim().length > 0)
+            .sort((a, b) => {
+                const timeA = a.trim().substring(0, 4);
+                const timeB = b.trim().substring(0, 4);
+                return timeA.localeCompare(timeB);
+            })
+            .join('\n');
+        setScheduleText(sorted);
     };
 
     const removeCustomSchedule = (name: string) => {
@@ -335,6 +349,13 @@ export default function RollCallTab() {
         if (tomorrowDeparts.length > 0) {
             const groupedNames = tomorrowDeparts.map(e => getMemberRank(e.memo)).join(', ');
             report += `-${groupedNames} 휴가 출발\n`;
+            hasSpecial = true;
+        }
+
+        if (tomorrowNote.trim()) {
+            tomorrowNote.split('\n').filter(l => l.trim()).forEach(line => {
+                report += `-${line.trim()}\n`;
+            });
             hasSpecial = true;
         }
 
@@ -633,13 +654,30 @@ export default function RollCallTab() {
                 <textarea
                     value={healthNote}
                     onChange={(e) => setHealthNote(e.target.value)}
-                    className={cn(inputBase, "min-h-[80px] resize-y")}
+                    className={cn(inputBase, "min-h-[50px] resize-y")}
+                />
+            </section>
+
+            {/* Tomorrow Special Notes */}
+            <section className="space-y-1.5">
+                <label className={labelBase}>2. 익일 특이사항</label>
+                <textarea
+                    value={tomorrowNote}
+                    onChange={(e) => setTomorrowNote(e.target.value)}
+                    className={cn(inputBase, "min-h-[50px] resize-y")}
                 />
             </section>
 
             <section className="space-y-4">
-                <div className="flex justify-between items-end pr-1">
-                    <label className={labelBase}>2. 주요 일정</label>
+                <div className="flex justify-between items-center pr-1">
+                    <label className={labelBase}>3. 주요 일정</label>
+                    <button
+                        onClick={handleSortSchedules}
+                        className="text-[10px] font-black text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg px-2 py-1 transition-all flex items-center gap-1"
+                    >
+                        <Clock className="w-3 h-3" />
+                        시간순 정렬
+                    </button>
                 </div>
                 <div className="space-y-3">
                     <textarea
@@ -653,7 +691,7 @@ export default function RollCallTab() {
             {/* Daily Schedules & Participation */}
             <section className="space-y-3">
                 <div className="flex justify-between items-end pr-1">
-                    <label className={labelBase}>3. 익일 일정 참여 인원</label>
+                    <label className={labelBase}>4. 익일 일정 참여 인원</label>
                 </div>
                 <div className="flex flex-col gap-4">
                     {Object.keys(scheduleParticipants).map(category => {
@@ -819,8 +857,4 @@ export default function RollCallTab() {
     );
 }
 
-const FileText = ({ className }: { className?: string }) => (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-    </svg>
-);
+
