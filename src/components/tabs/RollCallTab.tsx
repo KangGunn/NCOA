@@ -247,9 +247,18 @@ export default function RollCallTab() {
         // 인원 계산 (저녁점호 기준)
         const totalCount = totalMembers;
 
-        const dutyCount = todayDuties.length;
-        const passCount = todayPasses.length;
-        const vacationCount = todayVacations.length;
+        const dutyCount = todayDuties.filter(d => {
+            const m = members.find(member => member.name === d.memo);
+            return m?.role !== 'runner';
+        }).length;
+        const passCount = todayPasses.filter(p => {
+            const m = members.find(member => member.name === p.memo);
+            return m?.role !== 'runner';
+        }).length;
+        const vacationCount = todayVacations.filter(v => {
+            const m = members.find(member => member.name === v.memo);
+            return m?.role !== 'runner';
+        }).length;
 
         const offCount = dutyCount + passCount + vacationCount;
         const currentCount = totalCount - offCount;
@@ -390,21 +399,31 @@ export default function RollCallTab() {
     const generateMorningReport = () => {
         const tomorrowStrForMorning = getOffsetStr(1);
 
-        // 아침점호 기준 데이터
-        // 내일 당직자 -> 내일 아침 당직 열외
-        const morningDuties = events.filter(e => e.type === 'duty' && e.startDate === tomorrowStrForMorning);
-        // 오늘 당직자 -> 내일 아침 리커버리 열외
-        const morningRecoveries = events.filter(e => e.type === 'duty' && e.startDate === getOffsetStr(0));
-        // 내일 휴가/외박자 (구글 시트 결합. 아침점호 기준: 출발일은 불포함)
+        const morningDuties = events.filter(e => {
+            if (e.type !== 'duty' || e.startDate !== tomorrowStrForMorning) return false;
+            const m = members.find(member => member.name === e.memo);
+            return m?.role !== 'runner';
+        });
+        const morningRecoveries = events.filter(e => {
+            if (e.type !== 'duty' || e.startDate !== getOffsetStr(0)) return false;
+            const m = members.find(member => member.name === e.memo);
+            return m?.role !== 'runner';
+        });
         const morningVacations = [
             ...events.filter(e => e.type === 'vacation' && e.startDate <= tomorrowStrForMorning && e.endDate >= tomorrowStrForMorning),
             ...sheetEvents.filter(e => e.type === 'vacation' && e.startDate === tomorrowStrForMorning && !e.isDepartDay)
-        ];
+        ].filter(e => {
+            const m = members.find(member => member.name === e.memo);
+            return m?.role !== 'runner';
+        });
         const morningPasses = [
             ...events.filter(e => e.type === 'pass' && e.startDate <= tomorrowStrForMorning && e.endDate >= tomorrowStrForMorning),
             ...sheetEvents.filter(e => e.type === 'pass' && e.startDate === tomorrowStrForMorning && !e.isDepartDay),
             ...sheetEvents.filter(e => e.type === 'vacation' && e.startDate === tomorrowStrForMorning && e.isDepartDay && e.isConsecutive === true)
-        ];
+        ].filter(e => {
+            const m = members.find(member => member.name === e.memo);
+            return m?.role !== 'runner';
+        });
 
         const getMemberRank = (memoName: string) => {
             const member = members.find(m => m.name === memoName);
