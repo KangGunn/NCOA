@@ -115,7 +115,7 @@ export default function PersonnelTab() {
                                     )}
                                     {m.role !== 'runner' && (m.sections?.length || 0) > 0 && (
                                         <div className="flex gap-1 flex-wrap">
-                                            {m.sections.map(s => (
+                                            {(m.sections || []).map(s => (
                                                 <span key={s} className="px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-600 text-[9px] uppercase tracking-wider font-extrabold">{s}</span>
                                             ))}
                                         </div>
@@ -163,7 +163,7 @@ export default function PersonnelTab() {
                                     </span>
                                     {m.role !== 'runner' && (m.sections?.length || 0) > 0 && (
                                         <div className="flex gap-1 flex-wrap">
-                                            {m.sections.map(s => (
+                                            {(m.sections || []).map(s => (
                                                 <span key={s} className="px-1.5 py-0.5 rounded bg-indigo-100/50 border border-indigo-200 text-indigo-600 text-[9px] uppercase tracking-wider font-extrabold">{s}</span>
                                             ))}
                                         </div>
@@ -492,7 +492,7 @@ function MemberDetailModal({
                         <div className="mt-2 pt-4 border-t border-gray-100">
                             <div className="text-xs font-black text-gray-400 uppercase tracking-wide mb-2">소속 섹션</div>
                             <div className="flex gap-2 flex-wrap">
-                                {member.sections.map(s => (
+                                {(member.sections || []).map(s => (
                                     <span key={s} className="px-3 py-1 rounded bg-amber-50 border border-amber-200 text-amber-600 text-[11px] font-black">{s}</span>
                                 ))}
                             </div>

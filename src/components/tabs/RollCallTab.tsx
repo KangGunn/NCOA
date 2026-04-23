@@ -113,140 +113,193 @@ export default function RollCallTab({
     useEffect(() => {
         const fetchSheet = async () => {
             try {
-                const targetYear = baseDate.getFullYear();
-                const targetMonth = baseDate.getMonth() + 1;
-                const targetMonthKey = `${targetYear}-${targetMonth}`;
-                
-                const cacheKey = `ncoa_url_${targetMonthKey}`;
-                const cachedUrl = localStorage.getItem(cacheKey);
-                
-                let csvUrl = cachedUrl;
+                const getMonthData = async (date: Date) => {
+                    const targetYear = date.getFullYear();
+                    const targetMonth = date.getMonth() + 1;
+                    const targetMonthKey = `${targetYear}-${targetMonth}`;
+                    const cacheKey = `ncoa_url_${targetMonthKey}`;
+                    let csvUrl = localStorage.getItem(cacheKey);
 
-                if (!csvUrl) {
-                    console.log(`Fetching new spreadsheet URL for ${targetMonthKey} from backend...`);
-                    const BACKEND_URL = `https://script.google.com/macros/s/AKfycbzuiKVTi75LiuCtzguxCRTvRI8j54bNjCS3WqbU3zElNUO_bOjKOqfpVWZpF16TwH4/exec?year=${targetYear}&month=${targetMonth}`;
-                    const backendRes = await fetch(BACKEND_URL);
-                    const backendData = await backendRes.json();
-
-                    if (backendData.status === 'success' && backendData.csvUrl) {
-                        const newUrl = backendData.csvUrl;
-                        csvUrl = newUrl;
-                        localStorage.setItem(cacheKey, newUrl);
-                    } else {
-                        console.error(`Failed to get spreadsheet URL for ${targetMonthKey} from backend:`, backendData);
-                        if (!csvUrl) return; 
-                    }
-                }
-
-                const res = await fetch(csvUrl!);
-                const csvText = await res.text();
-                Papa.parse(csvText, {
-                    complete: (results) => {
-                        const rows = results.data as string[][];
-                        if (rows.length < 2) return;
-                        const dateRow = rows[0];
-                        const parsed: any[] = [];
-                        for (let i = 2; i < rows.length; i++) {
-                            const row = rows[i];
-                            if (!row || !row[0]) continue;
-                            const nameWithRank = row[0];
-                            const name = nameWithRank.split(' ')[1] || nameWithRank;
-
-                            const rowDays: any[] = [];
-                            for (let colIndex = 1; colIndex < row.length; colIndex++) {
-                                const rawDate = dateRow[colIndex];
-                                const cell = row[colIndex];
-                                if (!rawDate) continue;
-                                const dateParts = rawDate.split('.').map(p => p.trim());
-                                if (dateParts.length < 3) continue;
-                                const y = dateParts[0];
-                                const m = dateParts[1].padStart(2, '0');
-                                const d = dateParts[2].padStart(2, '0');
-                                rowDays.push({
-                                    dateStr: `${y}-${m}-${d}`,
-                                    m: Number(m),
-                                    d: Number(d),
-                                    cell: cell || ''
-                                });
-                            }
-
-                            const todayStrLocal = `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, '0')}-${String(baseDate.getDate()).padStart(2, '0')}`;
-                            const tomorrow = new Date(baseDate);
-                            tomorrow.setDate(tomorrow.getDate() + 1);
-                            const tomorrowStrLocal = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
-
-                            const targetIndices = [];
-                            const tIdx = rowDays.findIndex(d => d.dateStr === todayStrLocal);
-                            const mIdx = rowDays.findIndex(d => d.dateStr === tomorrowStrLocal);
-                            if (tIdx !== -1) targetIndices.push(tIdx);
-                            if (mIdx !== -1) targetIndices.push(mIdx);
-
-                            targetIndices.forEach(idx => {
-                                const day = rowDays[idx];
-                                const c = day.cell;
-                                if (!c || c.trim() === '') return;
-                                if (!c.includes('외박') && !c.includes('휴가') && !c.includes('연계')) return;
-
-                                const type = c.includes('휴가') ? 'vacation' : 'pass';
-
-                                let startIdx = idx;
-                                for (let k = idx; k >= 0 && k >= idx - 14; k--) {
-                                    const pc = rowDays[k].cell;
-                                    if (pc.includes('출발')) {
-                                        if (type === 'vacation') {
-                                            startIdx = k;
-                                        } else {
-                                            startIdx = Math.min(k + 1, rowDays.length - 1);
-                                        }
-                                        break;
-                                    }
-                                    if (!pc.includes('외박') && !pc.includes('휴가') && !pc.includes('연계')) {
-                                        startIdx = k + 1;
-                                        break;
-                                    }
-                                    if (k === 0) startIdx = 0;
-                                }
-
-                                let endIdx = idx;
-                                for (let k = idx; k < rowDays.length && k <= idx + 14; k++) {
-                                    const nc = rowDays[k].cell;
-                                    if (nc.includes('복귀')) {
-                                        endIdx = k;
-                                        break;
-                                    }
-                                    if (k > idx && nc.includes('출발')) {
-                                        endIdx = k;
-                                        break;
-                                    }
-                                    if (!nc.includes('외박') && !nc.includes('휴가') && !nc.includes('연계')) {
-                                        endIdx = k - 1;
-                                        break;
-                                    }
-                                    if (k === rowDays.length - 1) endIdx = rowDays.length - 1;
-                                }
-
-                                const finalStartIdx = startIdx > endIdx ? endIdx : startIdx;
-                                const s = rowDays[finalStartIdx];
-                                const e = rowDays[endIdx];
-
-                                const dateText = s.m === e.m && s.d === e.d ? `${s.m}.${s.d}` : `${s.m}.${s.d}~${e.m}.${e.d}`;
-
-                                parsed.push({
-                                    id: `sheet-${type}-${name}-${day.dateStr}`,
-                                    type,
-                                    startDate: day.dateStr,
-                                    endDate: day.dateStr,
-                                    memo: name,
-                                    isReturnDay: c.includes('복귀'),
-                                    isDepartDay: c.includes('출발'),
-                                    isConsecutive: c.includes('연계'),
-                                    dateText
-                                });
-                            });
+                    if (!csvUrl) {
+                        console.log(`Fetching new spreadsheet URL for ${targetMonthKey} from backend...`);
+                        const BACKEND_URL = `https://script.google.com/macros/s/AKfycbzuiKVTi75LiuCtzguxCRTvRI8j54bNjCS3WqbU3zElNUO_bOjKOqfpVWZpF16TwH4/exec?year=${targetYear}&month=${targetMonth}`;
+                        const backendRes = await fetch(BACKEND_URL);
+                        const backendData = await backendRes.json();
+                        if (backendData.status === 'success' && backendData.csvUrl) {
+                            const newUrl = backendData.csvUrl;
+                            csvUrl = newUrl;
+                            localStorage.setItem(cacheKey, newUrl);
+                        } else {
+                            console.error(`Failed to get spreadsheet URL for ${targetMonthKey} from backend:`, backendData);
+                            return null;
                         }
-                        setSheetEvents(parsed);
                     }
+
+                    if (!csvUrl) return null;
+                    const res = await fetch(csvUrl);
+                    const csvText = await res.text();
+
+                    return new Promise<any[]>((resolve) => {
+                        Papa.parse(csvText, {
+                            complete: (results) => {
+                                const rows = results.data as string[][];
+                                if (rows.length < 2) {
+                                    resolve([]);
+                                    return;
+                                }
+                                const dateRow = rows[0];
+                                const monthDaysByMember: Record<string, any[]> = {};
+
+                                for (let i = 2; i < rows.length; i++) {
+                                    const row = rows[i];
+                                    if (!row || !row[0]) continue;
+                                    const nameWithRank = row[0];
+                                    const name = nameWithRank.split(' ')[1] || nameWithRank;
+
+                                    const rowDays: any[] = [];
+                                    for (let colIndex = 1; colIndex < row.length; colIndex++) {
+                                        const rawDate = dateRow[colIndex];
+                                        const cell = row[colIndex];
+                                        if (!rawDate) continue;
+                                        const dateParts = rawDate.split('.').map(p => p.trim());
+                                        if (dateParts.length < 3) continue;
+                                        const y = dateParts[0];
+                                        const m = dateParts[1].padStart(2, '0');
+                                        const d = dateParts[2].padStart(2, '0');
+                                        rowDays.push({
+                                            dateStr: `${y}-${m}-${d}`,
+                                            m: Number(m),
+                                            d: Number(d),
+                                            cell: cell || ''
+                                        });
+                                    }
+                                    monthDaysByMember[name] = rowDays;
+                                }
+                                resolve(Object.entries(monthDaysByMember).map(([name, days]) => ({ name, days })));
+                            }
+                        });
+                    });
+                };
+
+                const prevDate = new Date(baseDate.getFullYear(), baseDate.getMonth() - 1, 1);
+                const currDate = baseDate;
+                const nextDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 1);
+
+                const [prevData, currData, nextData] = await Promise.all([
+                    getMonthData(prevDate),
+                    getMonthData(currDate),
+                    getMonthData(nextDate)
+                ]);
+
+                // 이름(병사)을 기준으로 3개월치 데이터 병합
+                const allMembers = new Set([
+                    ...(prevData || []).map(d => d.name),
+                    ...(currData || []).map(d => d.name),
+                    ...(nextData || []).map(d => d.name)
+                ]);
+
+                const parsed: any[] = [];
+                const todayStrLocal = `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, '0')}-${String(baseDate.getDate()).padStart(2, '0')}`;
+                const tomorrow = new Date(baseDate);
+                tomorrow.setDate(tomorrow.getDate() + 1);
+                const tomorrowStrLocal = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
+
+                allMembers.forEach(name => {
+                    const pDays = (prevData || []).find(d => d.name === name)?.days || [];
+                    const cDays = (currData || []).find(d => d.name === name)?.days || [];
+                    const nDays = (nextData || []).find(d => d.name === name)?.days || [];
+
+                    // 3개월 일정 이어 붙이기 후 중복 제거 및 날짜순 정렬
+                    const rawRowDays = [...pDays, ...cDays, ...nDays];
+                    
+                    const uniqueDaysMap = new Map();
+                    rawRowDays.forEach(day => {
+                        // 중복 날짜가 있을 경우, 내용이 비어있지 않은 것을 우선시하거나 덮어씀
+                        if (!uniqueDaysMap.has(day.dateStr) || day.cell.trim() !== '') {
+                            uniqueDaysMap.set(day.dateStr, day);
+                        }
+                    });
+
+                    // 날짜 문자열(YYYY-MM-DD) 기준으로 오름차순 정렬하여 완벽한 타임라인 생성
+                    const rowDays = Array.from(uniqueDaysMap.values()).sort((a, b) => 
+                        a.dateStr.localeCompare(b.dateStr)
+                    );
+                    
+                    if (rowDays.length === 0) return;
+
+                    const targetIndices: number[] = [];
+                    const tIdx = rowDays.findIndex(d => d.dateStr === todayStrLocal);
+                    const mIdx = rowDays.findIndex(d => d.dateStr === tomorrowStrLocal);
+                    if (tIdx !== -1) targetIndices.push(tIdx);
+                    if (mIdx !== -1) targetIndices.push(mIdx);
+
+                    targetIndices.forEach(idx => {
+                        const day = rowDays[idx];
+                        const c = day.cell;
+                        if (!c || c.trim() === '') return;
+                        if (!c.includes('외박') && !c.includes('휴가') && !c.includes('연계')) return;
+
+                        const type = c.includes('휴가') ? 'vacation' : 'pass';
+
+                        // 시작일 찾기 (최대 14일 전까지)
+                        let startIdx = idx;
+                        for (let k = idx; k >= 0 && k >= idx - 14; k--) {
+                            const pc = rowDays[k].cell;
+                            if (pc.includes('출발')) {
+                                if (type === 'vacation') {
+                                    startIdx = k;
+                                } else {
+                                    startIdx = Math.min(k + 1, rowDays.length - 1);
+                                }
+                                break;
+                            }
+                            if (!pc.includes('외박') && !pc.includes('휴가') && !pc.includes('연계')) {
+                                startIdx = k + 1;
+                                break;
+                            }
+                            if (k === 0) startIdx = 0;
+                        }
+
+                        // 종료일 찾기 (최대 14일 후까지)
+                        let endIdx = idx;
+                        for (let k = idx; k < rowDays.length && k <= idx + 14; k++) {
+                            const nc = rowDays[k].cell;
+                            if (nc.includes('복귀')) {
+                                endIdx = k;
+                                break;
+                            }
+                            if (k > idx && nc.includes('출발')) {
+                                endIdx = k;
+                                break;
+                            }
+                            if (!nc.includes('외박') && !nc.includes('휴가') && !nc.includes('연계')) {
+                                endIdx = k - 1;
+                                break;
+                            }
+                            if (k === rowDays.length - 1) endIdx = rowDays.length - 1;
+                        }
+
+                        const finalStartIdx = startIdx > endIdx ? endIdx : startIdx;
+                        const s = rowDays[finalStartIdx];
+                        const e = rowDays[endIdx];
+
+                        const dateText = s.m === e.m && s.d === e.d ? `${s.m}.${s.d}` : `${s.m}.${s.d}~${e.m}.${e.d}`;
+
+                        parsed.push({
+                            id: `sheet-${type}-${name}-${day.dateStr}`,
+                            type,
+                            startDate: day.dateStr,
+                            endDate: day.dateStr,
+                            memo: name,
+                            isReturnDay: c.includes('복귀'),
+                            isDepartDay: c.includes('출발'),
+                            isConsecutive: c.includes('연계'),
+                            dateText
+                        });
+                    });
                 });
+
+                setSheetEvents(parsed);
             } catch (err) {
                 console.error("Sheet fetch error", err);
             }
