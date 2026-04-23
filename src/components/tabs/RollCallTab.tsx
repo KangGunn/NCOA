@@ -71,6 +71,7 @@ export default function RollCallTab({
     const [events, setEvents] = useState<{ id: string; type: string; startDate: string; endDate: string; memo: string }[]>([]);
     const [sheetEvents, setSheetEvents] = useState<{ id: string; type: string; startDate: string; endDate: string; memo: string; isReturnDay: boolean; isDepartDay: boolean; isConsecutive: boolean; dateText?: string }[]>([]);
 
+    // 1. Firebase 데이터 구독 (컴포넌트 마운트 시 한 번만 실행)
     useEffect(() => {
         const unsubMembers = onSnapshot(collection(db, "members"), (snapshot) => {
             const data = snapshot.docs.map(doc => doc.data() as { name: string; rank: string; role: string; enlistmentDate?: string; sections?: string[]; earlyPromotion?: number });
@@ -101,37 +102,42 @@ export default function RollCallTab({
             }
         });
 
+        return () => {
+            unsubMembers();
+            unsubEvents();
+            authUnsub();
+        };
+    }, []);
+
+    // 2. 스프레드시트 데이터 로딩 (날짜 변경 시마다 실행되지만 월별 캐싱 적용됨)
+    useEffect(() => {
         const fetchSheet = async () => {
             try {
-                const now = new Date();
-                const currentMonth = `${now.getFullYear()}-${now.getMonth() + 1}`;
+                const targetYear = baseDate.getFullYear();
+                const targetMonth = baseDate.getMonth() + 1;
+                const targetMonthKey = `${targetYear}-${targetMonth}`;
                 
-                // 로컬 저장소에서 캐시된 정보 가져오기
-                const cachedUrl = localStorage.getItem('ncoa_spreadsheet_url');
-                const cachedMonth = localStorage.getItem('ncoa_spreadsheet_month');
+                const cacheKey = `ncoa_url_${targetMonthKey}`;
+                const cachedUrl = localStorage.getItem(cacheKey);
                 
                 let csvUrl = cachedUrl;
 
-                // 캐시가 없거나, 저장된 달이 현재와 다를 경우에만 백엔드 호출
-                if (!csvUrl || cachedMonth !== currentMonth) {
-                    console.log('Fetching new spreadsheet URL from backend...');
-                    const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbw8liY7D3qd1CF0T9gsr4pBq9Gt65YRDXrgdTx9FXTqR8rawJ42sRFfIO9fjxGj0IY/exec';
+                if (!csvUrl) {
+                    console.log(`Fetching new spreadsheet URL for ${targetMonthKey} from backend...`);
+                    const BACKEND_URL = `https://script.google.com/macros/s/AKfycbzuiKVTi75LiuCtzguxCRTvRI8j54bNjCS3WqbU3zElNUO_bOjKOqfpVWZpF16TwH4/exec?year=${targetYear}&month=${targetMonth}`;
                     const backendRes = await fetch(BACKEND_URL);
                     const backendData = await backendRes.json();
 
                     if (backendData.status === 'success' && backendData.csvUrl) {
                         const newUrl = backendData.csvUrl;
                         csvUrl = newUrl;
-                        // 캐시 업데이트
-                        localStorage.setItem('ncoa_spreadsheet_url', newUrl);
-                        localStorage.setItem('ncoa_spreadsheet_month', currentMonth);
+                        localStorage.setItem(cacheKey, newUrl);
                     } else {
-                        console.error('Failed to get spreadsheet URL from backend:', backendData);
-                        if (!csvUrl) return; // 캐시도 없으면 중단
+                        console.error(`Failed to get spreadsheet URL for ${targetMonthKey} from backend:`, backendData);
+                        if (!csvUrl) return; 
                     }
                 }
 
-                // 시트 데이터 가져오기
                 const res = await fetch(csvUrl!);
                 const csvText = await res.text();
                 Papa.parse(csvText, {
@@ -164,7 +170,6 @@ export default function RollCallTab({
                                 });
                             }
 
-                            // 선택된 날짜와 그 다음 날 인덱스만 추출
                             const todayStrLocal = `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, '0')}-${String(baseDate.getDate()).padStart(2, '0')}`;
                             const tomorrow = new Date(baseDate);
                             tomorrow.setDate(tomorrow.getDate() + 1);
@@ -184,12 +189,10 @@ export default function RollCallTab({
 
                                 const type = c.includes('휴가') ? 'vacation' : 'pass';
 
-                                // 시작일 찾기
                                 let startIdx = idx;
                                 for (let k = idx; k >= 0 && k >= idx - 14; k--) {
                                     const pc = rowDays[k].cell;
                                     if (pc.includes('출발')) {
-                                        // 휴가는 출발 당일부터 기간에 포함, 외박은 출발 다음 날부터 포함
                                         if (type === 'vacation') {
                                             startIdx = k;
                                         } else {
@@ -204,7 +207,6 @@ export default function RollCallTab({
                                     if (k === 0) startIdx = 0;
                                 }
 
-                                // 종료일 찾기
                                 let endIdx = idx;
                                 for (let k = idx; k < rowDays.length && k <= idx + 14; k++) {
                                     const nc = rowDays[k].cell;
@@ -223,7 +225,6 @@ export default function RollCallTab({
                                     if (k === rowDays.length - 1) endIdx = rowDays.length - 1;
                                 }
 
-                                // 출발일이 복귀일보다 늦은 경우 보정 (최소 당일)
                                 const finalStartIdx = startIdx > endIdx ? endIdx : startIdx;
                                 const s = rowDays[finalStartIdx];
                                 const e = rowDays[endIdx];
@@ -252,12 +253,6 @@ export default function RollCallTab({
         };
 
         fetchSheet();
-
-        return () => {
-            unsubMembers();
-            unsubEvents();
-            authUnsub();
-        };
     }, [baseDate]);
 
     // Calendar 당직 및 일정 파싱

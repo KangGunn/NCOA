@@ -113,7 +113,7 @@ export default function PersonnelTab() {
                                     {(m.earlyPromotion || 0) > 0 && (
                                         <span className="px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-600 text-[9px] font-extrabold">조기{m.earlyPromotion}</span>
                                     )}
-                                    {(m.sections?.length || 0) > 0 && (
+                                    {m.role !== 'runner' && (m.sections?.length || 0) > 0 && (
                                         <div className="flex gap-1 flex-wrap">
                                             {m.sections.map(s => (
                                                 <span key={s} className="px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-600 text-[9px] uppercase tracking-wider font-extrabold">{s}</span>
@@ -161,7 +161,7 @@ export default function PersonnelTab() {
                                     <span className="text-sm font-bold text-indigo-500/80 shrink-0">
                                         {m.role === 'runner' ? m.rank.split(' ')[0] : m.rank}
                                     </span>
-                                    {(m.sections?.length || 0) > 0 && (
+                                    {m.role !== 'runner' && (m.sections?.length || 0) > 0 && (
                                         <div className="flex gap-1 flex-wrap">
                                             {m.sections.map(s => (
                                                 <span key={s} className="px-1.5 py-0.5 rounded bg-indigo-100/50 border border-indigo-200 text-indigo-600 text-[9px] uppercase tracking-wider font-extrabold">{s}</span>
@@ -357,32 +357,34 @@ function MemberFormModal({
                         </div>
                     )}
 
-                    <div className="space-y-3 pt-4 border-t border-gray-100">
-                        <label className="text-sm font-bold text-gray-700 ml-1">소속 섹션 설정 (다중 선택 가능)</label>
-                        <div className="flex flex-wrap gap-2">
-                            {availableSections.map(sec => {
-                                const isSelected = sections.includes(sec);
-                                return (
-                                    <button
-                                        key={sec}
-                                        type="button"
-                                        onClick={() => {
-                                            if (isSelected) setSections(sections.filter(s => s !== sec));
-                                            else setSections([...sections, sec]);
-                                        }}
-                                        className={cn(
-                                            "px-3 py-2 rounded-xl text-xs font-black transition-all border",
-                                            isSelected 
-                                                ? "bg-amber-100 border-amber-300 text-amber-700 shadow-sm" 
-                                                : "bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100"
-                                        )}
-                                    >
-                                        {sec}
-                                    </button>
-                                );
-                            })}
+                    {!isRunner && (
+                        <div className="space-y-3 pt-4 border-t border-gray-100">
+                            <label className="text-sm font-bold text-gray-700 ml-1">소속 섹션 설정 (다중 선택 가능)</label>
+                            <div className="flex flex-wrap gap-2">
+                                {availableSections.map(sec => {
+                                    const isSelected = sections.includes(sec);
+                                    return (
+                                        <button
+                                            key={sec}
+                                            type="button"
+                                            onClick={() => {
+                                                if (isSelected) setSections(sections.filter(s => s !== sec));
+                                                else setSections([...sections, sec]);
+                                            }}
+                                            className={cn(
+                                                "px-3 py-2 rounded-xl text-xs font-black transition-all border",
+                                                isSelected 
+                                                    ? "bg-amber-100 border-amber-300 text-amber-700 shadow-sm" 
+                                                    : "bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100"
+                                            )}
+                                        >
+                                            {sec}
+                                        </button>
+                                    );
+                                })}
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </div>
                 <button
                     type="button"
@@ -486,7 +488,7 @@ function MemberDetailModal({
                             </div>
                         </>
                     )}
-                    {(member.sections?.length || 0) > 0 && (
+                    {member.role !== 'runner' && (member.sections?.length || 0) > 0 && (
                         <div className="mt-2 pt-4 border-t border-gray-100">
                             <div className="text-xs font-black text-gray-400 uppercase tracking-wide mb-2">소속 섹션</div>
                             <div className="flex gap-2 flex-wrap">
