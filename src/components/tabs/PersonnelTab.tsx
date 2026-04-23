@@ -110,10 +110,10 @@ export default function PersonnelTab() {
                                 <span className="text-base font-black text-gray-900 truncate">{m.name}</span>
                                 <div className="flex items-center gap-2 mt-0.5">
                                     <span className="text-sm font-bold text-gray-500 shrink-0">{m.rank}</span>
-                                    {m.earlyPromotion && m.earlyPromotion > 0 && (
+                                    {(m.earlyPromotion || 0) > 0 && (
                                         <span className="px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-600 text-[9px] font-extrabold">조기{m.earlyPromotion}</span>
                                     )}
-                                    {m.sections && m.sections.length > 0 && (
+                                    {(m.sections?.length || 0) > 0 && (
                                         <div className="flex gap-1 flex-wrap">
                                             {m.sections.map(s => (
                                                 <span key={s} className="px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-600 text-[9px] uppercase tracking-wider font-extrabold">{s}</span>
@@ -161,7 +161,7 @@ export default function PersonnelTab() {
                                     <span className="text-sm font-bold text-indigo-500/80 shrink-0">
                                         {m.role === 'runner' ? m.rank.split(' ')[0] : m.rank}
                                     </span>
-                                    {m.sections && m.sections.length > 0 && (
+                                    {(m.sections?.length || 0) > 0 && (
                                         <div className="flex gap-1 flex-wrap">
                                             {m.sections.map(s => (
                                                 <span key={s} className="px-1.5 py-0.5 rounded bg-indigo-100/50 border border-indigo-200 text-indigo-600 text-[9px] uppercase tracking-wider font-extrabold">{s}</span>
@@ -460,7 +460,7 @@ function MemberDetailModal({
                             <div className="text-lg font-bold text-gray-800">
                                 {member.role === 'runner' ? member.rank.split(' ')[0] : member.rank}
                             </div>
-                            {member.role !== 'runner' && member.earlyPromotion && member.earlyPromotion > 0 && (
+                            {member.role !== 'runner' && (member.earlyPromotion || 0) > 0 && (
                                 <span className="px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-600 text-[10px] font-black italic">
                                     조기진급 {member.earlyPromotion}개월 적용됨
                                 </span>
@@ -486,7 +486,7 @@ function MemberDetailModal({
                             </div>
                         </>
                     )}
-                    {member.sections && member.sections.length > 0 && (
+                    {(member.sections?.length || 0) > 0 && (
                         <div className="mt-2 pt-4 border-t border-gray-100">
                             <div className="text-xs font-black text-gray-400 uppercase tracking-wide mb-2">소속 섹션</div>
                             <div className="flex gap-2 flex-wrap">

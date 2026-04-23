@@ -103,8 +103,36 @@ export default function RollCallTab({
 
         const fetchSheet = async () => {
             try {
-                const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1_M1IB3VKq83sgvXdDxwS9W8cvvfkXbO4zf7e1XLnAgU/export?format=csv&gid=1529486829';
-                const res = await fetch(SHEET_URL);
+                const now = new Date();
+                const currentMonth = `${now.getFullYear()}-${now.getMonth() + 1}`;
+                
+                // 로컬 저장소에서 캐시된 정보 가져오기
+                const cachedUrl = localStorage.getItem('ncoa_spreadsheet_url');
+                const cachedMonth = localStorage.getItem('ncoa_spreadsheet_month');
+                
+                let csvUrl = cachedUrl;
+
+                // 캐시가 없거나, 저장된 달이 현재와 다를 경우에만 백엔드 호출
+                if (!csvUrl || cachedMonth !== currentMonth) {
+                    console.log('Fetching new spreadsheet URL from backend...');
+                    const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbw8liY7D3qd1CF0T9gsr4pBq9Gt65YRDXrgdTx9FXTqR8rawJ42sRFfIO9fjxGj0IY/exec';
+                    const backendRes = await fetch(BACKEND_URL);
+                    const backendData = await backendRes.json();
+
+                    if (backendData.status === 'success' && backendData.csvUrl) {
+                        const newUrl = backendData.csvUrl;
+                        csvUrl = newUrl;
+                        // 캐시 업데이트
+                        localStorage.setItem('ncoa_spreadsheet_url', newUrl);
+                        localStorage.setItem('ncoa_spreadsheet_month', currentMonth);
+                    } else {
+                        console.error('Failed to get spreadsheet URL from backend:', backendData);
+                        if (!csvUrl) return; // 캐시도 없으면 중단
+                    }
+                }
+
+                // 시트 데이터 가져오기
+                const res = await fetch(csvUrl!);
                 const csvText = await res.text();
                 Papa.parse(csvText, {
                     complete: (results) => {
