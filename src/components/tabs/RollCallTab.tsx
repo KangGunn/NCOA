@@ -141,7 +141,7 @@ export default function RollCallTab({
         const fetchData = async () => {
             try {
                 const dateStr = `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, '0')}-${String(baseDate.getDate()).padStart(2, '0')}`;
-                const FUNCTION_URL = `http://127.0.0.1:5001/seniorkatusa-aa594/asia-northeast3/getRollCallData`;
+                const FUNCTION_URL = `https://getrollcalldata-daomamzojq-du.a.run.app`;
                 const res = await fetch(`${FUNCTION_URL}?date=${dateStr}`);
                 const json = await res.json();
                 if (json.status === 'success') {
