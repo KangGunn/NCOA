@@ -1,13 +1,64 @@
 import { useState, useEffect, type Dispatch, type SetStateAction } from 'react';
 import { Copy, Check, Clock, FileText } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { db, auth } from '../../lib/firebase';
-import { calculateRank } from '../../lib/rankUtils';
-import { collection, onSnapshot, query } from 'firebase/firestore';
-import Papa from 'papaparse';
+import { db } from '../../lib/firebase';
+import { collection, onSnapshot } from 'firebase/firestore';
 
 
 
+
+interface Member {
+    name: string;
+    rank: string;
+    role: string;
+    enlistmentDate?: string;
+    sections?: string[];
+    earlyPromotion?: number;
+}
+
+interface SheetEvent {
+    memo: string;
+    startDate: string;
+    endDate: string;
+    type: string;
+    isDepartDay?: boolean;
+    isConsecutive?: boolean;
+    dateText?: string;
+}
+
+interface Stats {
+    total: number;
+    present: number;
+    absent: number;
+    dutyCount: number;
+    vacationCount: number;
+    passCount: number;
+}
+
+interface EveningData {
+    duties: string[];
+    vacations: any[];
+    passes: any[];
+    recoveries: string[];
+    tomorrowDuties: string[];
+    tomorrowDeparts: string[];
+}
+
+interface MorningData {
+    duties: string[];
+    recoveries: string[];
+    vacations: string[];
+    passes: string[];
+    tomorrowStr: string;
+    presentMembers: string[];
+}
+
+interface RollCallData {
+    stats: Stats;
+    evening: EveningData;
+    morning: MorningData;
+    sheetEvents: SheetEvent[];
+}
 
 interface RollCallTabProps {
     healthNote: string;
@@ -66,387 +117,100 @@ export default function RollCallTab({
     };
 
     const [copiedType, setCopiedType] = useState<'evening' | 'morning' | null>(null);
-    const [totalMembers, setTotalMembers] = useState(0);
-    const [members, setMembers] = useState<{ name: string; rank: string; role: string; enlistmentDate?: string; sections?: string[]; earlyPromotion?: number }[]>([]);
-    const [events, setEvents] = useState<{ id: string; type: string; startDate: string; endDate: string; memo: string }[]>([]);
-    const [sheetEvents, setSheetEvents] = useState<{ id: string; type: string; startDate: string; endDate: string; memo: string; isReturnDay: boolean; isDepartDay: boolean; isConsecutive: boolean; dateText?: string }[]>([]);
+    const [rollCallData, setRollCallData] = useState<RollCallData | null>(null);
+    // 세션 UI 렌더링용 멤버 목록 (Firestore 실시간 구독)
+    const [members, setMembers] = useState<Member[]>([]);
 
-    // 1. Firebase 데이터 구독 (컴포넌트 마운트 시 한 번만 실행)
+    // Firestore 멤버 구독 (섹션 분류 UI 용)
     useEffect(() => {
-        const unsubMembers = onSnapshot(collection(db, "members"), (snapshot) => {
-            const data = snapshot.docs.map(doc => doc.data() as { name: string; rank: string; role: string; enlistmentDate?: string; sections?: string[]; earlyPromotion?: number });
-
-            const sortedData = [...data].sort((a, b) => {
+        const unsub = onSnapshot(collection(db, 'members'), (snapshot) => {
+            const data = snapshot.docs.map(doc => doc.data() as Member);
+            const sorted = [...data].sort((a, b) => {
                 const dateA = typeof a.enlistmentDate === 'string' ? a.enlistmentDate.trim() : '';
                 const dateB = typeof b.enlistmentDate === 'string' ? b.enlistmentDate.trim() : '';
                 if (dateA !== dateB) return dateA < dateB ? -1 : 1;
-
-                const nameA = typeof a.name === 'string' ? a.name.trim() : '';
-                const nameB = typeof b.name === 'string' ? b.name.trim() : '';
-                return nameA < nameB ? -1 : 1;
+                return (a.name || '').localeCompare(b.name || '');
             });
-
-            setMembers(sortedData);
-            const count = data.filter(m => m.role !== 'runner').length;
-            setTotalMembers(count);
+            setMembers(sorted);
         });
-
-        let unsubEvents: () => void = () => { };
-        const authUnsub = auth.onAuthStateChanged(user => {
-            if (user) {
-                const qEvents = query(collection(db, "schedules"));
-                unsubEvents = onSnapshot(qEvents, (snapshot) => {
-                    const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
-                    setEvents(data);
-                });
-            }
-        });
-
-        return () => {
-            unsubMembers();
-            unsubEvents();
-            authUnsub();
-        };
+        return () => unsub();
     }, []);
 
-    // 2. 스프레드시트 데이터 로딩 (날짜 변경 시마다 실행되지만 월별 캐싱 적용됨)
+    // 백엔드 API 호출 (날짜 변경 시마다 실행)
     useEffect(() => {
-        const fetchSheet = async () => {
+        const fetchData = async () => {
             try {
-                const getMonthData = async (date: Date) => {
-                    const targetYear = date.getFullYear();
-                    const targetMonth = date.getMonth() + 1;
-                    const targetMonthKey = `${targetYear}-${targetMonth}`;
-                    const cacheKey = `ncoa_url_${targetMonthKey}`;
-                    let csvUrl = localStorage.getItem(cacheKey);
-
-                    if (!csvUrl) {
-                        console.log(`Fetching new spreadsheet URL for ${targetMonthKey} from backend...`);
-                        const BACKEND_URL = `https://script.google.com/macros/s/AKfycbzuiKVTi75LiuCtzguxCRTvRI8j54bNjCS3WqbU3zElNUO_bOjKOqfpVWZpF16TwH4/exec?year=${targetYear}&month=${targetMonth}`;
-                        const backendRes = await fetch(BACKEND_URL);
-                        const backendData = await backendRes.json();
-                        if (backendData.status === 'success' && backendData.csvUrl) {
-                            const newUrl = backendData.csvUrl;
-                            csvUrl = newUrl;
-                            localStorage.setItem(cacheKey, newUrl);
-                        } else {
-                            console.error(`Failed to get spreadsheet URL for ${targetMonthKey} from backend:`, backendData);
-                            return null;
-                        }
-                    }
-
-                    if (!csvUrl) return null;
-                    const res = await fetch(csvUrl);
-                    const csvText = await res.text();
-
-                    return new Promise<any[]>((resolve) => {
-                        Papa.parse(csvText, {
-                            complete: (results) => {
-                                const rows = results.data as string[][];
-                                if (rows.length < 2) {
-                                    resolve([]);
-                                    return;
-                                }
-                                const dateRow = rows[0];
-                                const monthDaysByMember: Record<string, any[]> = {};
-
-                                for (let i = 2; i < rows.length; i++) {
-                                    const row = rows[i];
-                                    if (!row || !row[0]) continue;
-                                    const nameWithRank = row[0];
-                                    const name = nameWithRank.split(' ')[1] || nameWithRank;
-
-                                    const rowDays: any[] = [];
-                                    for (let colIndex = 1; colIndex < row.length; colIndex++) {
-                                        const rawDate = dateRow[colIndex];
-                                        const cell = row[colIndex];
-                                        if (!rawDate) continue;
-                                        const dateParts = rawDate.split('.').map(p => p.trim());
-                                        if (dateParts.length < 3) continue;
-                                        const y = dateParts[0];
-                                        const m = dateParts[1].padStart(2, '0');
-                                        const d = dateParts[2].padStart(2, '0');
-                                        rowDays.push({
-                                            dateStr: `${y}-${m}-${d}`,
-                                            m: Number(m),
-                                            d: Number(d),
-                                            cell: cell || ''
-                                        });
-                                    }
-                                    monthDaysByMember[name] = rowDays;
-                                }
-                                resolve(Object.entries(monthDaysByMember).map(([name, days]) => ({ name, days })));
-                            }
-                        });
-                    });
-                };
-
-                const prevDate = new Date(baseDate.getFullYear(), baseDate.getMonth() - 1, 1);
-                const currDate = baseDate;
-                const nextDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 1);
-
-                const [prevData, currData, nextData] = await Promise.all([
-                    getMonthData(prevDate),
-                    getMonthData(currDate),
-                    getMonthData(nextDate)
-                ]);
-
-                // 이름(병사)을 기준으로 3개월치 데이터 병합
-                const allMembers = new Set([
-                    ...(prevData || []).map(d => d.name),
-                    ...(currData || []).map(d => d.name),
-                    ...(nextData || []).map(d => d.name)
-                ]);
-
-                const parsed: any[] = [];
-                const todayStrLocal = `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, '0')}-${String(baseDate.getDate()).padStart(2, '0')}`;
-                const tomorrow = new Date(baseDate);
-                tomorrow.setDate(tomorrow.getDate() + 1);
-                const tomorrowStrLocal = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
-
-                allMembers.forEach(name => {
-                    const pDays = (prevData || []).find(d => d.name === name)?.days || [];
-                    const cDays = (currData || []).find(d => d.name === name)?.days || [];
-                    const nDays = (nextData || []).find(d => d.name === name)?.days || [];
-
-                    // 3개월 일정 이어 붙이기 후 중복 제거 및 날짜순 정렬
-                    const rawRowDays = [...pDays, ...cDays, ...nDays];
-                    
-                    const uniqueDaysMap = new Map();
-                    rawRowDays.forEach(day => {
-                        // 중복 날짜가 있을 경우, 내용이 비어있지 않은 것을 우선시하거나 덮어씀
-                        if (!uniqueDaysMap.has(day.dateStr) || day.cell.trim() !== '') {
-                            uniqueDaysMap.set(day.dateStr, day);
-                        }
-                    });
-
-                    // 날짜 문자열(YYYY-MM-DD) 기준으로 오름차순 정렬하여 완벽한 타임라인 생성
-                    const rowDays = Array.from(uniqueDaysMap.values()).sort((a, b) => 
-                        a.dateStr.localeCompare(b.dateStr)
-                    );
-                    
-                    if (rowDays.length === 0) return;
-
-                    const targetIndices: number[] = [];
-                    const tIdx = rowDays.findIndex(d => d.dateStr === todayStrLocal);
-                    const mIdx = rowDays.findIndex(d => d.dateStr === tomorrowStrLocal);
-                    if (tIdx !== -1) targetIndices.push(tIdx);
-                    if (mIdx !== -1) targetIndices.push(mIdx);
-
-                    targetIndices.forEach(idx => {
-                        const day = rowDays[idx];
-                        const c = day.cell;
-                        if (!c || c.trim() === '') return;
-                        if (!c.includes('외박') && !c.includes('휴가') && !c.includes('연계')) return;
-
-                        const type = c.includes('휴가') ? 'vacation' : 'pass';
-
-                        // 시작일 찾기 (최대 14일 전까지)
-                        let startIdx = idx;
-                        for (let k = idx; k >= 0 && k >= idx - 14; k--) {
-                            const pc = rowDays[k].cell;
-                            if (pc.includes('출발')) {
-                                if (type === 'vacation') {
-                                    startIdx = k;
-                                } else {
-                                    startIdx = Math.min(k + 1, rowDays.length - 1);
-                                }
-                                break;
-                            }
-                            if (!pc.includes('외박') && !pc.includes('휴가') && !pc.includes('연계')) {
-                                startIdx = k + 1;
-                                break;
-                            }
-                            if (k === 0) startIdx = 0;
-                        }
-
-                        // 종료일 찾기 (최대 14일 후까지)
-                        let endIdx = idx;
-                        for (let k = idx; k < rowDays.length && k <= idx + 14; k++) {
-                            const nc = rowDays[k].cell;
-                            if (nc.includes('복귀')) {
-                                endIdx = k;
-                                break;
-                            }
-                            if (k > idx && nc.includes('출발')) {
-                                endIdx = k;
-                                break;
-                            }
-                            if (!nc.includes('외박') && !nc.includes('휴가') && !nc.includes('연계')) {
-                                endIdx = k - 1;
-                                break;
-                            }
-                            if (k === rowDays.length - 1) endIdx = rowDays.length - 1;
-                        }
-
-                        const finalStartIdx = startIdx > endIdx ? endIdx : startIdx;
-                        const s = rowDays[finalStartIdx];
-                        const e = rowDays[endIdx];
-
-                        const dateText = s.m === e.m && s.d === e.d ? `${s.m}.${s.d}` : `${s.m}.${s.d}~${e.m}.${e.d}`;
-
-                        parsed.push({
-                            id: `sheet-${type}-${name}-${day.dateStr}`,
-                            type,
-                            startDate: day.dateStr,
-                            endDate: day.dateStr,
-                            memo: name,
-                            isReturnDay: c.includes('복귀'),
-                            isDepartDay: c.includes('출발'),
-                            isConsecutive: c.includes('연계'),
-                            dateText
-                        });
-                    });
-                });
-
-                setSheetEvents(parsed);
+                const dateStr = `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, '0')}-${String(baseDate.getDate()).padStart(2, '0')}`;
+                const FUNCTION_URL = `http://127.0.0.1:5001/seniorkatusa-aa594/asia-northeast3/getRollCallData`;
+                const res = await fetch(`${FUNCTION_URL}?date=${dateStr}`);
+                const json = await res.json();
+                if (json.status === 'success') {
+                    setRollCallData(json.data);
+                } else {
+                    console.error('백엔드 오류:', json.message);
+                }
             } catch (err) {
-                console.error("Sheet fetch error", err);
+                console.error('fetchData error:', err);
             }
         };
-
-        fetchSheet();
+        fetchData();
     }, [baseDate]);
 
-    // Calendar 당직 및 일정 파싱
-    const today = baseDate;
-    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    const tomorrowDate = new Date(baseDate);
-    tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-    const tomorrowStr = `${tomorrowDate.getFullYear()}-${String(tomorrowDate.getMonth() + 1).padStart(2, '0')}-${String(tomorrowDate.getDate()).padStart(2, '0')}`;
+    const sheetEvents = rollCallData?.sheetEvents || [];
 
-    const todayDuties = events.filter(e => e.type === 'duty' && e.startDate === todayStr);
-    const tomorrowDuties = events.filter(e => e.type === 'duty' && e.startDate === tomorrowStr);
+    // 날짜 문자열 (date input용)
+    const todayStr = `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, '0')}-${String(baseDate.getDate()).padStart(2, '0')}`;
 
-    // 외박 및 휴가는 캘린더 + 구글 시트 결합 (저녁점호 기준: 복귀일은 불포함)
-    const todayVacations = [
-        ...events.filter(e => e.type === 'vacation' && e.startDate <= todayStr && e.endDate >= todayStr),
-        ...sheetEvents.filter(e => e.type === 'vacation' && e.startDate === todayStr && !e.isReturnDay)
-    ];
-    const todayPasses = [
-        ...events.filter(e => e.type === 'pass' && e.startDate <= todayStr && e.endDate >= todayStr),
-        ...sheetEvents.filter(e => e.type === 'pass' && e.startDate === todayStr && !e.isReturnDay)
-    ];
-
-
+    // 백엔드에서 받은 데이터로 저녁점호 보고서 생성
     const generateReport = () => {
-        const dateStr = `${today.getFullYear()}.${String(today.getMonth() + 1).padStart(2, '0')}.${String(today.getDate()).padStart(2, '0')}`;
+        if (!rollCallData) return '데이터를 불러오는 중입니다...';
 
-        // 인원 계산 (저녁점호 기준)
-        const totalCount = totalMembers;
+        const { stats, evening } = rollCallData;
+        const dateStr = `${baseDate.getFullYear()}.${String(baseDate.getMonth() + 1).padStart(2, '0')}.${String(baseDate.getDate()).padStart(2, '0')}`;
 
-        const dutyCount = todayDuties.filter(d => {
-            const m = members.find(member => member.name === d.memo);
-            return m?.role !== 'runner';
-        }).length;
-        const passCount = todayPasses.filter(p => {
-            const m = members.find(member => member.name === p.memo);
-            return m?.role !== 'runner';
-        }).length;
-        const vacationCount = todayVacations.filter(v => {
-            const m = members.find(member => member.name === v.memo);
-            return m?.role !== 'runner';
-        }).length;
-
-        const offCount = dutyCount + passCount + vacationCount;
-        const currentCount = totalCount - offCount;
+        const exceptionsSummaryArr = [];
+        if (stats.dutyCount > 0) exceptionsSummaryArr.push(`당직 ${stats.dutyCount}명`);
+        if (stats.vacationCount > 0) exceptionsSummaryArr.push(`휴가 ${stats.vacationCount}명`);
+        if (stats.passCount > 0) exceptionsSummaryArr.push(`외박 ${stats.passCount}명`);
 
         let report = `단결, 안녕하십니까.\n\n`;
         report += `${dateStr}\n`;
         report += `카투사교육대 인원 보고 드리겠습니다.\n\n`;
-        report += `총원 ${totalCount}명\n`;
-        report += `현재원 ${currentCount}명\n`;
-        report += `열외 ${offCount}명\n`;
-
-        const exceptionsSummaryArr = [];
-        if (dutyCount > 0) exceptionsSummaryArr.push(`당직 ${dutyCount}명`);
-        if (vacationCount > 0) exceptionsSummaryArr.push(`휴가 ${vacationCount}명`);
-        if (passCount > 0) exceptionsSummaryArr.push(`외박 ${passCount}명`);
-
+        report += `총원 ${stats.total}명\n`;
+        report += `현재원 ${stats.present}명\n`;
+        report += `열외 ${stats.absent}명\n`;
         report += `(열외 내용: ${exceptionsSummaryArr.length > 0 ? exceptionsSummaryArr.join(', ') : '없음'})\n\n`;
-
-        const getEventDateText = (e: any) => {
-            if (e.dateText) return `(${e.dateText})`;
-            if (e.startDate && e.endDate) {
-                const partsS = e.startDate.split('-');
-                const partsE = e.endDate.split('-');
-                if (partsS.length !== 3 || partsE.length !== 3) return '';
-
-                const sm = Number(partsS[1]);
-                const sd = Number(partsS[2]);
-                const em = Number(partsE[1]);
-                const ed = Number(partsE[2]);
-
-                return `(${sm}.${sd}~${em}.${ed})`;
-            }
-            return '';
-        };
 
         // 건강 특이사항
         report += `<건강 특이사항>\n`;
         if (healthNote.trim()) {
-            healthNote.split('\n').filter(l => l.trim()).forEach(line => {
-                report += `-${line.trim()}\n`;
-            });
+            healthNote.split('\n').filter(l => l.trim()).forEach(line => { report += `-${line.trim()}\n`; });
         } else {
             report += `-없음\n`;
         }
         report += `\n`;
 
-        // Calendar 당직 불러오는 부분 상단으로 이동됨
-
-        const getMemberRank = (memoName: string) => {
-            const member = members.find(m => m.name === memoName);
-            if (!member) return memoName;
-            if (member.role !== 'runner' && member.enlistmentDate) {
-                const realRank = calculateRank(new Date(member.enlistmentDate), member.earlyPromotion || 0);
-                return `${member.name} ${realRank.split(' ')[0]}`;
-            }
-            // 미군 러너인 경우 계급에서 불필요한 숫자 제거
-            const cleanRank = member.role === 'runner' ? member.rank.split(' ')[0] : member.rank;
-            return `${member.name} ${cleanRank}`;
-        };
-
-        // 익일 특이사항 (당직, 리커버리, 출발)
+        // 익일 특이사항
         report += `<익일 특이사항>\n`;
         let hasSpecial = false;
-
-        tomorrowDuties.forEach(d => {
-            report += `-${getMemberRank(d.memo)} 당직\n`;
-            hasSpecial = true;
-        });
-
-        todayDuties.forEach(d => {
-            report += `-${getMemberRank(d.memo)} 리커버리\n`;
-            hasSpecial = true;
-        });
-
-        const tomorrowDeparts = sheetEvents.filter(e => e.startDate === tomorrowStr && e.isDepartDay && e.type === 'vacation');
-        if (tomorrowDeparts.length > 0) {
-            const groupedNames = tomorrowDeparts.map(e => getMemberRank(e.memo)).join(', ');
-            report += `-${groupedNames} 휴가 출발\n`;
+        (evening.tomorrowDuties || []).forEach((name: string) => { report += `-${name} 당직\n`; hasSpecial = true; });
+        (evening.recoveries || []).forEach((name: string) => { report += `-${name} 리커버리\n`; hasSpecial = true; });
+        if ((evening.tomorrowDeparts || []).length > 0) {
+            report += `-${evening.tomorrowDeparts.join(', ')} 휴가 출발\n`;
             hasSpecial = true;
         }
-
         if (tomorrowNote.trim()) {
-            tomorrowNote.split('\n').filter(l => l.trim()).forEach(line => {
-                report += `-${line.trim()}\n`;
-            });
+            tomorrowNote.split('\n').filter(l => l.trim()).forEach(line => { report += `-${line.trim()}\n`; });
             hasSpecial = true;
         }
-
-        if (!hasSpecial) {
-            report += `-없음\n`;
-        }
+        if (!hasSpecial) report += `-없음\n`;
         report += `\n`;
 
         // 주요일정
         report += `<주요일정>\n`;
         const scheduleLines = scheduleText.trim().split('\n').filter(l => l.trim().length > 0);
         if (scheduleLines.length > 0) {
-            scheduleLines.forEach(l => {
-                report += `-${l.trim()}\n`;
-            });
+            scheduleLines.forEach(l => { report += `-${l.trim()}\n`; });
             report += `\n`;
         } else {
             report += `-없음\n\n`;
@@ -454,10 +218,8 @@ export default function RollCallTab({
 
         // 휴가
         report += `<휴가>\n`;
-        if (todayVacations.length > 0) {
-            todayVacations.forEach(v => {
-                report += `-${getMemberRank(v.memo)}${getEventDateText(v)}\n`;
-            });
+        if ((evening.vacations || []).length > 0) {
+            evening.vacations.forEach((v: any) => { report += `-${v.name}${v.dateText ? `(${v.dateText})` : ''}\n`; });
             report += `\n`;
         } else {
             report += `-없음\n\n`;
@@ -465,10 +227,8 @@ export default function RollCallTab({
 
         // 외박
         report += `<외박>\n`;
-        if (todayPasses.length > 0) {
-            todayPasses.forEach(p => {
-                report += `-${getMemberRank(p.memo)}${getEventDateText(p)}\n`;
-            });
+        if ((evening.passes || []).length > 0) {
+            evening.passes.forEach((p: any) => { report += `-${p.name}${p.dateText ? `(${p.dateText})` : ''}\n`; });
             report += `\n`;
         } else {
             report += `-없음\n\n`;
@@ -476,10 +236,8 @@ export default function RollCallTab({
 
         // 듀티
         report += `<듀티>\n`;
-        if (todayDuties.length > 0) {
-            todayDuties.forEach(d => {
-                report += `-${getMemberRank(d.memo)}\n`;
-            });
+        if ((evening.duties || []).length > 0) {
+            evening.duties.forEach((name: string) => { report += `-${name}\n`; });
         } else {
             report += `-없음\n`;
         }
@@ -487,122 +245,65 @@ export default function RollCallTab({
         return report;
     };
 
-    const getOffsetStr = (offset: number) => {
-        const d = new Date(baseDate);
-        d.setDate(d.getDate() + offset);
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    };
-
+    // 백엔드에서 받은 데이터로 아침점호 보고서 생성
     const generateMorningReport = () => {
-        const tomorrowStrForMorning = getOffsetStr(1);
+        if (!rollCallData) return '데이터를 불러오는 중입니다...';
 
-        const morningDuties = events.filter(e => {
-            if (e.type !== 'duty' || e.startDate !== tomorrowStrForMorning) return false;
-            const m = members.find(member => member.name === e.memo);
-            return m?.role !== 'runner';
-        });
-        const morningRecoveries = events.filter(e => {
-            if (e.type !== 'duty' || e.startDate !== getOffsetStr(0)) return false;
-            const m = members.find(member => member.name === e.memo);
-            return m?.role !== 'runner';
-        });
-        const morningVacations = [
-            ...events.filter(e => e.type === 'vacation' && e.startDate <= tomorrowStrForMorning && e.endDate >= tomorrowStrForMorning),
-            ...sheetEvents.filter(e => e.type === 'vacation' && e.startDate === tomorrowStrForMorning && !e.isDepartDay)
-        ].filter(e => {
-            const m = members.find(member => member.name === e.memo);
-            return m?.role !== 'runner';
-        });
-        const morningPasses = [
-            ...events.filter(e => e.type === 'pass' && e.startDate <= tomorrowStrForMorning && e.endDate >= tomorrowStrForMorning),
-            ...sheetEvents.filter(e => e.type === 'pass' && e.startDate === tomorrowStrForMorning && !e.isDepartDay),
-            ...sheetEvents.filter(e => e.type === 'vacation' && e.startDate === tomorrowStrForMorning && e.isDepartDay && e.isConsecutive === true)
-        ].filter(e => {
-            const m = members.find(member => member.name === e.memo);
-            return m?.role !== 'runner';
-        });
+        const { morning } = rollCallData;
 
-        const getMemberRank = (memoName: string) => {
-            const member = members.find(m => m.name === memoName);
-            if (!member) return memoName;
-            if (member.role !== 'runner' && member.enlistmentDate) {
-                const realRank = calculateRank(new Date(member.enlistmentDate), member.earlyPromotion || 0);
-                return `${member.name} ${realRank.split(' ')[0]}`;
-            }
-            // 미군 러너인 경우 계급에서 불필요한 숫자 제거
-            const cleanRank = member.role === 'runner' ? member.rank.split(' ')[0] : member.rank;
-            return `${member.name} ${cleanRank}`;
-        };
-
-        const offNames = [
-            ...morningDuties.map(d => d.memo),
-            ...morningRecoveries.map(d => d.memo),
-            ...morningVacations.map(d => d.memo),
-            ...morningPasses.map(d => d.memo),
+        // 스케줄 참여 인원은 프런트에서만 관리 (실시간 선택 UI)
+        const scheduleOffNames = [
             ...Object.values(scheduleParticipants).flat(),
             ...customSchedules.flatMap(s => s.participants)
         ];
-        // 중복 제거하여 열외 인원 수 정확히 계산
-        const uniqueOffNames = Array.from(new Set(offNames));
+        const allOffNames = new Set([
+            ...(morning.duties || []),
+            ...(morning.recoveries || []),
+            ...(morning.vacations || []),
+            ...(morning.passes || []),
+            ...scheduleOffNames,
+        ]);
 
-        const morningPresentMembersObj = members
-            .filter(m => m.role !== 'runner')
-            .filter(m => !uniqueOffNames.includes(m.name));
+        // 아침점호 출석 인원 = 백엔드가 보낸 전체 인원 중 열외자 제외
+        const presentMembers = (morning.presentMembers || []).filter(
+            (name: string) => !Array.from(allOffNames).some(off => name.startsWith(off.split(' ')[0]))
+        );
 
-        const totalCount = totalMembers;
-        const presentCount = morningPresentMembersObj.length;
-        const offCount = totalCount - presentCount;
+        const totalCount = rollCallData.stats.total;
+        const offCount = allOffNames.size;
+        const presentCount = totalCount - offCount;
 
-        const dutyCount = morningDuties.length;
-        const recoveryCount = morningRecoveries.length;
-        const vacationCount = morningVacations.length;
-        const passCount = morningPasses.length;
-
-        let exceptionsTextArr = [];
-        if (dutyCount > 0) exceptionsTextArr.push(`당직 ${dutyCount}명`);
-        if (recoveryCount > 0) exceptionsTextArr.push(`리커버리 ${recoveryCount}명`);
-        if (vacationCount > 0) exceptionsTextArr.push(`휴가 ${vacationCount}명`);
-        if (passCount > 0) exceptionsTextArr.push(`외박 ${passCount}명`);
-
+        let exceptionsTextArr: string[] = [];
+        if ((morning.duties || []).length > 0) exceptionsTextArr.push(`당직 ${morning.duties.length}명`);
+        if ((morning.recoveries || []).length > 0) exceptionsTextArr.push(`리커버리 ${morning.recoveries.length}명`);
+        if ((morning.vacations || []).length > 0) exceptionsTextArr.push(`휴가 ${morning.vacations.length}명`);
+        if ((morning.passes || []).length > 0) exceptionsTextArr.push(`외박 ${morning.passes.length}명`);
         Object.entries(scheduleParticipants).forEach(([category, list]) => {
-            if (list.length > 0) {
-                exceptionsTextArr.push(`${category} ${list.length}명`);
-            }
+            if (list.length > 0) exceptionsTextArr.push(`${category} ${list.length}명`);
         });
         customSchedules.forEach(s => {
-            if (s.participants.length > 0) {
-                exceptionsTextArr.push(`${s.name} ${s.participants.length}명`);
-            }
+            if (s.participants.length > 0) exceptionsTextArr.push(`${s.name} ${s.participants.length}명`);
         });
 
-        const exceptionsStr = exceptionsTextArr.length > 0 ? exceptionsTextArr.join(', ') : '없음';
-
         let report = `단결, 안녕하십니까.\n\n`;
-        report += `${tomorrowStrForMorning.replace(/-/g, '.')}\n`;
+        report += `${(morning.tomorrowStr || '').replace(/-/g, '.')}\n`;
         report += `카투사교육대 아침점호 인원보고 드리겠습니다.\n\n`;
         report += `총원 ${totalCount}명\n`;
         report += `현재원 ${presentCount}명\n`;
         report += `열외 ${offCount}명\n`;
-        report += `(열외내용: ${exceptionsStr})\n\n`;
+        report += `(열외내용: ${exceptionsTextArr.length > 0 ? exceptionsTextArr.join(', ') : '없음'})\n\n`;
 
-        // Morning report usually doesn't show detail lists of pass/vacations in text unless requested.
-        // If needed, we can append it. For now, matching the prompt:
         report += `<아침점호 인원>\n`;
-        if (morningPresentMembersObj.length > 0) {
-            morningPresentMembersObj.forEach(m => {
-                report += `-${getMemberRank(m.name)}\n`;
-            });
+        if (presentMembers.length > 0) {
+            presentMembers.forEach((name: string) => { report += `-${name}\n`; });
         } else {
             report += `-없음\n`;
         }
         report += `\n`;
 
-        // 건강 특이사항
         report += `<건강 특이사항>\n`;
         if (healthNote.trim()) {
-            healthNote.split('\n').filter(l => l.trim()).forEach(line => {
-                report += `-${line.trim()}\n`;
-            });
+            healthNote.split('\n').filter(l => l.trim()).forEach(line => { report += `-${line.trim()}\n`; });
         } else {
             report += `-없음\n`;
         }
@@ -620,7 +321,7 @@ export default function RollCallTab({
     const inputBase = "w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-900";
     const labelBase = "text-sm font-bold text-gray-700 mb-1.5 block ml-1";
 
-    const renderMemberButton = (m: any, currentCategory: string) => {
+    const renderMemberButton = (m: Member, currentCategory: string) => {
         const isSelectedHere = (scheduleParticipants[currentCategory] || []).includes(m.name) ||
             (customSchedules.find(s => s.name === currentCategory)?.participants.includes(m.name));
 
@@ -628,17 +329,20 @@ export default function RollCallTab({
             Object.entries(scheduleParticipants).some(([cat, list]) => cat !== currentCategory && list.includes(m.name)) ||
             customSchedules.some(s => s.name !== currentCategory && s.participants.includes(m.name));
 
-        const tomStr = getOffsetStr(1);
+        // 당직 여부: 백엔드에서 받은 evening.duties/tomorrowDuties 목록으로 판단
+        const isDuty = (rollCallData?.evening?.duties || []).some((name: string) => name.startsWith(m.name)) ||
+            (rollCallData?.evening?.tomorrowDuties || []).some((name: string) => name.startsWith(m.name));
 
-        // 1. 당직/리커버리 여부
-        const isDuty = todayDuties.some((d: any) => d.memo === m.name) ||
-            tomorrowDuties.some((d: any) => d.memo === m.name);
-
-        // 2. 내일 휴가/외박 여부 (부재중)
-        const isAway = [
-            ...events.filter(e => (e.type === 'vacation' || e.type === 'pass') && e.startDate <= tomStr && e.endDate >= tomStr),
-            ...sheetEvents.filter(e => e.startDate === tomStr && !e.isDepartDay)
-        ].some(e => e.memo === m.name);
+        // 부재중 여부: 내일 변시트 이벤트 기준 (다음날 휴가/외박 중이거나, 연계외박로 이어지는 휴가출발인 경우 코 포함)
+        const tomorrowDt = new Date(baseDate);
+        tomorrowDt.setDate(tomorrowDt.getDate() + 1);
+        const tomStr = `${tomorrowDt.getFullYear()}-${String(tomorrowDt.getMonth() + 1).padStart(2, '0')}-${String(tomorrowDt.getDate()).padStart(2, '0')}`;
+        const isAway = sheetEvents.filter((e: SheetEvent) =>
+            e.startDate === tomStr && (
+                !e.isDepartDay ||                          // 다음날이 휴가/외박 중간일
+                (e.isDepartDay && e.isConsecutive)         // 휴가출발이지만 연계 외박(복귀 X)
+            )
+        ).some((e: SheetEvent) => e.memo === m.name);
 
         const isDisabled = isDuty || isAway;
 
@@ -797,7 +501,7 @@ export default function RollCallTab({
                                 {sectionMembers.length === 0 ? (
                                     <p className="text-xs text-gray-400 font-bold bg-gray-50 p-3 rounded-xl border border-dashed border-gray-200">
                                         {targetSection === 'HQ'
-                                            ? "대상 인원이 없습니다."
+                                            ? '대상 인원이 없습니다.'
                                             : `인원 탭에서 이 섹션( ${targetSection} )에 소속된 인원을 먼저 설정해주세요.`}
                                     </p>
                                 ) : targetSection === 'HQ' ? (
@@ -822,7 +526,7 @@ export default function RollCallTab({
 
                     {/* 임시 추가 일정 카드 */}
                     {customSchedules.map(schedule => {
-                        const allMembers = members.filter(m => m.role !== 'runner');
+                        const allNonRunners = members.filter(m => m.role !== 'runner');
                         return (
                             <div key={schedule.name} className="p-5 bg-white border border-indigo-200 rounded-3xl shadow-sm">
                                 <div className="flex items-center justify-between mb-3">
@@ -835,7 +539,7 @@ export default function RollCallTab({
                                     </button>
                                 </div>
                                 <div className="flex flex-wrap gap-2">
-                                    {allMembers.map(m => renderMemberButton(m, schedule.name))}
+                                    {allNonRunners.map(m => renderMemberButton(m, schedule.name))}
                                 </div>
                             </div>
                         );

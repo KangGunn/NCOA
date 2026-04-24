@@ -29,14 +29,6 @@ function App() {
   });
   const [customSchedules, setCustomSchedules] = useState<{ name: string; participants: string[] }[]>([]);
 
-  useEffect(() => {
-    const day = baseDate.getDay();
-    if (day >= 0 && day <= 4) {
-      setScheduleText('0620 HQ PT');
-    } else {
-      setScheduleText('');
-    }
-  }, [baseDate]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
