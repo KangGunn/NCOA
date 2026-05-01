@@ -109,7 +109,12 @@ export default function PersonnelTab() {
                             <div className="flex flex-col min-w-0 flex-1">
                                 <span className="text-base font-black text-gray-900 truncate">{m.name}</span>
                                 <div className="flex items-center gap-2 mt-0.5">
-                                    <span className="text-sm font-bold text-gray-500 shrink-0">{m.rank}</span>
+                                    <span className="text-sm font-bold text-gray-500 shrink-0">
+                                        {m.role === 'runner' 
+                                            ? m.rank 
+                                            : calculateRank(new Date(m.enlistmentDate), m.earlyPromotion || 0)
+                                        }
+                                    </span>
                                     {(m.earlyPromotion || 0) > 0 && (
                                         <span className="px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-600 text-[9px] font-extrabold">조기{m.earlyPromotion}</span>
                                     )}
@@ -460,7 +465,10 @@ function MemberDetailModal({
                         <div className="text-xs font-black text-gray-400 uppercase tracking-wide mb-1">계급</div>
                         <div className="flex items-center gap-2">
                             <div className="text-lg font-bold text-gray-800">
-                                {member.role === 'runner' ? member.rank.split(' ')[0] : member.rank}
+                                {member.role === 'runner' 
+                                    ? member.rank.split(' ')[0] 
+                                    : calculateRank(new Date(member.enlistmentDate), member.earlyPromotion || 0)
+                                }
                             </div>
                             {member.role !== 'runner' && (member.earlyPromotion || 0) > 0 && (
                                 <span className="px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-600 text-[10px] font-black italic">

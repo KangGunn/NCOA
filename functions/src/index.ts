@@ -15,6 +15,15 @@ const corsHandler = cors({ origin: true });
 
 setGlobalOptions({ maxInstances: 10, region: "asia-northeast3" });
 
+// 한국 시간(KST) 문자열 생성 함수 (YYYY-MM-DD)
+function getKSTDateStr(): string {
+    const now = new Date();
+    const kstOffset = 9 * 60 * 60 * 1000;
+    const kstDate = new Date(now.getTime() + kstOffset);
+    return kstDate.toISOString().split("T")[0];
+}
+
+
 // ── 계급 계산 로직 (rankUtils.ts에서 이관) ──────────────────────────────
 function calculateRankFromEnlistment(enlistmentDate: Date, earlyPromotionMonths = 0): string {
     const now = new Date();
@@ -53,15 +62,10 @@ function getMemberDisplayName(member: any): string {
 }
 
 // ── 구글 시트 CSV 파싱 ───────────────────────────────────────────────────
-async function getMonthData(y: number, m: number): Promise<any[]> {
-    const GOOGLE_APPS_SCRIPT_URL =
-        `https://script.google.com/macros/s/AKfycbzuiKVTi75LiuCtzguxCRTvRI8j54bNjCS3WqbU3zElNUO_bOjKOqfpVWZpF16TwH4/exec?year=${y}&month=${m}`;
+const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1WBJXIzLbbtRxt09KOaJeXKXtgbht-GDjX3N4DyDztOY/export?format=csv&gid=1529486829";
 
-    const scriptRes = await axios.get(GOOGLE_APPS_SCRIPT_URL);
-    const csvUrl = scriptRes.data?.csvUrl;
-    if (!csvUrl) return [];
-
-    const csvRes = await axios.get(csvUrl);
+async function getSheetData(): Promise<any[]> {
+    const csvRes = await axios.get(SHEET_CSV_URL);
 
     return new Promise<any[]>((resolve) => {
         Papa.parse(csvRes.data, {
@@ -75,8 +79,8 @@ async function getMonthData(y: number, m: number): Promise<any[]> {
                 for (let i = 2; i < rows.length; i++) {
                     const row = rows[i];
                     if (!row || !row[0]) continue;
-                    const nameWithRank = row[0];
-                    const name = nameWithRank.split(" ")[1] || nameWithRank;
+                    const nameWithRank = row[0].trim();
+                    const name = (nameWithRank.split(/\s+/)[1] || nameWithRank).trim();
                     const days: any[] = [];
 
                     for (let col = 1; col < row.length; col++) {
@@ -207,22 +211,24 @@ export const getRollCallData = onRequest((req, res) => {
             const members = membersSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as any[];
             const schedules = schedulesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as any[];
 
-            // 2. 구글 시트 3개월치 병렬 로딩
-            const prevMonthDate = new Date(baseDate.getFullYear(), baseDate.getMonth() - 1, 1);
-            const nextMonthDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 1);
-
-            const [prevData, currData, nextData] = await Promise.all([
-                getMonthData(prevMonthDate.getFullYear(), prevMonthDate.getMonth() + 1),
-                getMonthData(baseDate.getFullYear(), baseDate.getMonth() + 1),
-                getMonthData(nextMonthDate.getFullYear(), nextMonthDate.getMonth() + 1),
-            ]);
+            // 2. 구글 시트 데이터 로딩 (단일 시트)
+            const sheetData = await getSheetData();
+            const prevData = sheetData;
+            const currData = sheetData;
+            const nextData = sheetData;
 
             // 3. 시트 이벤트 파싱
             const sheetEvents = parseSheetEvents(prevData, currData, nextData, todayStr, tomorrowStr);
+            logger.info(`Sheet events parsed: ${sheetEvents.length}`);
+            if (sheetEvents.length > 0) {
+                logger.info(`First sheet event: ${JSON.stringify(sheetEvents[0])}`);
+            }
 
             // 4. 당직/휴가/외박 분류
             const nonRunnerMembers = members.filter((m) => m.role !== "runner");
             const totalCount = nonRunnerMembers.length;
+            logger.info(`Total members: ${members.length}, Non-runners: ${totalCount}`);
+            logger.info(`Non-runner names: ${nonRunnerMembers.map(m => m.name).join(", ")}`);
 
             const todayDuties = schedules.filter((e) => e.type === "duty" && e.startDate === todayStr);
             const tomorrowDuties = schedules.filter((e) => e.type === "duty" && e.startDate === tomorrowStr);
@@ -258,7 +264,7 @@ export const getRollCallData = onRequest((req, res) => {
             };
 
             // 8. 응답 데이터 구성
-            res.json({
+            return res.json({
                 status: "success",
                 data: {
                     // 인원 통계
@@ -292,16 +298,31 @@ export const getRollCallData = onRequest((req, res) => {
                         duties: tomorrowDuties.filter((d) => members.find((m) => m.name === d.memo)?.role !== "runner").map((d) => getDisplayName(d.memo)),
                         recoveries: todayDuties.filter((d) => members.find((m) => m.name === d.memo)?.role !== "runner").map((d) => getDisplayName(d.memo)),
                         vacations: [
-                            ...schedules.filter((e) => e.type === "vacation" && e.startDate <= tomorrowStr && e.endDate >= tomorrowStr),
-                            ...sheetEvents.filter((e) => e.type === "vacation" && e.startDate === tomorrowStr && !e.isDepartDay),
-                        ].filter((e) => members.find((m) => m.name === e.memo)?.role !== "runner").map((e) => getDisplayName(e.memo)),
+                            ...schedules.filter((e: any) => e.type === "vacation" && e.startDate <= tomorrowStr && e.endDate >= tomorrowStr),
+                            ...sheetEvents.filter((e: any) => e.type === "vacation" && e.startDate === tomorrowStr && !e.isDepartDay),
+                        ].filter((e: any) => members.find((m) => m.name === e.memo)?.role !== "runner").map((e: any) => getDisplayName(e.memo)),
                         passes: [
-                            ...schedules.filter((e) => e.type === "pass" && e.startDate <= tomorrowStr && e.endDate >= tomorrowStr),
-                            ...sheetEvents.filter((e) => e.type === "pass" && e.startDate === tomorrowStr && !e.isDepartDay),
-                            ...sheetEvents.filter((e) => e.type === "vacation" && e.startDate === tomorrowStr && e.isDepartDay && e.isConsecutive),
-                        ].filter((e) => members.find((m) => m.name === e.memo)?.role !== "runner").map((e) => getDisplayName(e.memo)),
+                            ...schedules.filter((e: any) => e.type === "pass" && e.startDate <= tomorrowStr && e.endDate >= tomorrowStr),
+                            ...sheetEvents.filter((e: any) => e.type === "pass" && e.startDate === tomorrowStr && !e.isDepartDay),
+                            ...sheetEvents.filter((e: any) => e.type === "vacation" && e.startDate === tomorrowStr && e.isDepartDay && e.isConsecutive),
+                        ].filter((e: any) => members.find((m) => m.name === e.memo)?.role !== "runner").map((e: any) => getDisplayName(e.memo)),
                         // 아침점호 출석 인원 (열외 제외)
                         presentMembers: nonRunnerMembers
+                            .filter((m) => {
+                                const name = m.name;
+                                const isDuty = tomorrowDuties.some((d: any) => d.memo === name);
+                                const isRecovery = todayDutiesFiltered.some((d: any) => d.memo === name);
+                                const isVacation = [
+                                    ...schedules.filter((e: any) => e.type === "vacation" && e.startDate <= tomorrowStr && e.endDate >= tomorrowStr),
+                                    ...sheetEvents.filter((e: any) => e.type === "vacation" && e.startDate === tomorrowStr && !e.isDepartDay),
+                                ].some((e: any) => e.memo === name);
+                                const isPass = [
+                                    ...schedules.filter((e: any) => e.type === "pass" && e.startDate <= tomorrowStr && e.endDate >= tomorrowStr),
+                                    ...sheetEvents.filter((e: any) => e.type === "pass" && e.startDate === tomorrowStr && !e.isDepartDay),
+                                    ...sheetEvents.filter((e: any) => e.type === "vacation" && e.startDate === tomorrowStr && e.isDepartDay && e.isConsecutive),
+                                ].some((e: any) => e.memo === name);
+                                return !isDuty && !isRecovery && !isVacation && !isPass;
+                            })
                             .sort((a, b) => (a.enlistmentDate || "").localeCompare(b.enlistmentDate || "") || a.name.localeCompare(b.name))
                             .map((m) => getMemberDisplayName(m)),
                     },
@@ -312,7 +333,83 @@ export const getRollCallData = onRequest((req, res) => {
 
         } catch (error: any) {
             logger.error("getRollCallData error:", error);
-            res.status(500).json({ status: "error", message: error.message });
+            return res.status(500).json({ status: "error", message: error.message });
         }
     });
 });
+
+// ── 카카오톡 챗봇 엔드포인트 ──────────────────────────────────────────────
+export const kakaoBot = onRequest((req, res) => {
+    return corsHandler(req, res, async () => {
+        try {
+            const body = req.body;
+            const utterance = body.userRequest?.utterance || "";
+            const todayStr = getKSTDateStr();
+
+            // "현황" 혹은 "점호" 키워드가 포함된 경우
+            if (utterance.includes("현황") || utterance.includes("점호")) {
+                // 1. 데이터 조회 (Firestore)
+                const [membersSnap, schedulesSnap] = await Promise.all([
+                    db.collection("members").get(),
+                    db.collection("schedules").get(),
+                ]);
+                const members = membersSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as any[];
+                const schedules = schedulesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as any[];
+
+                const nonRunnerMembers = members.filter((m) => m.role !== "runner");
+                const totalCount = nonRunnerMembers.length;
+
+                // 오늘 열외 인원 계산 (단순화된 로직: 오늘 날짜가 포함된 모든 스케줄)
+                const todayOffSet = new Set();
+                schedules.forEach((e) => {
+                    if ((e.type === "vacation" || e.type === "pass" || e.type === "duty") &&
+                        e.startDate <= todayStr && e.endDate >= todayStr) {
+                        const m = members.find((member) => member.name === e.memo);
+                        if (m && m.role !== "runner") {
+                            todayOffSet.add(m.name);
+                        }
+                    }
+                });
+
+                const offCount = todayOffSet.size;
+                const presentCount = totalCount - offCount;
+
+                return res.json({
+                    version: "2.0",
+                    template: {
+                        outputs: [{
+                            simpleText: {
+                                text: `📊 [${todayStr}] 점호 현황\n\n• 총원: ${totalCount}명\n• 열외: ${offCount}명\n• 현재원: ${presentCount}명\n\n상세 정보는 NCOA 앱에서 확인해주세요!`,
+                            },
+                        }],
+                    },
+                });
+            }
+
+            // 기본 응답 (메인 메뉴)
+            return res.json({
+                version: "2.0",
+                template: {
+                    outputs: [{
+                        simpleText: {
+                            text: "안녕하세요! NCOA 알림이입니다. 😊\n\n'현황'이라고 입력하시면 현재 점호 인원을 알려드려요.",
+                        },
+                    }],
+                    quickReplies: [
+                        { label: "현재 현황 확인", action: "message", messageText: "현황 알려줘" },
+                    ],
+                },
+            });
+
+        } catch (error: any) {
+            logger.error("kakaoBot error:", error);
+            return res.json({
+                version: "2.0",
+                template: {
+                    outputs: [{ simpleText: { text: "데이터를 가져오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요." } }],
+                },
+            });
+        }
+    });
+});
+
