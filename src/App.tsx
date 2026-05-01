@@ -3,14 +3,22 @@ import BottomNav from './components/BottomNav';
 import RollCallTab from './components/tabs/RollCallTab';
 import PersonnelTab from './components/tabs/PersonnelTab';
 import CalendarTab from './components/tabs/CalendarTab';
-import { auth } from './lib/firebase';
+import { auth, db } from './lib/firebase';
+import { onSnapshot, doc, collection, query, where } from 'firebase/firestore';
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import type { User } from 'firebase/auth';
 
 function App() {
-  const [activeTab, setActiveTab] = useState('rollcall');
+  const [activeTab, setActiveTab] = useState(() => {
+    const savedTab = localStorage.getItem('ncoa_active_tab');
+    return savedTab || 'rollcall';
+  });
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    localStorage.setItem('ncoa_active_tab', activeTab);
+  }, [activeTab]);
 
   // RollCallTab states lifted to persist across tab switches
   const [healthNote, setHealthNote] = useState('');
@@ -28,6 +36,8 @@ function App() {
     'BLC 업무지원': []
   });
   const [customSchedules, setCustomSchedules] = useState<{ name: string; participants: string[] }[]>([]);
+  const [ktaBatches, setKtaBatches] = useState<{batch: string, startDate: string}[]>([]);
+  const [ktaTemplate, setKtaTemplate] = useState<any>(null);
 
 
   useEffect(() => {
@@ -48,6 +58,85 @@ function App() {
 
     return () => unsubscribe();
   }, []);
+
+  // KTA 데이터 구독
+  useEffect(() => {
+    const qBatches = query(collection(db, 'schedules'), where('type', '==', 'kta'));
+    const unsubBatches = onSnapshot(qBatches, (snap) => {
+      const batches = snap.docs
+        .map(doc => {
+          const data = doc.data();
+          // memo가 'Day 0'으로 시작하는 것만 기수의 시작일로 간주
+          if (data.memo && data.memo.startsWith('Day 0')) {
+            return { batch: data.batch, startDate: data.startDate };
+          }
+          return null;
+        })
+        .filter((b): b is { batch: string, startDate: string } => !!b && !!b.batch && !!b.startDate);
+      setKtaBatches(batches);
+    });
+
+    const unsubTemplate = onSnapshot(doc(db, 'settings', 'ktaTemplate'), (snap) => {
+      if (snap.exists()) setKtaTemplate(snap.data());
+    });
+    return () => {
+      unsubBatches();
+      unsubTemplate();
+    };
+  }, []);
+
+  // 점호 탭 3번(주요일정) 자동 입력 로직 (HQ PT + 다중 KTA 기수)
+  useEffect(() => {
+    const tomorrow = new Date(baseDate);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowDay = tomorrow.getDay();
+    // 일~목(0~4)에 점호를 하면 내일이 월~금(1~5)이므로 PT가 있음
+    const isTomorrowWeekday = tomorrowDay >= 1 && tomorrowDay <= 5;
+
+    let scheduleLines: string[] = [];
+    if (isTomorrowWeekday) {
+      scheduleLines.push('0620 HQ PT');
+    }
+
+    // 2. KTA 일정 추가 로직 (모든 활성 기수에 대해 검사)
+    if (ktaBatches.length > 0 && ktaTemplate) {
+      const tomorrowCalc = new Date(baseDate);
+      tomorrowCalc.setDate(tomorrowCalc.getDate() + 1);
+      tomorrowCalc.setHours(0, 0, 0, 0);
+
+      ktaBatches.forEach(b => {
+        const ktaStart = new Date(b.startDate);
+        ktaStart.setHours(0, 0, 0, 0);
+
+        const diffTime = tomorrowCalc.getTime() - ktaStart.getTime();
+        const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+        if (diffDays >= 0 && diffDays <= 20) {
+          const dayData = ktaTemplate.schedules?.find((s: any) => s.day === diffDays);
+          if (dayData && dayData.events.length > 0) {
+            const batch = b.batch || '';
+            const ktaEvents = dayData.events
+              .map((e: string) => e.replace(/\{batch\}/g, batch));
+            
+            scheduleLines = [...scheduleLines, ...ktaEvents];
+          }
+        }
+      });
+    }
+
+    // 시간 순 정렬 (HHmm 형식으로 시작한다고 가정)
+    const sortedSchedule = scheduleLines
+      .filter(line => line.trim() !== '')
+      .sort((a, b) => {
+        const timeA = a.match(/^\d{4}/)?.[0] || '9999';
+        const timeB = b.match(/^\d{4}/)?.[0] || '9999';
+        return timeA.localeCompare(timeB);
+      })
+      .join('\n');
+
+    // 3. 날짜가 바뀌면 해당 날짜의 기본값으로 강제 업데이트
+    setScheduleText(sortedSchedule);
+  }, [baseDate, ktaBatches, ktaTemplate]);
 
   if (loading) {
     return (

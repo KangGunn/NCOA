@@ -1,15 +1,16 @@
 import { useState, useEffect } from 'react';
-import { collection, query, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { collection, query, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp, updateDoc, setDoc, getDocs, where } from 'firebase/firestore';
 import { db, auth } from '../../lib/firebase';
 import { Trash2, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 interface Event {
     id: string;
-    type: 'vacation' | 'pass' | 'duty';
+    type: 'duty' | 'kta';
     startDate: string;
     endDate: string;
     memo: string;
+    batch?: string;
 }
 
 export default function CalendarTab() {
@@ -18,19 +19,25 @@ export default function CalendarTab() {
     const [isAdding, setIsAdding] = useState(false);
     const [selectedDate, setSelectedDate] = useState<string | null>(null);
     const [activeAction, setActiveAction] = useState<{ id: string, mode: 'replace' | 'swap' } | null>(null);
-
-
-
     const [isBatchDutyAdding, setIsBatchDutyAdding] = useState(false);
     const [isBatchSaving, setIsBatchSaving] = useState(false);
     const [dutyHistory, setDutyHistory] = useState<string[]>([]);
 
+    // KTA Template state
+    const [isKTAScheduleAdding, setIsKTAScheduleAdding] = useState(false);
+    const [ktaScheduleTemplate, setKtaScheduleTemplate] = useState<{ day: number, events: string[] }[]>(Array.from({ length: 21 }, (_, i) => ({ day: i, events: [] })));
+    const [isKTASaving, setIsKTASaving] = useState(false);
+    const [ktaBatchInput, setKtaBatchInput] = useState('');
+    const [isSettingKtaDay0, setIsSettingKtaDay0] = useState(false);
+
     // Members state
     const [members, setMembers] = useState<{ id: string; name: string; enlistmentDate: string }[]>([]);
+    const [editingBatch, setEditingBatch] = useState<{ oldBatch: string; value: string } | null>(null);
 
     useEffect(() => {
         let unsubscribeSchedules: () => void = () => { };
         let unsubscribeMembers: () => void = () => { };
+        let unsubscribeKta: () => void = () => { };
 
         const authUnsubscribe = auth.onAuthStateChanged((user) => {
             if (user) {
@@ -66,9 +73,31 @@ export default function CalendarTab() {
                     });
                     setMembers(data);
                 });
+
+                // 3. KTA 주요일정 템플릿 구독
+                const qKta = doc(db, 'settings', 'ktaTemplate');
+                unsubscribeKta = onSnapshot(qKta, (docSnap) => {
+                    if (docSnap.exists()) {
+                        const savedSchedules = docSnap.data().schedules || [];
+                        setKtaScheduleTemplate(
+                            Array.from({ length: 21 }, (_, i) => {
+                                const found = savedSchedules.find((s: any) => s.day === i);
+                                if (found) {
+                                    // Migration: handle old string 'memo' if it exists, or use 'events'
+                                    const events = Array.isArray(found.events) ? found.events : (found.memo ? [found.memo] : []);
+                                    return { day: i, events };
+                                }
+                                return { day: i, events: [] };
+                            })
+                        );
+                    } else {
+                        setKtaScheduleTemplate(Array.from({ length: 21 }, (_, i) => ({ day: i, events: [] })));
+                    }
+                });
             } else {
                 setEvents([]);
                 setMembers([]);
+                setKtaScheduleTemplate(Array.from({ length: 21 }, (_, i) => ({ day: i, events: [] })));
             }
         });
 
@@ -76,6 +105,7 @@ export default function CalendarTab() {
             authUnsubscribe();
             unsubscribeSchedules();
             unsubscribeMembers();
+            unsubscribeKta();
         };
     }, []);
 
@@ -107,16 +137,57 @@ export default function CalendarTab() {
         }
     };
 
+    const handleUpdateBatch = async (oldBatch: string, newBatch: string) => {
+        if (!oldBatch || !newBatch || oldBatch === newBatch) {
+            setEditingBatch(null);
+            return;
+        }
+
+        try {
+            // 해당 기수의 모든 KTA 일정(Day 0, Graduation)을 찾아서 업데이트
+            const q = query(
+                collection(db, "schedules"),
+                where("type", "==", "kta"),
+                where("batch", "==", oldBatch)
+            );
+            const snapshot = await getDocs(q);
+
+            const updatePromises = snapshot.docs.map(docSnap => {
+                const data = docSnap.data();
+                const newMemo = data.memo.replace(`(${oldBatch})`, `(${newBatch})`);
+                return updateDoc(docSnap.ref, {
+                    batch: newBatch,
+                    memo: newMemo
+                });
+            });
+
+            await Promise.all(updatePromises);
+            setEditingBatch(null);
+        } catch (error) {
+            console.error("Error updating batch:", error);
+            alert("기수 수정 중 오류가 발생했습니다.");
+        }
+    };
+
     const handleDeleteEvent = async (id: string) => {
-        if (!confirm("일정을 삭제하시겠습니까?")) return;
-        
+        const eventToDelete = events.find(e => e.id === id);
+        const isKta = eventToDelete?.type === 'kta' && eventToDelete.batch;
+
+        if (!confirm(isKta ? `해당 기수(${eventToDelete.batch}기)의 모든 KTA 일정을 삭제하시겠습니까?` : "일정을 삭제하시겠습니까?")) return;
+
         setIsAdding(false);
         setSelectedDate(null);
 
         try {
-            await deleteDoc(doc(db, "schedules", id));
+            if (isKta) {
+                const linkedEvents = events.filter(e => e.type === 'kta' && e.batch === eventToDelete.batch);
+                await Promise.all(linkedEvents.map(e => deleteDoc(doc(db, "schedules", e.id))));
+            } else {
+                await deleteDoc(doc(db, "schedules", id));
+            }
         } catch (error) {
             console.error("Error deleting event:", error);
+            alert("삭제 중 오류가 발생했습니다.");
         }
     };
 
@@ -137,7 +208,7 @@ export default function CalendarTab() {
 
     const handleRealSwap = async (id1: string, name1: string, id2: string, name2: string) => {
         if (!confirm(`${name1}님과 ${name2}님의 근무 날짜를 교환하시겠습니까?`)) return;
-        
+
         setIsAdding(false);
         setSelectedDate(null);
         setActiveAction(null);
@@ -206,7 +277,7 @@ export default function CalendarTab() {
         try {
             const year = currentDate.getFullYear();
             const month = currentDate.getMonth();
-            
+
             // 1. 해당 월의 모든 기존 당직 찾기 (중복 방지를 위해 전체 조회 결과 사용)
             const currentMonthDuties = events.filter(e => {
                 if (e.type !== 'duty') return false;
@@ -236,7 +307,7 @@ export default function CalendarTab() {
                     }));
                 }
             }
-            
+
             if (addPromises.length > 0) {
                 await Promise.all(addPromises);
             }
@@ -248,6 +319,98 @@ export default function CalendarTab() {
             console.error("Error setting batch duties:", error);
             alert("당직 일괄 저장 중 오류가 발생했습니다.");
             setIsBatchSaving(false);
+        }
+    };
+
+    const handleKtaTemplateChange = (day: number, eventIndex: number, value: string) => {
+        setKtaScheduleTemplate(prev => prev.map(item => {
+            if (item.day === day) {
+                const newEvents = [...item.events];
+                newEvents[eventIndex] = value;
+                return { ...item, events: newEvents.filter((v, i) => v !== '' || i === eventIndex) };
+            }
+            return item;
+        }));
+    };
+
+    const addEventToTemplate = (day: number) => {
+        setKtaScheduleTemplate(prev => prev.map(item =>
+            item.day === day ? { ...item, events: [...item.events, ''] } : item
+        ));
+    };
+
+    const removeEventFromTemplate = (day: number, index: number) => {
+        setKtaScheduleTemplate(prev => prev.map(item =>
+            item.day === day ? { ...item, events: item.events.filter((_, i) => i !== index) } : item
+        ));
+    };
+
+    const handleKtaSave = async () => {
+        setIsKTASaving(true);
+        try {
+            await setDoc(doc(db, 'settings', 'ktaTemplate'), {
+                schedules: ktaScheduleTemplate.map(s => ({
+                    day: s.day,
+                    events: s.events.filter(e => e.trim() !== '')
+                }))
+            });
+            setIsKTAScheduleAdding(false);
+        } catch (error) {
+            console.error("Error saving KTA template:", error);
+            alert("KTA 일정 저장 중 오류가 발생했습니다.");
+        } finally {
+            setIsKTASaving(false);
+        }
+    };
+
+    const handleSetKtaDay0 = async () => {
+        if (!selectedDate || !ktaBatchInput.trim()) {
+            alert("기수 정보를 입력해주세요.");
+            return;
+        }
+
+        const user = auth.currentUser;
+        if (!user) return;
+
+        setIsKTASaving(true);
+        try {
+            const startDate = new Date(selectedDate);
+            const batch = ktaBatchInput.trim();
+
+            const addPromises = [];
+            const day0DateStr = startDate.toISOString().split('T')[0];
+            addPromises.push(addDoc(collection(db, "schedules"), {
+                uid: user.uid,
+                type: 'kta',
+                startDate: day0DateStr,
+                endDate: day0DateStr,
+                memo: `Day 0 (${batch})`,
+                batch: batch,
+                createdAt: serverTimestamp()
+            }));
+
+            const day20Date = new Date(startDate);
+            day20Date.setDate(startDate.getDate() + 20);
+            const day20DateStr = day20Date.toISOString().split('T')[0];
+            addPromises.push(addDoc(collection(db, "schedules"), {
+                uid: user.uid,
+                type: 'kta',
+                startDate: day20DateStr,
+                endDate: day20DateStr,
+                memo: `Graduation (${batch})`,
+                batch: batch,
+                createdAt: serverTimestamp()
+            }));
+
+            await Promise.all(addPromises);
+            setIsSettingKtaDay0(false);
+            setIsAdding(false);
+            setKtaBatchInput('');
+        } catch (error) {
+            console.error("Error setting KTA Day 0:", error);
+            alert("KTA 일정 등록 중 오류가 발생했습니다.");
+        } finally {
+            setIsKTASaving(false);
         }
     };
 
@@ -284,51 +447,74 @@ export default function CalendarTab() {
         const startDay = firstDayOfMonth(year, month);
         const days = [];
 
-        // Empty cells for previous month
-        for (let i = 0; i < startDay; i++) {
-            days.push(<div key={`empty-${i}`} className="h-24 sm:h-32" />);
-        }
-
-        // Days of current month
-        for (let d = 1; d <= totalDays; d++) {
-            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        // Reusable Day Component-like function
+        const renderDayCell = (d: number, m: number, y: number, isCurrentMonth: boolean) => {
+            const dateStr = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
             const dateEvents = getEventsForDate(dateStr);
             const isToday = new Date().toISOString().split('T')[0] === dateStr;
 
-            days.push(
+            return (
                 <div
-                    key={d}
+                    key={`${y}-${m}-${d}`}
                     onClick={() => {
                         setSelectedDate(dateStr);
                         setIsAdding(true);
                     }}
                     className={cn(
                         "h-24 sm:h-32 p-1 border-t border-gray-50 flex flex-col gap-1 transition-all cursor-pointer hover:bg-blue-50/30",
-                        selectedDate === dateStr && "bg-blue-50/50"
+                        selectedDate === dateStr && "bg-blue-50/50",
+                        !isCurrentMonth && "bg-gray-50/30"
                     )}
                 >
                     <span className={cn(
                         "text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full mt-1 ml-1",
-                        isToday ? "bg-blue-600 text-white" : "text-gray-400"
+                        isToday ? "bg-blue-600 text-white" : 
+                        isCurrentMonth ? "text-gray-400" : "text-gray-300"
                     )}>
                         {d}
                     </span>
                     <div className="flex flex-col gap-0.5 overflow-hidden">
-                        {dateEvents.map((e) => (
+                        {dateEvents.sort((a, b) => {
+                            const order = { duty: 1, kta: 2 };
+                            return (order[a.type as keyof typeof order] || 0) - (order[b.type as keyof typeof order] || 0);
+                        }).map((e) => (
                             <div
                                 key={e.id}
                                 className={cn(
                                     "text-[8.5px] font-black px-1 py-0.5 rounded truncate leading-tight",
-                                    e.type === 'vacation' ? "bg-blue-100 text-blue-700" :
-                                        e.type === 'duty' ? "bg-yellow-100 text-yellow-700" : "bg-indigo-100 text-indigo-700"
+                                    e.type === 'duty' ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700",
+                                    !isCurrentMonth && "opacity-50"
                                 )}
                             >
-                                {e.type === 'vacation' ? '휴가' : e.type === 'duty' ? e.memo : '외박'}
+                                {e.type === 'duty' ? e.memo : e.memo}
                             </div>
                         ))}
                     </div>
                 </div>
             );
+        };
+
+        // Fill leading days from previous month
+        const prevMonthDate = new Date(year, month, 0);
+        const prevMonthYear = prevMonthDate.getFullYear();
+        const prevMonthMonth = prevMonthDate.getMonth();
+        const prevMonthLastDate = prevMonthDate.getDate();
+        for (let i = startDay - 1; i >= 0; i--) {
+            days.push(renderDayCell(prevMonthLastDate - i, prevMonthMonth, prevMonthYear, false));
+        }
+
+        // Days of current month
+        for (let d = 1; d <= totalDays; d++) {
+            days.push(renderDayCell(d, month, year, true));
+        }
+
+        // Fill trailing days from next month to complete the last row
+        const nextMonthDate = new Date(year, month + 1, 1);
+        const nextMonthYear = nextMonthDate.getFullYear();
+        const nextMonthMonth = nextMonthDate.getMonth();
+        const remainingCells = days.length % 7 === 0 ? 0 : 7 - (days.length % 7);
+        for (let d = 1; d <= remainingCells; d++) {
+            days.push(renderDayCell(d, nextMonthMonth, nextMonthYear, false));
         }
 
         return (
@@ -356,7 +542,13 @@ export default function CalendarTab() {
 
             {renderCalendar()}
 
-            <div className="flex justify-end mt-4 px-1">
+            <div className="flex justify-end mt-4 px-1 gap-2 items-center">
+                <button
+                    onClick={() => setIsKTAScheduleAdding(true)}
+                    className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-black text-sm shadow-xl shadow-red-100 active:scale-95 transition-all outline-none"
+                >
+                    KTA 주요일정
+                </button>
                 <button
                     onClick={openBatchDutyModal}
                     className="px-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-white rounded-2xl font-black text-sm shadow-xl shadow-yellow-100 active:scale-95 transition-all outline-none"
@@ -371,27 +563,103 @@ export default function CalendarTab() {
                     <div className="w-full max-w-md bg-white rounded-[2.5rem] p-8 space-y-6 shadow-2xl animate-in slide-in-from-bottom-10">
                         <div className="flex items-center justify-between">
                             <h2 className="text-2xl font-black text-gray-900">일정 상세보기</h2>
-                            <button onClick={() => { setIsAdding(false); setSelectedDate(null); }} className="p-2 bg-gray-50 rounded-full hover:bg-gray-100">
-                                <X className="w-5 h-5 text-gray-400" />
-                            </button>
+                            <div className="flex items-center gap-2">
+                                {selectedDate && new Date(selectedDate).getDay() === 4 && !isSettingKtaDay0 && (
+                                    <button
+                                        onClick={() => setIsSettingKtaDay0(true)}
+                                        className="px-3 py-1.5 bg-red-50 text-red-600 rounded-xl text-xs font-black hover:bg-red-100 transition-colors"
+                                    >
+                                        KTA Day 0로 지정
+                                    </button>
+                                )}
+                                <button onClick={() => { setIsAdding(false); setSelectedDate(null); setIsSettingKtaDay0(false); }} className="p-2 bg-gray-50 rounded-full hover:bg-gray-100">
+                                    <X className="w-5 h-5 text-gray-400" />
+                                </button>
+                            </div>
                         </div>
+
+                        {isSettingKtaDay0 && (
+                            <div className="bg-red-50/50 p-4 rounded-3xl border border-red-100 space-y-3 animate-in slide-in-from-top-2">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="text-sm font-black text-red-900">KTA 기수 정보 입력</h3>
+                                    <button onClick={() => setIsSettingKtaDay0(false)} className="text-[10px] font-bold text-red-400 hover:text-red-600">취소</button>
+                                </div>
+                                <div className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        value={ktaBatchInput}
+                                        onChange={(e) => setKtaBatchInput(e.target.value)}
+                                        placeholder="예: 06-26"
+                                        className="flex-1 px-4 py-2 rounded-xl border border-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 text-sm font-bold"
+                                        autoFocus
+                                    />
+                                    <button
+                                        onClick={handleSetKtaDay0}
+                                        disabled={isKTASaving}
+                                        className="px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-black hover:bg-red-700 disabled:opacity-50"
+                                    >
+                                        설정
+                                    </button>
+                                </div>
+                                <p className="text-[10px] text-red-400 font-medium px-1">입력하신 기수가 템플릿의 {'{batch}'} 부분에 자동 적용됩니다.</p>
+                            </div>
+                        )}
 
                         {/* Event List for Selected Date */}
                         <div className="space-y-3">
-                            {selectedDate && getEventsForDate(selectedDate).map(e => (
+                            {selectedDate && getEventsForDate(selectedDate).sort((a, b) => {
+                                const order = { duty: 1, kta: 2 };
+                                return (order[a.type as keyof typeof order] || 0) - (order[b.type as keyof typeof order] || 0);
+                            }).map(e => (
                                 <div key={e.id} className="flex flex-col gap-3 p-4 bg-gray-50 rounded-2xl border border-gray-100">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-3">
-                                            <div className={cn("w-2 h-2 rounded-full", e.type === 'vacation' ? "bg-blue-500" : e.type === 'duty' ? "bg-yellow-500" : "bg-indigo-500")} />
+                                            <div className={cn("w-2 h-2 rounded-full", e.type === 'duty' ? "bg-yellow-500" : "bg-red-500")} />
                                             <div>
-                                                <div className="font-black text-sm text-gray-900">{e.type === 'vacation' ? '휴가' : e.type === 'duty' ? '당직' : '외박'}</div>
-                                                {e.memo && <div className="text-xs text-gray-500 font-medium mt-0.5">{e.memo}</div>}
+                                                <div className="font-black text-sm text-gray-900">{e.type === 'duty' ? '당직' : 'KTA'}</div>
+                                                {e.type === 'kta' && e.batch && editingBatch?.oldBatch === e.batch ? (
+                                                    <div className="flex items-center gap-2 mt-1">
+                                                        <input
+                                                            type="text"
+                                                            value={editingBatch.value}
+                                                            onChange={(ev) => setEditingBatch({ ...editingBatch, value: ev.target.value })}
+                                                            className="px-2 py-1 bg-white border border-red-200 rounded-lg text-[11px] font-black text-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 w-24"
+                                                            autoFocus
+                                                            onKeyDown={(ev) => {
+                                                                if (ev.key === 'Enter') handleUpdateBatch(editingBatch.oldBatch, editingBatch.value);
+                                                                if (ev.key === 'Escape') setEditingBatch(null);
+                                                            }}
+                                                        />
+                                                        <button
+                                                            onClick={() => handleUpdateBatch(editingBatch.oldBatch, editingBatch.value)}
+                                                            className="px-2 py-1 bg-red-600 text-white rounded-lg text-[10px] font-black hover:bg-red-700 transition-all"
+                                                        >
+                                                            저장
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setEditingBatch(null)}
+                                                            className="px-2 py-1 bg-white border border-gray-200 text-gray-500 rounded-lg text-[10px] font-black hover:bg-gray-50 transition-all"
+                                                        >
+                                                            취소
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    e.memo && <div className="text-xs text-gray-500 font-medium mt-0.5">{e.memo}</div>
+                                                )}
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-1">
+                                            {e.type === 'kta' && e.batch && !editingBatch && (
+                                                <button
+                                                    onClick={() => setEditingBatch({ oldBatch: e.batch!, value: e.batch! })}
+                                                    className="px-2 py-1.5 bg-white border border-red-100 text-red-600 rounded-lg text-[10px] font-black hover:bg-red-50 transition-all"
+                                                >
+                                                    기수 수정
+                                                </button>
+                                            )}
                                             {e.type === 'duty' && (
                                                 <>
-                                                    <button 
+                                                    <button
                                                         onClick={() => setActiveAction(activeAction?.id === e.id && activeAction.mode === 'replace' ? null : { id: e.id, mode: 'replace' })}
                                                         className={cn(
                                                             "px-2 py-1.5 rounded-lg text-[10px] font-black transition-all",
@@ -400,7 +668,7 @@ export default function CalendarTab() {
                                                     >
                                                         대체
                                                     </button>
-                                                    <button 
+                                                    <button
                                                         onClick={() => setActiveAction(activeAction?.id === e.id && activeAction.mode === 'swap' ? null : { id: e.id, mode: 'swap' })}
                                                         className={cn(
                                                             "px-2 py-1.5 rounded-lg text-[10px] font-black transition-all",
@@ -416,7 +684,7 @@ export default function CalendarTab() {
                                             </button>
                                         </div>
                                     </div>
-                                    
+
                                     {activeAction?.id === e.id && (
                                         <div className="pt-2 border-t border-gray-100 animate-in fade-in slide-in-from-top-2">
                                             {activeAction.mode === 'replace' ? (
@@ -435,7 +703,7 @@ export default function CalendarTab() {
                                                 <div className="space-y-1">
                                                     <p className="text-[9px] font-bold text-gray-400 mb-2 ml-1">교환할 다른 날짜의 당직을 선택하세요:</p>
                                                     <div className="grid grid-cols-2 gap-1 max-h-40 overflow-y-auto custom-scrollbar p-1">
-                                                        {events.filter(other => other.type === 'duty' && other.id !== e.id).sort((a,b) => a.startDate.localeCompare(b.startDate)).map(other => (
+                                                        {events.filter(other => other.type === 'duty' && other.id !== e.id).sort((a, b) => a.startDate.localeCompare(b.startDate)).map(other => (
                                                             <button
                                                                 key={other.id}
                                                                 onClick={() => handleRealSwap(e.id, e.memo, other.id, other.memo)}
@@ -547,17 +815,91 @@ export default function CalendarTab() {
                             >
                                 실행 취소
                             </button>
-                            <button 
-                                onClick={handleBatchSaveDuties} 
+                            <button
+                                onClick={handleBatchSaveDuties}
                                 disabled={isBatchSaving}
                                 className={cn(
                                     "flex-1 py-4 rounded-[1.5rem] font-black text-lg transition-all outline-none",
-                                    isBatchSaving 
-                                        ? "bg-gray-300 text-gray-500 cursor-not-allowed" 
+                                    isBatchSaving
+                                        ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                                         : "bg-yellow-500 hover:bg-yellow-600 text-white shadow-xl shadow-yellow-100 active:scale-95"
                                 )}
                             >
                                 {isBatchSaving ? '저장 중...' : '당직 일괄 저장'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* KTA Schedule Template Modal */}
+            {isKTAScheduleAdding && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                    <div className="w-full max-w-md bg-white rounded-[2.5rem] p-8 space-y-5 shadow-2xl animate-in slide-in-from-bottom-10 flex flex-col max-h-[90vh]">
+                        <div className="flex items-center justify-between shrink-0">
+                            <div>
+                                <h2 className="text-2xl font-black text-gray-900">KTA 주요일정 설정</h2>
+                                <p className="text-xs text-gray-500 font-bold mt-1">Day 0부터 Day 20까지의 일정을 미리 설정합니다.</p>
+                            </div>
+                            <button onClick={() => setIsKTAScheduleAdding(false)} className="p-2 bg-gray-50 rounded-full hover:bg-gray-100">
+                                <X className="w-5 h-5 text-gray-400" />
+                            </button>
+                        </div>
+
+                        <div className="overflow-y-auto flex-1 custom-scrollbar py-2 space-y-4 pr-2">
+                            {ktaScheduleTemplate.map((item) => (
+                                <div key={item.day} className="bg-gray-50/50 rounded-3xl p-4 border border-gray-50 space-y-3">
+                                    <div className="flex items-center justify-between px-1">
+                                        <div className="flex flex-col">
+                                            <span className="text-xs font-black text-gray-400">Day {item.day}</span>
+                                        </div>
+                                        <button
+                                            onClick={() => addEventToTemplate(item.day)}
+                                            className="text-[10px] font-black text-red-500 bg-white px-2 py-1 rounded-lg border border-red-100 hover:bg-red-50"
+                                        >
+                                            + 일정 추가
+                                        </button>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {item.events.map((evt, idx) => (
+                                            <div key={idx} className="flex gap-2 items-center">
+                                                <div className="flex-1">
+                                                    <input
+                                                        type="text"
+                                                        value={evt}
+                                                        onChange={(e) => handleKtaTemplateChange(item.day, idx, e.target.value)}
+                                                        placeholder="예: KTA {batch} PRT Demo"
+                                                        className="w-full px-3 py-2 bg-white border border-gray-100 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-red-500 transition-all"
+                                                    />
+                                                </div>
+                                                <button
+                                                    onClick={() => removeEventFromTemplate(item.day, idx)}
+                                                    className="p-2 text-gray-300 hover:text-red-400"
+                                                >
+                                                    <X className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                        {item.events.length === 0 && (
+                                            <p className="text-center py-2 text-[10px] text-gray-300 font-medium italic">등록된 일정이 없습니다.</p>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="pt-2 shrink-0">
+                            <button
+                                onClick={handleKtaSave}
+                                disabled={isKTASaving}
+                                className={cn(
+                                    "w-full py-4 rounded-[1.5rem] font-black text-lg transition-all outline-none",
+                                    isKTASaving
+                                        ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                                        : "bg-red-500 hover:bg-red-600 text-white shadow-xl shadow-red-100 active:scale-95"
+                                )}
+                            >
+                                {isKTASaving ? '저장 중...' : '주요일정 템플릿 저장'}
                             </button>
                         </div>
                     </div>
