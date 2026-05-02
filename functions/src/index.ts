@@ -412,4 +412,16 @@ export const kakaoBot = onRequest((req, res) => {
         }
     });
 });
-
+export const notifySpreadsheetUpdate = onRequest(async (req, res) => {
+    corsHandler(req, res, async () => {
+        try {
+            await db.collection("settings").doc("spreadsheet").set({
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            res.status(200).send({ status: "success" });
+        } catch (error) {
+            logger.error("notifySpreadsheetUpdate error", error);
+            res.status(500).send({ status: "error", message: "Internal Server Error" });
+        }
+    });
+});

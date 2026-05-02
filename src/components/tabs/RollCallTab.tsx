@@ -2,7 +2,7 @@ import { useState, useEffect, type Dispatch, type SetStateAction } from 'react';
 import { Copy, Check, Clock, FileText } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { db } from '../../lib/firebase';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, onSnapshot, doc } from 'firebase/firestore';
 
 
 
@@ -118,6 +118,7 @@ export default function RollCallTab({
 
     const [copiedType, setCopiedType] = useState<'evening' | 'morning' | null>(null);
     const [rollCallData, setRollCallData] = useState<RollCallData | null>(null);
+    const [refreshTrigger, setRefreshTrigger] = useState(0); 
     // 세션 UI 렌더링용 멤버 목록 (Firestore 실시간 구독)
     const [members, setMembers] = useState<Member[]>([]);
 
@@ -136,25 +137,80 @@ export default function RollCallTab({
         return () => unsub();
     }, []);
 
-    // 백엔드 API 호출 (날짜 변경 시마다 실행)
+    // 실시간 스프레드시트 업데이트 감지
     useEffect(() => {
-        const fetchData = async () => {
-            try {
-                const dateStr = `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, '0')}-${String(baseDate.getDate()).padStart(2, '0')}`;
-                const FUNCTION_URL = `https://getrollcalldata-daomamzojq-du.a.run.app`;
-                const res = await fetch(`${FUNCTION_URL}?date=${dateStr}`);
-                const json = await res.json();
-                if (json.status === 'success') {
-                    setRollCallData(json.data);
-                } else {
-                    console.error('백엔드 오류:', json.message);
+        const unsub = onSnapshot(doc(db, 'settings', 'spreadsheet'), (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                const lastServerUpdate = data.updatedAt?.toMillis() || 0;
+                const lastLocalUpdate = Number(localStorage.getItem('rollcall_last_sync') || 0);
+
+                if (lastServerUpdate > lastLocalUpdate) {
+                    // 서버 업데이트가 더 최신이면 캐시 무효화 후 새로고침 트리거
+                    const now = new Date();
+                    const realTodayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                    localStorage.removeItem(`rollcall_cache_${realTodayStr}`);
+                    localStorage.setItem('rollcall_last_sync', String(lastServerUpdate));
+                    setRefreshTrigger(prev => prev + 1);
                 }
-            } catch (err) {
-                console.error('fetchData error:', err);
             }
-        };
-        fetchData();
-    }, [baseDate]);
+        });
+        return () => unsub();
+    }, []);
+
+    // 백엔드 API 호출 함수
+    const fetchData = async () => {
+        try {
+            const dateStr = `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, '0')}-${String(baseDate.getDate()).padStart(2, '0')}`;
+            const now = new Date();
+            const realTodayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            const cacheKey = `rollcall_cache_${realTodayStr}`;
+
+            // 오늘 날짜인 경우에만 로컬 캐시 확인
+            if (dateStr === realTodayStr) {
+                const cached = localStorage.getItem(cacheKey);
+                if (cached) {
+                    setRollCallData(JSON.parse(cached));
+                    return;
+                }
+            }
+
+            setRollCallData(null);
+
+            const FUNCTION_URL = `https://getrollcalldata-daomamzojq-du.a.run.app`;
+            const res = await fetch(`${FUNCTION_URL}?date=${dateStr}`);
+            const json = await res.json();
+            
+            if (json.status === 'success') {
+                setRollCallData(json.data);
+                if (dateStr === realTodayStr) {
+                    localStorage.setItem(cacheKey, JSON.stringify(json.data));
+                    Object.keys(localStorage).forEach(key => {
+                        if (key.startsWith('rollcall_cache_') && key !== cacheKey) {
+                            localStorage.removeItem(key);
+                        }
+                    });
+                }
+            } else {
+                console.error('백엔드 오류:', json.message);
+            }
+        } catch (err) {
+            console.error('fetchData error:', err);
+        }
+    };
+
+    // 데이터 로드 로직 (날짜 변경 시 즉시, 신호 감지 시 5초 디바운스)
+    useEffect(() => {
+        // 처음 렌더링되거나 날짜가 바뀌면 즉시 호출
+        // 하지만 refreshTrigger(실시간 신호)에 의한 호출은 5초간 대기 (디바운싱)
+        const isInitialOrDateChange = refreshTrigger === 0; 
+        
+        const timer = setTimeout(() => {
+            fetchData();
+        }, isInitialOrDateChange ? 0 : 60000);
+
+        return () => clearTimeout(timer);
+    }, [baseDate, refreshTrigger]);
 
     const sheetEvents = rollCallData?.sheetEvents || [];
 
@@ -411,11 +467,6 @@ export default function RollCallTab({
     return (
         <div className="flex flex-col gap-8 pb-32 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <header className="pt-8 px-1">
-                <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                        <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-600 text-[10px] font-black uppercase tracking-wider">Attendance</span>
-                    </div>
-                </div>
                 <div className="flex items-center justify-between gap-4">
                     <h1 className="text-3xl font-black text-gray-900 tracking-tight">점호 보고 입력</h1>
                     <div className="relative group">

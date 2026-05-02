@@ -36,7 +36,7 @@ function App() {
     'BLC 업무지원': []
   });
   const [customSchedules, setCustomSchedules] = useState<{ name: string; participants: string[] }[]>([]);
-  const [ktaBatches, setKtaBatches] = useState<{batch: string, startDate: string}[]>([]);
+  const [ktaBatches, setKtaBatches] = useState<{ batch: string, startDate: string, ktaType?: 'A' | 'B' }[]>([]);
   const [ktaTemplate, setKtaTemplate] = useState<any>(null);
 
 
@@ -68,11 +68,15 @@ function App() {
           const data = doc.data();
           // memo가 'Day 0'으로 시작하는 것만 기수의 시작일로 간주
           if (data.memo && data.memo.startsWith('Day 0')) {
-            return { batch: data.batch, startDate: data.startDate };
+            return { 
+              batch: data.batch, 
+              startDate: data.startDate, 
+              ktaType: data.ktaType 
+            };
           }
           return null;
         })
-        .filter((b): b is { batch: string, startDate: string } => !!b && !!b.batch && !!b.startDate);
+        .filter((b): b is { batch: string, startDate: string, ktaType: 'A' | 'B' | undefined } => !!b && !!b.batch && !!b.startDate);
       setKtaBatches(batches);
     });
 
@@ -115,8 +119,17 @@ function App() {
           const dayData = ktaTemplate.schedules?.find((s: any) => s.day === diffDays);
           if (dayData && dayData.events.length > 0) {
             const batch = b.batch || '';
+            const type = b.ktaType || 'A';
             const ktaEvents = dayData.events
-              .map((e: string) => e.replace(/\{batch\}/g, batch));
+              .map((e: string) => {
+                let replaced = e.replace(/\{batch\}/g, `${batch} ${type}`);
+                if (type === 'A') {
+                  replaced = replaced.replace(/\{first\}/g, '1, 2').replace(/\{second\}/g, '3, 4');
+                } else {
+                  replaced = replaced.replace(/\{first\}/g, '3, 4').replace(/\{second\}/g, '1, 2');
+                }
+                return replaced;
+              });
             
             scheduleLines = [...scheduleLines, ...ktaEvents];
           }
@@ -167,7 +180,7 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-50 flex justify-center">
       <main className="w-full max-w-md min-h-screen bg-white shadow-2xl relative">
-        <div className="h-full pt-safe-top pb-32 px-6">
+        <div className="h-full pt-safe-top pb-6 px-6">
           {activeTab === 'rollcall' && (
             <RollCallTab 
               healthNote={healthNote}

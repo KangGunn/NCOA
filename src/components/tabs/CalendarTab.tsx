@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { collection, query, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp, updateDoc, setDoc, getDocs, where } from 'firebase/firestore';
 import { db, auth } from '../../lib/firebase';
 import { Trash2, ChevronLeft, ChevronRight, X } from 'lucide-react';
@@ -11,6 +12,7 @@ interface Event {
     endDate: string;
     memo: string;
     batch?: string;
+    ktaType?: 'A' | 'B';
 }
 
 export default function CalendarTab() {
@@ -28,11 +30,26 @@ export default function CalendarTab() {
     const [ktaScheduleTemplate, setKtaScheduleTemplate] = useState<{ day: number, events: string[] }[]>(Array.from({ length: 21 }, (_, i) => ({ day: i, events: [] })));
     const [isKTASaving, setIsKTASaving] = useState(false);
     const [ktaBatchInput, setKtaBatchInput] = useState('');
+    const [ktaTypeInput, setKtaTypeInput] = useState<'A' | 'B'>('A');
     const [isSettingKtaDay0, setIsSettingKtaDay0] = useState(false);
 
     // Members state
     const [members, setMembers] = useState<{ id: string; name: string; enlistmentDate: string }[]>([]);
-    const [editingBatch, setEditingBatch] = useState<{ oldBatch: string; value: string } | null>(null);
+    const [editingBatch, setEditingBatch] = useState<{ oldBatch: string; value: string; oldType?: 'A' | 'B'; ktaType?: 'A' | 'B' } | null>(null);
+
+    useEffect(() => {
+        if (isAdding || isBatchDutyAdding || isKTAScheduleAdding || isSettingKtaDay0) {
+            document.documentElement.style.overflow = 'hidden';
+            document.body.style.overflow = 'hidden';
+        } else {
+            document.documentElement.style.overflow = '';
+            document.body.style.overflow = '';
+        }
+        return () => {
+            document.documentElement.style.overflow = '';
+            document.body.style.overflow = '';
+        };
+    }, [isAdding, isBatchDutyAdding, isKTAScheduleAdding, isSettingKtaDay0]);
 
     useEffect(() => {
         let unsubscribeSchedules: () => void = () => { };
@@ -112,6 +129,40 @@ export default function CalendarTab() {
     const daysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
     const firstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
 
+    const getKtaReferenceDate = () => {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const ktaBatches = events
+            .filter(e => e.type === 'kta' && e.memo?.includes('Day 0'))
+            .sort((a, b) => a.startDate.localeCompare(b.startDate));
+        
+        if (ktaBatches.length === 0) return null;
+
+        const activeBatch = ktaBatches.find(b => {
+            const start = new Date(b.startDate);
+            const end = new Date(start);
+            end.setDate(start.getDate() + 20);
+            const endStr = end.toISOString().split('T')[0];
+            return todayStr >= b.startDate && todayStr <= endStr;
+        });
+
+        if (activeBatch) return new Date(activeBatch.startDate);
+
+        const nextBatch = ktaBatches.find(b => b.startDate > todayStr);
+        if (nextBatch) return new Date(nextBatch.startDate);
+
+        return new Date(ktaBatches[ktaBatches.length - 1].startDate);
+    };
+
+    const formatDateWithDay = (baseDate: Date, addDays: number) => {
+        const targetDate = new Date(baseDate);
+        targetDate.setDate(baseDate.getDate() + addDays);
+        const mm = String(targetDate.getMonth() + 1).padStart(2, '0');
+        const dd = String(targetDate.getDate()).padStart(2, '0');
+        const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+        const dayName = dayNames[targetDate.getDay()];
+        return `${mm}.${dd}(${dayName})`;
+    };
+
     const prevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1));
     const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1));
 
@@ -137,29 +188,102 @@ export default function CalendarTab() {
         }
     };
 
-    const handleUpdateBatch = async (oldBatch: string, newBatch: string) => {
-        if (!oldBatch || !newBatch || oldBatch === newBatch) {
+    const handleUpdateBatch = async (oldBatch: string, newBatch: string, newType?: 'A' | 'B') => {
+        if (!oldBatch || !newBatch) {
             setEditingBatch(null);
             return;
         }
 
         try {
-            // 해당 기수의 모든 KTA 일정(Day 0, Graduation)을 찾아서 업데이트
-            const q = query(
-                collection(db, "schedules"),
-                where("type", "==", "kta"),
-                where("batch", "==", oldBatch)
-            );
-            const snapshot = await getDocs(q);
-
-            const updatePromises = snapshot.docs.map(docSnap => {
+            const qAll = query(collection(db, "schedules"), where("type", "==", "kta"));
+            const allSnap = await getDocs(qAll);
+            
+            const batchMap = new Map<string, { startDate: string, type: 'A'|'B', docs: any[] }>();
+            
+            allSnap.docs.forEach(docSnap => {
                 const data = docSnap.data();
-                const newMemo = data.memo.replace(`(${oldBatch})`, `(${newBatch})`);
-                return updateDoc(docSnap.ref, {
-                    batch: newBatch,
-                    memo: newMemo
-                });
+                if (!data.batch) return;
+                
+                if (!batchMap.has(data.batch)) {
+                    batchMap.set(data.batch, { startDate: data.startDate, type: data.ktaType || 'A', docs: [] });
+                }
+                const b = batchMap.get(data.batch)!;
+                b.docs.push(docSnap);
+                if (data.memo?.includes('Day 0')) {
+                    b.startDate = data.startDate;
+                }
             });
+
+            const sortedBatches = Array.from(batchMap.entries()).sort((a, b) => a[1].startDate.localeCompare(b[1].startDate));
+            
+            const modIndex = sortedBatches.findIndex(b => b[0] === oldBatch);
+            
+            if (modIndex === -1) {
+                console.error("Batch not found in chronological list");
+                return;
+            }
+
+            let currentCalculatedBatch = newBatch;
+            let currentCalculatedType = newType || sortedBatches[modIndex][1].type;
+
+            const updatePromises: Promise<any>[] = [];
+
+            for (let i = modIndex; i < sortedBatches.length; i++) {
+                const [originalBatchStr, batchInfo] = sortedBatches[i];
+                
+                const targetBatchStr = currentCalculatedBatch;
+                const targetTypeStr = currentCalculatedType;
+
+                // Calculate next batch for the next iteration
+                if (targetBatchStr.includes('-')) {
+                    const parts = targetBatchStr.split('-');
+                    let num = parseInt(parts[0], 10);
+                    let year = parseInt(parts[1], 10);
+                    if (!isNaN(num) && !isNaN(year)) {
+                        num += 1;
+                        if (num > 12) {
+                            num = 1;
+                            year += 1;
+                        }
+                        currentCalculatedBatch = `${String(num).padStart(2, '0')}-${String(year).padStart(2, '0')}`;
+                    }
+                }
+                currentCalculatedType = targetTypeStr === 'A' ? 'B' : 'A';
+
+                batchInfo.docs.forEach(docSnap => {
+                    const data = docSnap.data();
+                    let newMemo = data.memo;
+                    
+                    const oldFull = `${originalBatchStr} ${batchInfo.type}`;
+                    const newFull = `${targetBatchStr} ${targetTypeStr}`;
+
+                    if (originalBatchStr !== targetBatchStr || batchInfo.type !== targetTypeStr) {
+                        if (newMemo.includes(`(${oldFull})`)) {
+                            newMemo = newMemo.replace(`(${oldFull})`, `(${newFull})`);
+                        } else if (newMemo.includes(`(${originalBatchStr})`)) {
+                            newMemo = newMemo.replace(`(${originalBatchStr})`, `(${newFull})`);
+                        } else if (newMemo.includes(oldFull)) {
+                            newMemo = newMemo.replace(oldFull, newFull);
+                        } else if (newMemo.includes(originalBatchStr)) {
+                            newMemo = newMemo.replace(originalBatchStr, newFull);
+                        }
+                    }
+
+                    if (batchInfo.type !== targetTypeStr) {
+                        if (batchInfo.type === 'A' && targetTypeStr === 'B') {
+                            newMemo = newMemo.replace(/1,\s*2/g, '@@@').replace(/3,\s*4/g, '1, 2').replace(/@@@/g, '3, 4');
+                        } else if (batchInfo.type === 'B' && targetTypeStr === 'A') {
+                            newMemo = newMemo.replace(/3,\s*4/g, '@@@').replace(/1,\s*2/g, '3, 4').replace(/@@@/g, '1, 2');
+                        }
+                    }
+
+                    updatePromises.push(updateDoc(docSnap.ref, {
+                        batch: targetBatchStr,
+                        memo: newMemo,
+                        ktaType: targetTypeStr
+                    }));
+                });
+            }
 
             await Promise.all(updatePromises);
             setEditingBatch(null);
@@ -291,7 +415,7 @@ export default function CalendarTab() {
             }
 
             // 3. 삭제가 확인된 후 새로운 데이터 추가
-            const addPromises = [];
+            const addPromises: Promise<any>[] = [];
             for (let i = 0; i < dutyHistory.length; i++) {
                 const name = dutyHistory[i];
                 if (name && name.trim()) {
@@ -376,19 +500,24 @@ export default function CalendarTab() {
         try {
             const startDate = new Date(selectedDate);
             const batch = ktaBatchInput.trim();
+            const type = ktaTypeInput;
 
-            const addPromises = [];
+            const addPromises: Promise<any>[] = [];
             const day0DateStr = startDate.toISOString().split('T')[0];
+            
+            // Day 0 추가
             addPromises.push(addDoc(collection(db, "schedules"), {
                 uid: user.uid,
                 type: 'kta',
                 startDate: day0DateStr,
                 endDate: day0DateStr,
-                memo: `Day 0 (${batch})`,
+                memo: `Day 0 (${batch} ${type})`,
                 batch: batch,
+                ktaType: type,
                 createdAt: serverTimestamp()
             }));
 
+            // Graduation (Day 20) 추가
             const day20Date = new Date(startDate);
             day20Date.setDate(startDate.getDate() + 20);
             const day20DateStr = day20Date.toISOString().split('T')[0];
@@ -397,8 +526,9 @@ export default function CalendarTab() {
                 type: 'kta',
                 startDate: day20DateStr,
                 endDate: day20DateStr,
-                memo: `Graduation (${batch})`,
+                memo: `Graduation (${batch} ${type})`,
                 batch: batch,
+                ktaType: type,
                 createdAt: serverTimestamp()
             }));
 
@@ -406,6 +536,7 @@ export default function CalendarTab() {
             setIsSettingKtaDay0(false);
             setIsAdding(false);
             setKtaBatchInput('');
+            setKtaTypeInput('A');
         } catch (error) {
             console.error("Error setting KTA Day 0:", error);
             alert("KTA 일정 등록 중 오류가 발생했습니다.");
@@ -558,8 +689,8 @@ export default function CalendarTab() {
             </div>
 
             {/* Event Detail / Modal */}
-            {isAdding && (
-                <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            {isAdding && createPortal(
+                <div className="fixed inset-y-0 left-1/2 -translate-x-1/2 w-full max-w-md z-[100] flex items-end sm:items-center justify-center bg-black/30 backdrop-blur-sm p-4 animate-in fade-in duration-200">
                     <div className="w-full max-w-md bg-white rounded-[2.5rem] p-8 space-y-6 shadow-2xl animate-in slide-in-from-bottom-10">
                         <div className="flex items-center justify-between">
                             <h2 className="text-2xl font-black text-gray-900">일정 상세보기</h2>
@@ -584,19 +715,28 @@ export default function CalendarTab() {
                                     <h3 className="text-sm font-black text-red-900">KTA 기수 정보 입력</h3>
                                     <button onClick={() => setIsSettingKtaDay0(false)} className="text-[10px] font-bold text-red-400 hover:text-red-600">취소</button>
                                 </div>
-                                <div className="flex gap-2">
+                                <div className="flex items-center gap-2">
+                                    <select
+                                        value={ktaTypeInput}
+                                        onChange={(e) => setKtaTypeInput(e.target.value as 'A' | 'B')}
+                                        className="w-16 px-2 py-2 rounded-xl border border-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 text-sm font-bold bg-white text-red-600 text-center"
+                                    >
+                                        <option value="A">A</option>
+                                        <option value="B">B</option>
+                                    </select>
                                     <input
                                         type="text"
                                         value={ktaBatchInput}
                                         onChange={(e) => setKtaBatchInput(e.target.value)}
-                                        placeholder="예: 06-26"
-                                        className="flex-1 px-4 py-2 rounded-xl border border-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 text-sm font-bold"
+                                        placeholder="06-26"
+                                        className="w-24 px-4 py-2 rounded-xl border border-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 text-sm font-bold text-center"
                                         autoFocus
                                     />
+                                    <div className="flex-1" />
                                     <button
                                         onClick={handleSetKtaDay0}
                                         disabled={isKTASaving}
-                                        className="px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-black hover:bg-red-700 disabled:opacity-50"
+                                        className="px-5 py-2 bg-red-600 text-white rounded-xl text-sm font-black hover:bg-red-700 disabled:opacity-50 transition-all active:scale-95 whitespace-nowrap"
                                     >
                                         설정
                                     </button>
@@ -619,6 +759,14 @@ export default function CalendarTab() {
                                                 <div className="font-black text-sm text-gray-900">{e.type === 'duty' ? '당직' : 'KTA'}</div>
                                                 {e.type === 'kta' && e.batch && editingBatch?.oldBatch === e.batch ? (
                                                     <div className="flex items-center gap-2 mt-1">
+                                                        <select
+                                                            value={editingBatch.ktaType || 'A'}
+                                                            onChange={(ev) => setEditingBatch({ ...editingBatch, ktaType: ev.target.value as 'A' | 'B' })}
+                                                            className="px-2 py-1 bg-white border border-red-200 rounded-lg text-[11px] font-black text-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 w-12"
+                                                        >
+                                                            <option value="A">A</option>
+                                                            <option value="B">B</option>
+                                                        </select>
                                                         <input
                                                             type="text"
                                                             value={editingBatch.value}
@@ -626,12 +774,12 @@ export default function CalendarTab() {
                                                             className="px-2 py-1 bg-white border border-red-200 rounded-lg text-[11px] font-black text-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 w-24"
                                                             autoFocus
                                                             onKeyDown={(ev) => {
-                                                                if (ev.key === 'Enter') handleUpdateBatch(editingBatch.oldBatch, editingBatch.value);
+                                                                if (ev.key === 'Enter') handleUpdateBatch(editingBatch.oldBatch, editingBatch.value, editingBatch.ktaType);
                                                                 if (ev.key === 'Escape') setEditingBatch(null);
                                                             }}
                                                         />
                                                         <button
-                                                            onClick={() => handleUpdateBatch(editingBatch.oldBatch, editingBatch.value)}
+                                                            onClick={() => handleUpdateBatch(editingBatch.oldBatch, editingBatch.value, editingBatch.ktaType)}
                                                             className="px-2 py-1 bg-red-600 text-white rounded-lg text-[10px] font-black hover:bg-red-700 transition-all"
                                                         >
                                                             저장
@@ -651,7 +799,7 @@ export default function CalendarTab() {
                                         <div className="flex items-center gap-1">
                                             {e.type === 'kta' && e.batch && !editingBatch && (
                                                 <button
-                                                    onClick={() => setEditingBatch({ oldBatch: e.batch!, value: e.batch! })}
+                                                    onClick={() => setEditingBatch({ oldBatch: e.batch!, value: e.batch!, oldType: e.ktaType || 'A', ktaType: e.ktaType || 'A' })}
                                                     className="px-2 py-1.5 bg-white border border-red-100 text-red-600 rounded-lg text-[10px] font-black hover:bg-red-50 transition-all"
                                                 >
                                                     기수 수정
@@ -746,12 +894,13 @@ export default function CalendarTab() {
                             </div>
                         )}
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
             {/* Batch Duty Modal */}
-            {isBatchDutyAdding && (
-                <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            {isBatchDutyAdding && createPortal(
+                <div className="fixed inset-y-0 left-1/2 -translate-x-1/2 w-full max-w-md z-[100] flex items-end sm:items-center justify-center bg-black/30 backdrop-blur-sm p-4 animate-in fade-in duration-200">
                     <div className="w-full max-w-md bg-white rounded-[2.5rem] p-8 space-y-5 shadow-2xl animate-in slide-in-from-bottom-10 flex flex-col max-h-[90vh]">
                         <div className="flex items-center justify-between shrink-0">
                             <div>
@@ -829,12 +978,13 @@ export default function CalendarTab() {
                             </button>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
             {/* KTA Schedule Template Modal */}
-            {isKTAScheduleAdding && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            {isKTAScheduleAdding && createPortal(
+                <div className="fixed inset-y-0 left-1/2 -translate-x-1/2 w-full max-w-md z-[100] flex items-center justify-center bg-black/30 backdrop-blur-sm p-4 animate-in fade-in duration-200">
                     <div className="w-full max-w-md bg-white rounded-[2.5rem] p-8 space-y-5 shadow-2xl animate-in slide-in-from-bottom-10 flex flex-col max-h-[90vh]">
                         <div className="flex items-center justify-between shrink-0">
                             <div>
@@ -850,8 +1000,13 @@ export default function CalendarTab() {
                             {ktaScheduleTemplate.map((item) => (
                                 <div key={item.day} className="bg-gray-50/50 rounded-3xl p-4 border border-gray-50 space-y-3">
                                     <div className="flex items-center justify-between px-1">
-                                        <div className="flex flex-col">
-                                            <span className="text-xs font-black text-gray-400">Day {item.day}</span>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs font-black text-red-500">Day {item.day}</span>
+                                            {getKtaReferenceDate() && (
+                                                <span className="text-[10px] font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded-lg">
+                                                    {formatDateWithDay(getKtaReferenceDate()!, item.day)}
+                                                </span>
+                                            )}
                                         </div>
                                         <button
                                             onClick={() => addEventToTemplate(item.day)}
@@ -903,7 +1058,8 @@ export default function CalendarTab() {
                             </button>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );
