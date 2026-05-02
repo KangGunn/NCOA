@@ -116,7 +116,7 @@ export default function PersonnelTab() {
                                         }
                                     </span>
                                     {(m.earlyPromotion || 0) > 0 && (
-                                        <span className="px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-600 text-[9px] font-extrabold">조기{m.earlyPromotion}</span>
+                                        <span className="px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-600 text-[9px] font-extrabold">{m.earlyPromotion}조진</span>
                                     )}
                                     {m.role !== 'runner' && (m.sections?.length || 0) > 0 && (
                                         <div className="flex gap-1 flex-wrap">
