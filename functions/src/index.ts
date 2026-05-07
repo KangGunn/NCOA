@@ -243,10 +243,10 @@ export const getRollCallData = onRequest((req, res) => {
                 ...sheetEvents.filter((e) => e.type === "pass" && e.startDate === todayStr && !e.isReturnDay),
             ].filter((e) => members.find((m) => m.name === e.memo)?.role !== "runner");
 
-            const todayDutiesFiltered = todayDuties.filter((d) => members.find((m) => m.name === d.memo)?.role !== "runner");
+            const todayDutiesFilteredForStats = todayDuties.filter((d) => members.find((m) => m.name === d.memo)?.role !== "runner");
 
-            // 5. 인원 통계 계산
-            const dutyCount = todayDutiesFiltered.length;
+            // 5. 인원 통계 계산 (러너 제외 실제 병력 기준)
+            const dutyCount = todayDutiesFilteredForStats.length;
             const vacationCount = todayVacations.length;
             const passCount = todayPasses.length;
             const offCount = dutyCount + vacationCount + passCount;
@@ -271,9 +271,9 @@ export const getRollCallData = onRequest((req, res) => {
                     stats: { total: totalCount, present: presentCount, absent: offCount, dutyCount, vacationCount, passCount },
                     // 저녁점호용 데이터
                     evening: {
-                        duties: todayDutiesFiltered.map((d) => getDisplayName(d.memo)),
-                        recoveries: todayDutiesFiltered.map((d) => getDisplayName(d.memo)), // 당일 당직 = 익일 리커버리
-                        tomorrowDuties: tomorrowDuties.filter((d) => members.find((m) => m.name === d.memo)?.role !== "runner").map((d) => getDisplayName(d.memo)),
+                        duties: todayDuties.map((d) => getDisplayName(d.memo)),
+                        recoveries: todayDuties.map((d) => getDisplayName(d.memo)), // 당일 당직 = 익일 리커버리
+                        tomorrowDuties: tomorrowDuties.map((d) => getDisplayName(d.memo)),
                         tomorrowDeparts: tomorrowDeparts.map((e) => getDisplayName(e.memo)),
                         vacations: todayVacations.map((e) => ({
                             name: getDisplayName(e.memo),
@@ -295,8 +295,8 @@ export const getRollCallData = onRequest((req, res) => {
                     // 아침점호용 데이터 (내일 기준)
                     morning: {
                         tomorrowStr,
-                        duties: tomorrowDuties.filter((d) => members.find((m) => m.name === d.memo)?.role !== "runner").map((d) => getDisplayName(d.memo)),
-                        recoveries: todayDuties.filter((d) => members.find((m) => m.name === d.memo)?.role !== "runner").map((d) => getDisplayName(d.memo)),
+                        duties: tomorrowDuties.map((d) => getDisplayName(d.memo)),
+                        recoveries: todayDuties.map((d) => getDisplayName(d.memo)),
                         vacations: [
                             ...schedules.filter((e: any) => e.type === "vacation" && e.startDate <= tomorrowStr && e.endDate >= tomorrowStr),
                             ...sheetEvents.filter((e: any) => e.type === "vacation" && e.startDate === tomorrowStr && !e.isDepartDay),
@@ -311,7 +311,7 @@ export const getRollCallData = onRequest((req, res) => {
                             .filter((m) => {
                                 const name = m.name;
                                 const isDuty = tomorrowDuties.some((d: any) => d.memo === name);
-                                const isRecovery = todayDutiesFiltered.some((d: any) => d.memo === name);
+                                const isRecovery = todayDuties.some((d: any) => d.memo === name);
                                 const isVacation = [
                                     ...schedules.filter((e: any) => e.type === "vacation" && e.startDate <= tomorrowStr && e.endDate >= tomorrowStr),
                                     ...sheetEvents.filter((e: any) => e.type === "vacation" && e.startDate === tomorrowStr && !e.isDepartDay),

@@ -1,5 +1,5 @@
 import { useState, useEffect, type Dispatch, type SetStateAction } from 'react';
-import { Copy, Check, Clock, FileText } from 'lucide-react';
+import { Copy, Check, Clock, FileText, RotateCcw } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { db } from '../../lib/firebase';
 import { collection, onSnapshot, doc } from 'firebase/firestore';
@@ -157,6 +157,13 @@ export default function RollCallTab({
         });
         return () => unsub();
     }, []);
+
+    const handleManualRefresh = async () => {
+        const dateStr = `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, '0')}-${String(baseDate.getDate()).padStart(2, '0')}`;
+        const cacheKey = `rollcall_cache_${dateStr}`;
+        localStorage.removeItem(cacheKey);
+        await fetchData();
+    };
 
     // 백엔드 API 호출 함수
     const fetchData = async () => {
@@ -467,15 +474,26 @@ export default function RollCallTab({
     return (
         <div className="flex flex-col gap-8 pb-32 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <header className="pt-8 px-1">
-                <div className="flex items-center justify-between gap-4">
-                    <h1 className="text-3xl font-black text-gray-900 tracking-tight">점호 보고 입력</h1>
-                    <div className="relative group">
-                        <input
-                            type="date"
-                            value={todayStr}
-                            onChange={(e) => setBaseDate(new Date(e.target.value))}
-                            className="bg-white border-2 border-slate-200 rounded-2xl px-3 py-1.5 text-[11px] font-bold text-slate-600 focus:outline-none focus:border-blue-500 transition-all hover:border-slate-300"
-                        />
+                <div className="flex items-start justify-between gap-4">
+                    <div className="h-[38px] flex items-center">
+                        <h1 className="text-3xl font-black text-gray-900 tracking-tight leading-none">점호 보고 입력</h1>
+                    </div>
+                    <div className="flex flex-col gap-2 min-w-[125px]">
+                        <div className="relative group w-full">
+                            <input
+                                type="date"
+                                value={todayStr}
+                                onChange={(e) => setBaseDate(new Date(e.target.value))}
+                                className="w-full h-[38px] bg-white border-2 border-slate-200 rounded-xl px-3 text-[11px] font-bold text-slate-600 focus:outline-none focus:border-blue-500 transition-all hover:border-slate-300"
+                            />
+                        </div>
+                        <button
+                            onClick={handleManualRefresh}
+                            className="w-full h-[38px] flex items-center justify-center gap-1.5 px-2.5 rounded-xl bg-white border-2 border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-95 shadow-sm shadow-slate-100"
+                        >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span className="text-[11px] font-bold">새로고침</span>
+                        </button>
                     </div>
                 </div>
             </header>
