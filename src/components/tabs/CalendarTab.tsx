@@ -29,16 +29,13 @@ export default function CalendarTab() {
     const [isKTAScheduleAdding, setIsKTAScheduleAdding] = useState(false);
     const [ktaScheduleTemplate, setKtaScheduleTemplate] = useState<{ day: number, events: string[] }[]>(Array.from({ length: 21 }, (_, i) => ({ day: i, events: [] })));
     const [isKTASaving, setIsKTASaving] = useState(false);
-    const [ktaBatchInput, setKtaBatchInput] = useState('');
-    const [ktaTypeInput, setKtaTypeInput] = useState<'A' | 'B'>('A');
-    const [isSettingKtaDay0, setIsSettingKtaDay0] = useState(false);
 
     // Members state
     const [members, setMembers] = useState<{ id: string; name: string; enlistmentDate: string }[]>([]);
     const [editingBatch, setEditingBatch] = useState<{ oldBatch: string; value: string; oldType?: 'A' | 'B'; ktaType?: 'A' | 'B' } | null>(null);
 
     useEffect(() => {
-        if (isAdding || isBatchDutyAdding || isKTAScheduleAdding || isSettingKtaDay0) {
+        if (isAdding || isBatchDutyAdding || isKTAScheduleAdding) {
             document.documentElement.style.overflow = 'hidden';
             document.body.style.overflow = 'hidden';
         } else {
@@ -49,7 +46,7 @@ export default function CalendarTab() {
             document.documentElement.style.overflow = '';
             document.body.style.overflow = '';
         };
-    }, [isAdding, isBatchDutyAdding, isKTAScheduleAdding, isSettingKtaDay0]);
+    }, [isAdding, isBatchDutyAdding, isKTAScheduleAdding]);
 
     useEffect(() => {
         let unsubscribeSchedules: () => void = () => { };
@@ -125,6 +122,87 @@ export default function CalendarTab() {
             unsubscribeKta();
         };
     }, []);
+
+    const handleAutoKtaDay0 = async () => {
+        if (!selectedDate) return;
+        
+        const user = auth.currentUser;
+        if (!user) return;
+
+        // 1. 가장 최근 Day 0 일정을 찾아서 다음 기수 정보 자동 계산
+        const lastDay0Event = [...events]
+            .filter(e => e.type === 'kta' && e.memo?.includes('Day 0'))
+            .sort((a, b) => b.startDate.localeCompare(a.startDate))[0];
+
+        let nextBatch = "01-01";
+        let nextType: 'A' | 'B' = "A";
+
+        if (lastDay0Event) {
+            const lastBatch = lastDay0Event.batch || "";
+            const lastType = lastDay0Event.ktaType || "A";
+
+            // 기수 증분 (07-26 -> 08-26)
+            const batchMatch = lastBatch.match(/^(\d+)(.*)$/);
+            if (batchMatch) {
+                const currentNum = parseInt(batchMatch[1], 10);
+                const nextNum = String(currentNum + 1).padStart(2, '0');
+                const suffix = batchMatch[2];
+                nextBatch = `${nextNum}${suffix}`;
+            } else {
+                nextBatch = lastBatch;
+            }
+
+            // A/B 전환
+            nextType = lastType === "A" ? "B" : "A";
+        }
+
+        if (!confirm(`${nextBatch} ${nextType} 기수로 일정을 등록하시겠습니까?\n(Day 0: ${selectedDate})`)) {
+            return;
+        }
+
+        setIsKTASaving(true);
+        try {
+            const startDate = new Date(selectedDate);
+            const addPromises: Promise<any>[] = [];
+            const day0DateStr = startDate.toISOString().split('T')[0];
+            
+            // Day 0 추가
+            addPromises.push(addDoc(collection(db, "schedules"), {
+                uid: user.uid,
+                type: 'kta',
+                startDate: day0DateStr,
+                endDate: day0DateStr,
+                memo: `Day 0 (${nextBatch} ${nextType})`,
+                batch: nextBatch,
+                ktaType: nextType,
+                createdAt: serverTimestamp()
+            }));
+
+            // Graduation (Day 20) 추가
+            const day20Date = new Date(startDate);
+            day20Date.setDate(startDate.getDate() + 20);
+            const day20DateStr = day20Date.toISOString().split('T')[0];
+            addPromises.push(addDoc(collection(db, "schedules"), {
+                uid: user.uid,
+                type: 'kta',
+                startDate: day20DateStr,
+                endDate: day20DateStr,
+                memo: `Graduation (${nextBatch} ${nextType})`,
+                batch: nextBatch,
+                ktaType: nextType,
+                createdAt: serverTimestamp()
+            }));
+
+            await Promise.all(addPromises);
+            setIsAdding(false);
+            setSelectedDate(null);
+        } catch (error) {
+            console.error("Error auto-setting KTA Day 0:", error);
+            alert("KTA 일정 등록 중 오류가 발생했습니다.");
+        } finally {
+            setIsKTASaving(false);
+        }
+    };
 
     const daysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
     const firstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
@@ -487,63 +565,6 @@ export default function CalendarTab() {
         }
     };
 
-    const handleSetKtaDay0 = async () => {
-        if (!selectedDate || !ktaBatchInput.trim()) {
-            alert("기수 정보를 입력해주세요.");
-            return;
-        }
-
-        const user = auth.currentUser;
-        if (!user) return;
-
-        setIsKTASaving(true);
-        try {
-            const startDate = new Date(selectedDate);
-            const batch = ktaBatchInput.trim();
-            const type = ktaTypeInput;
-
-            const addPromises: Promise<any>[] = [];
-            const day0DateStr = startDate.toISOString().split('T')[0];
-            
-            // Day 0 추가
-            addPromises.push(addDoc(collection(db, "schedules"), {
-                uid: user.uid,
-                type: 'kta',
-                startDate: day0DateStr,
-                endDate: day0DateStr,
-                memo: `Day 0 (${batch} ${type})`,
-                batch: batch,
-                ktaType: type,
-                createdAt: serverTimestamp()
-            }));
-
-            // Graduation (Day 20) 추가
-            const day20Date = new Date(startDate);
-            day20Date.setDate(startDate.getDate() + 20);
-            const day20DateStr = day20Date.toISOString().split('T')[0];
-            addPromises.push(addDoc(collection(db, "schedules"), {
-                uid: user.uid,
-                type: 'kta',
-                startDate: day20DateStr,
-                endDate: day20DateStr,
-                memo: `Graduation (${batch} ${type})`,
-                batch: batch,
-                ktaType: type,
-                createdAt: serverTimestamp()
-            }));
-
-            await Promise.all(addPromises);
-            setIsSettingKtaDay0(false);
-            setIsAdding(false);
-            setKtaBatchInput('');
-            setKtaTypeInput('A');
-        } catch (error) {
-            console.error("Error setting KTA Day 0:", error);
-            alert("KTA 일정 등록 중 오류가 발생했습니다.");
-        } finally {
-            setIsKTASaving(false);
-        }
-    };
 
     const isDateInRange = (dateStr: string, start: string, end: string) => {
         return dateStr >= start && dateStr <= end;
@@ -695,55 +716,21 @@ export default function CalendarTab() {
                         <div className="flex items-center justify-between">
                             <h2 className="text-2xl font-black text-gray-900">일정 상세보기</h2>
                             <div className="flex items-center gap-2">
-                                {selectedDate && new Date(selectedDate).getDay() === 4 && !isSettingKtaDay0 && (
+                                {selectedDate && new Date(selectedDate).getDay() === 4 && (
                                     <button
-                                        onClick={() => setIsSettingKtaDay0(true)}
-                                        className="px-3 py-1.5 bg-red-50 text-red-600 rounded-xl text-xs font-black hover:bg-red-100 transition-colors"
+                                        onClick={handleAutoKtaDay0}
+                                        disabled={isKTASaving}
+                                        className="px-3 py-1.5 bg-red-50 text-red-600 rounded-xl text-xs font-black hover:bg-red-100 transition-colors disabled:opacity-50"
                                     >
                                         KTA Day 0로 지정
                                     </button>
                                 )}
-                                <button onClick={() => { setIsAdding(false); setSelectedDate(null); setIsSettingKtaDay0(false); }} className="p-2 bg-gray-50 rounded-full hover:bg-gray-100">
+                                <button onClick={() => { setIsAdding(false); setSelectedDate(null); }} className="p-2 bg-gray-50 rounded-full hover:bg-gray-100">
                                     <X className="w-5 h-5 text-gray-400" />
                                 </button>
                             </div>
                         </div>
 
-                        {isSettingKtaDay0 && (
-                            <div className="bg-red-50/50 p-4 rounded-3xl border border-red-100 space-y-3 animate-in slide-in-from-top-2">
-                                <div className="flex items-center justify-between">
-                                    <h3 className="text-sm font-black text-red-900">KTA 기수 정보 입력</h3>
-                                    <button onClick={() => setIsSettingKtaDay0(false)} className="text-[10px] font-bold text-red-400 hover:text-red-600">취소</button>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <select
-                                        value={ktaTypeInput}
-                                        onChange={(e) => setKtaTypeInput(e.target.value as 'A' | 'B')}
-                                        className="w-16 px-2 py-2 rounded-xl border border-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 text-sm font-bold bg-white text-red-600 text-center"
-                                    >
-                                        <option value="A">A</option>
-                                        <option value="B">B</option>
-                                    </select>
-                                    <input
-                                        type="text"
-                                        value={ktaBatchInput}
-                                        onChange={(e) => setKtaBatchInput(e.target.value)}
-                                        placeholder="06-26"
-                                        className="w-24 px-4 py-2 rounded-xl border border-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 text-sm font-bold text-center"
-                                        autoFocus
-                                    />
-                                    <div className="flex-1" />
-                                    <button
-                                        onClick={handleSetKtaDay0}
-                                        disabled={isKTASaving}
-                                        className="px-5 py-2 bg-red-600 text-white rounded-xl text-sm font-black hover:bg-red-700 disabled:opacity-50 transition-all active:scale-95 whitespace-nowrap"
-                                    >
-                                        설정
-                                    </button>
-                                </div>
-                                <p className="text-[10px] text-red-400 font-medium px-1">입력하신 기수가 템플릿의 {'{batch}'} 부분에 자동 적용됩니다.</p>
-                            </div>
-                        )}
 
                         {/* Event List for Selected Date */}
                         <div className="space-y-3">

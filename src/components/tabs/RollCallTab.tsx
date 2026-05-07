@@ -2,7 +2,7 @@ import { useState, useEffect, type Dispatch, type SetStateAction } from 'react';
 import { Copy, Check, Clock, FileText, RotateCcw } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { db } from '../../lib/firebase';
-import { collection, onSnapshot, doc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, getDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 
 
 
@@ -161,7 +161,17 @@ export default function RollCallTab({
     const handleManualRefresh = async () => {
         const dateStr = `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, '0')}-${String(baseDate.getDate()).padStart(2, '0')}`;
         const cacheKey = `rollcall_cache_${dateStr}`;
+        
+        // 1. 로컬 캐시 삭제
         localStorage.removeItem(cacheKey);
+        
+        // 2. Firestore 공유 캐시 삭제
+        try {
+            await deleteDoc(doc(db, "rollcall_cache", dateStr));
+        } catch (e) {
+            console.error("Firestore cache delete error:", e);
+        }
+        
         await fetchData();
     };
 
@@ -169,35 +179,60 @@ export default function RollCallTab({
     const fetchData = async () => {
         try {
             const dateStr = `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, '0')}-${String(baseDate.getDate()).padStart(2, '0')}`;
-            const now = new Date();
-            const realTodayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-            const cacheKey = `rollcall_cache_${realTodayStr}`;
+            const localCacheKey = `rollcall_cache_${dateStr}`;
 
-            // 오늘 날짜인 경우에만 로컬 캐시 확인
-            if (dateStr === realTodayStr) {
-                const cached = localStorage.getItem(cacheKey);
-                if (cached) {
-                    setRollCallData(JSON.parse(cached));
-                    return;
-                }
+            // 1. 로컬 캐시 확인 (가장 빠름)
+            const cached = localStorage.getItem(localCacheKey);
+            if (cached) {
+                setRollCallData(JSON.parse(cached));
+                return;
             }
 
+            // 로딩 상태 표시를 위해 데이터 초기화
             setRollCallData(null);
 
+            // 2. Firestore 공유 캐시 확인
+            try {
+                const cacheDoc = await getDoc(doc(db, "rollcall_cache", dateStr));
+                if (cacheDoc.exists()) {
+                    const sharedData = cacheDoc.data().data;
+                    setRollCallData(sharedData);
+                    // 로컬에도 저장 (다음 접속 시 더 빠르게)
+                    localStorage.setItem(localCacheKey, JSON.stringify(sharedData));
+                    return;
+                }
+            } catch (e) {
+                console.error("Firestore cache read error:", e);
+            }
+
+            // 3. 백엔드 API 호출 (캐시 없음)
             const FUNCTION_URL = `https://getrollcalldata-daomamzojq-du.a.run.app`;
             const res = await fetch(`${FUNCTION_URL}?date=${dateStr}`);
             const json = await res.json();
             
             if (json.status === 'success') {
-                setRollCallData(json.data);
-                if (dateStr === realTodayStr) {
-                    localStorage.setItem(cacheKey, JSON.stringify(json.data));
-                    Object.keys(localStorage).forEach(key => {
-                        if (key.startsWith('rollcall_cache_') && key !== cacheKey) {
-                            localStorage.removeItem(key);
-                        }
+                const data = json.data;
+                setRollCallData(data);
+                
+                // Firestore 공유 캐시에 저장 (다른 사용자와 공유)
+                try {
+                    await setDoc(doc(db, "rollcall_cache", dateStr), {
+                        data: data,
+                        updatedAt: serverTimestamp()
                     });
+                } catch (e) {
+                    console.error("Firestore cache write error:", e);
                 }
+                
+                // 로컬 캐시에 저장
+                localStorage.setItem(localCacheKey, JSON.stringify(data));
+
+                // 오래된 로컬 캐시 정리
+                Object.keys(localStorage).forEach(key => {
+                    if (key.startsWith('rollcall_cache_') && key !== localCacheKey) {
+                        localStorage.removeItem(key);
+                    }
+                });
             } else {
                 console.error('백엔드 오류:', json.message);
             }
@@ -484,12 +519,12 @@ export default function RollCallTab({
                                 type="date"
                                 value={todayStr}
                                 onChange={(e) => setBaseDate(new Date(e.target.value))}
-                                className="w-full h-[38px] bg-white border-2 border-slate-200 rounded-xl px-3 text-[11px] font-bold text-slate-600 focus:outline-none focus:border-blue-500 transition-all hover:border-slate-300"
+                                className="w-full h-[38px] bg-white border-2 border-slate-200 rounded-xl px-3 text-[11px] font-bold text-slate-600 focus:outline-none focus:border-blue-500 transition-all hover:border-slate-300 appearance-none m-0"
                             />
                         </div>
                         <button
                             onClick={handleManualRefresh}
-                            className="w-full h-[38px] flex items-center justify-center gap-1.5 px-2.5 rounded-xl bg-white border-2 border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-95 shadow-sm shadow-slate-100"
+                            className="w-full h-[38px] flex items-center justify-center gap-1.5 px-3 rounded-xl bg-white border-2 border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-95 shadow-sm shadow-slate-100"
                         >
                             <RotateCcw className="w-3.5 h-3.5" />
                             <span className="text-[11px] font-bold">새로고침</span>
