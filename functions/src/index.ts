@@ -3,6 +3,7 @@ import { setGlobalOptions } from "firebase-functions";
 import { onRequest } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import cors from "cors";
 import axios from "axios";
 import Papa from "papaparse";
@@ -62,10 +63,17 @@ function getMemberDisplayName(member: any): string {
 }
 
 // ── 구글 시트 CSV 파싱 ───────────────────────────────────────────────────
-const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1WBJXIzLbbtRxt09KOaJeXKXtgbht-GDjX3N4DyDztOY/export?format=csv&gid=1529486829";
+const SHEET_URLS = {
+    test: "https://docs.google.com/spreadsheets/d/1eyiNzyvJ1BguGzzpkYDnVegi-4U-zuCacCvy9bOW8R8/export?format=csv&gid=1529486829",
+    prod: "https://docs.google.com/spreadsheets/d/1WBJXIzLbbtRxt09KOaJeXKXtgbht-GDjX3N4DyDztOY/export?format=csv&gid=1529486829"
+};
 
 async function getSheetData(): Promise<any[]> {
-    const csvRes = await axios.get(SHEET_CSV_URL);
+    const docSnap = await db.collection("settings").doc("spreadsheet").get();
+    const sheetMode = docSnap.exists ? docSnap.data()?.mode || "test" : "test";
+    const sheetUrl = SHEET_URLS[sheetMode as keyof typeof SHEET_URLS] || SHEET_URLS.test;
+
+    const csvRes = await axios.get(sheetUrl);
 
     return new Promise<any[]>((resolve) => {
         Papa.parse(csvRes.data, {
@@ -338,6 +346,45 @@ export const getRollCallData = onRequest((req, res) => {
     });
 });
 
+// ── 일일 복귀자 캐싱 헬퍼 ────────────────────────────────────────────────
+async function getTodayReturnees(todayStr: string) {
+    const docRef = db.collection("dailyReturns").doc(todayStr);
+    const docSnap = await docRef.get();
+
+    const settingsSnap = await db.collection("settings").doc("spreadsheet").get();
+    const sheetUpdatedAt = settingsSnap.exists ? settingsSnap.data()?.updatedAt?.toMillis() || 0 : 0;
+    const cacheUpdatedAt = docSnap.exists ? docSnap.data()?.updatedAt?.toMillis() || 0 : 0;
+
+    let data: any = docSnap.exists ? docSnap.data() : {
+        expectedVacation: [], expectedPass: [],
+        returnedVacation: [], returnedPass: []
+    };
+
+    // 캐시가 없거나, 시트가 더 최근에 업데이트된 경우 새로 갱신
+    if (!docSnap.exists || cacheUpdatedAt < sheetUpdatedAt) {
+        const baseDate = new Date(todayStr);
+        const tomorrow = new Date(baseDate);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
+
+        const sheetData = await getSheetData();
+        const sheetEvents = parseSheetEvents(sheetData, sheetData, sheetData, todayStr, tomorrowStr);
+
+        const vacationReturns = sheetEvents.filter(e => e.type === "vacation" && e.startDate === todayStr && e.isReturnDay).map(e => e.memo);
+        const passReturns = sheetEvents.filter(e => e.type === "pass" && e.startDate === todayStr && e.isReturnDay).map(e => e.memo);
+
+        data = {
+            ...data,
+            expectedVacation: vacationReturns,
+            expectedPass: passReturns,
+            updatedAt: FieldValue.serverTimestamp()
+        };
+        await docRef.set(data, { merge: true });
+    }
+
+    return { data, docRef };
+}
+
 // ── 카카오톡 챗봇 엔드포인트 ──────────────────────────────────────────────
 export const kakaoBot = onRequest((req, res) => {
     return corsHandler(req, res, async () => {
@@ -409,6 +456,476 @@ export const kakaoBot = onRequest((req, res) => {
                     outputs: [{ simpleText: { text: "데이터를 가져오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요." } }],
                 },
             });
+        }
+    });
+});
+
+// ── 텔레그램 챗봇 엔드포인트 ──────────────────────────────────────────────
+export const telegramBot = onRequest((req, res) => {
+    return corsHandler(req, res, async () => {
+        try {
+            const TELEGRAM_TOKEN = "8760934378:AAFl26uGt5sj6fhlz2peBYkr0kJcqwCtxgI";
+            const body = req.body;
+
+            // 텔레그램에서 보낸 메시지 데이터 추출
+            if (!body.message) return res.sendStatus(200);
+
+            const chatId = body.message.chat.id;
+            const text = (body.message.text || "").trim();
+            const from = body.message.from;
+            if (!from) return res.sendStatus(200);
+
+            const userId = from.id;
+            const firstName = from.first_name || "";
+            const lastName = from.last_name || "";
+            const telegramCombinedName = (lastName + firstName).trim();
+
+            // ── 디버깅용 날짜 설정 조회 ──────────────────────────────────────
+            let todayStr = getKSTDateStr();
+            const debugSnap = await db.collection("settings").doc("debug").get();
+            if (debugSnap.exists && debugSnap.data()?.todayStr) {
+                todayStr = debugSnap.data()?.todayStr;
+            }
+
+            logger.info("Incoming Telegram message", {
+                chatId,
+                text,
+                userId,
+                username: from.username,
+                entities: body.message.entities
+            });
+
+            // ── 사용자 식별 로직 ───────────────────────────────────────────
+            let currentMember: any = null;
+
+            // 1. 텔레그램 ID로 조회
+            const memberSnapById = await db.collection("members").where("telegramId", "==", userId).get();
+            if (!memberSnapById.empty) {
+                currentMember = { id: memberSnapById.docs[0].id, ...memberSnapById.docs[0].data() };
+            } else {
+                // 2. 이름 합쳐서(성+이름) 조회
+                if (telegramCombinedName) {
+                    const memberSnapByName = await db.collection("members").where("name", "==", telegramCombinedName).get();
+                    if (!memberSnapByName.empty) {
+                        const doc = memberSnapByName.docs[0];
+                        await doc.ref.update({ telegramId: userId });
+                        currentMember = { id: doc.id, ...doc.data() };
+                    }
+                }
+            }
+
+            // ── 명령어 처리 ───────────────────────────────────────────────
+
+            // ── 명령어 처리 ───────────────────────────────────────────────
+            try {
+                // 텔레그램 엔티티에서 명령어(bot_command) 추출
+                const entities = body.message.entities || [];
+                const botCmd = entities.find((e: any) => e.type === "bot_command");
+                let cmdName = "";
+                if (botCmd) {
+                    const rawCmd = text.substring(botCmd.offset, botCmd.offset + botCmd.length);
+                    cmdName = rawCmd.split("@")[0].toLowerCase();
+                }
+
+                // ── 디버그 명령어: /date ──────────────────────────────────────
+                if (cmdName === "/date") {
+                    const input = text.replace(/\/date(@\w+)?/, "").trim();
+                    if (input === "reset") {
+                        await db.collection("settings").doc("debug").set({ todayStr: null }, { merge: true });
+                        await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, { chat_id: chatId, text: "✅ 날짜가 정상화되었습니다." });
+                    } else if (/^\d{4}-\d{2}-\d{2}$/.test(input)) {
+                        await db.collection("settings").doc("debug").set({ todayStr: input }, { merge: true });
+                        await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, { chat_id: chatId, text: `✅ 오늘 날짜가 [${input}]으로 설정되었습니다.` });
+                    } else {
+                        await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, { chat_id: chatId, text: "⚠️ 사용법: `/date YYYY-MM-DD` 또는 `/date reset`" });
+                    }
+                    return res.sendStatus(200);
+                }
+
+                // ── 시카(Senior) 명령어 ────────────────────────────────────────
+                if (cmdName === "/senior") {
+                    const seniorSnap = await db.collection("settings").doc("senior").get();
+                    if (seniorSnap.exists && seniorSnap.data()?.name) {
+                        const name = seniorSnap.data()?.name;
+                        const memberSnap = await db.collection("members").where("name", "==", name).get();
+                        let mention = `*${name}*`;
+                        if (!memberSnap.empty) {
+                            const mData = memberSnap.docs[0].data();
+                            if (mData.telegramId) {
+                                mention = `[${name}](tg://user?id=${mData.telegramId})`;
+                            } else {
+                                mention = `*${getMemberDisplayName({ id: memberSnap.docs[0].id, ...mData })}*`;
+                            }
+                        }
+                        await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+                            chat_id: chatId,
+                            text: `현재 시카는 ${mention} 입니다.`,
+                            parse_mode: "Markdown"
+                        });
+                    } else {
+                        await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, { chat_id: chatId, text: "설정된 시카가 없습니다. `/changesenior` 명령어로 설정해주세요." });
+                    }
+                    return res.sendStatus(200);
+                }
+
+                if (cmdName === "/changesenior") {
+                    const entities = body.message.entities || [];
+                    let targetName = "";
+
+                    // 1. 멘션(텍스트 멘션 포함)에서 이름 추출 시도
+                    for (const entity of entities) {
+                        if (entity.type === "text_mention" && entity.user) {
+                            const snap = await db.collection("members").where("telegramId", "==", entity.user.id).get();
+                            if (!snap.empty) targetName = snap.docs[0].data().name;
+                        } else if (entity.type === "mention") {
+                            const mName = text.substring(entity.offset + 1, entity.offset + entity.length);
+                            const snap = await db.collection("members").where("name", "==", mName).get();
+                            if (!snap.empty) targetName = snap.docs[0].data().name;
+                            else targetName = mName;
+                        }
+                    }
+
+                    if (targetName) {
+                        await db.collection("settings").doc("senior").set({ name: targetName }, { merge: true });
+                        const memberSnap = await db.collection("members").where("name", "==", targetName).get();
+                        let mention = `*${targetName}*`;
+                        if (!memberSnap.empty) {
+                            const mData = memberSnap.docs[0].data();
+                            if (mData.telegramId) {
+                                mention = `[${targetName}](tg://user?id=${mData.telegramId})`;
+                            }
+                        }
+                        await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+                            chat_id: chatId,
+                            text: `✅ 시카가 ${mention} 으로 변경되었습니다.`,
+                            parse_mode: "Markdown"
+                        });
+                    } else {
+                        await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+                            chat_id: chatId,
+                            text: "⚠️ 변경할 인원을 반드시 **멘션(@)** 해주세요.\n(예: `/changesenior @홍길동`)"
+                        });
+                    }
+                    return res.sendStatus(200);
+                }
+
+                // ── 시트 모드 변경 명령어: /sheet ────────────────────────────────────
+                if (cmdName === "/sheet") {
+                    const inputMode = text.replace(/\/sheet(@\w+)?/, "").trim().toLowerCase();
+                    if (inputMode === "test" || inputMode === "prod") {
+                        await db.collection("settings").doc("spreadsheet").set({ 
+                            mode: inputMode,
+                            updatedAt: FieldValue.serverTimestamp()
+                        }, { merge: true });
+                        // 오늘의 복귀 데이터 초기화 (시트 변경 시 자동)
+                        await db.collection("dailyReturns").doc(todayStr).delete();
+                        await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, { chat_id: chatId, text: `✅ 연동된 시트가 [${inputMode.toUpperCase()}] 모드로 변경되었습니다.` });
+                    } else if (inputMode === "") {
+                        const docSnap = await db.collection("settings").doc("spreadsheet").get();
+                        const currentMode = docSnap.exists ? docSnap.data()?.mode || "test" : "test";
+                        await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, { chat_id: chatId, text: `ℹ️ 현재 연동된 시트 모드는 [${currentMode.toUpperCase()}] 입니다.\n변경하려면 \`/sheet test\` 또는 \`/sheet prod\` 를 입력하세요.` });
+                    } else {
+                        await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, { chat_id: chatId, text: "⚠️ 사용법: `/sheet test` 또는 `/sheet prod`" });
+                    }
+                    return res.sendStatus(200);
+                }
+
+                // 0. /auth (실명 인증)
+                if (cmdName === "/auth" || text.startsWith("/auth")) {
+                    const inputName = text.replace(/\/auth(@\w+)?/, "").trim();
+                    if (!inputName) {
+                        await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, { chat_id: chatId, text: "⚠️ 사용법: `/auth [실명]`" });
+                        return res.sendStatus(200);
+                    }
+                    const memberSnap = await db.collection("members").where("name", "==", inputName).get();
+                    if (!memberSnap.empty) {
+                        await memberSnap.docs[0].ref.update({ telegramId: userId });
+                        await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, { chat_id: chatId, text: `✅ *${inputName}* 님, 인증이 완료되었습니다!` });
+                    } else {
+                        await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, { chat_id: chatId, text: `❌ *${inputName}* 님을 명단에서 찾을 수 없습니다.` });
+                    }
+                    return res.sendStatus(200);
+                }
+
+                // 명령어 유형 판별
+                const isReturnCmd = text.startsWith("ㅂㄱ") || text.startsWith("복귀취소") || text === "미복귀" || cmdName === "/reset" || text.includes("금일 복귀 인원 리스트");
+                const isStartCmd = cmdName === "/start";
+
+                if (isStartCmd) {
+                    await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, { chat_id: chatId, text: "NCOA 복귀 알림 봇입니다. 🫡" });
+                    return res.sendStatus(200);
+                }
+
+                if (isReturnCmd) {
+                    const { data: returnsData, docRef } = await getTodayReturnees(todayStr);
+
+                    // (/edit 및 /cancel 기능은 상태 기반 복귀취소 로직으로 대체되어 삭제됨)
+
+                    // 2. /reset (Initialize / Force Refresh)
+                    if (cmdName === "/reset") {
+                        await docRef.delete();
+                        await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, { chat_id: chatId, text: "✅ 오늘의 복귀 보고 문자가 초기화되었습니다." });
+                        return res.sendStatus(200);
+                    }
+
+                    // 3. 미복귀 (Check unreturned personnel)
+                    if (text === "미복귀") {
+                        const rv = returnsData.returnedVacation || [];
+                        const rp = returnsData.returnedPass || [];
+                        const uv = returnsData.expectedVacation.filter((n: string) => !rv.includes(n));
+                        const up = returnsData.expectedPass.filter((n: string) => !rp.includes(n));
+
+                        let msg = `*미복귀자 명단*\n\n`;
+                        msg += `*휴가 (${uv.length}명)*\n` + (uv.length > 0 ? uv.map((n: string) => `- ${n}`).join("\n") : `- 없음`) + "\n\n";
+                        msg += `*외박 (${up.length}명)*\n` + (up.length > 0 ? up.map((n: string) => `- ${n}`).join("\n") : `- 없음`);
+
+                        await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, { chat_id: chatId, text: msg, parse_mode: "Markdown" });
+                        return res.sendStatus(200);
+                    }
+
+
+                    // ── 공통 헬퍼: 타겟 이름 추출 ─────────────────────────────────
+                    const extractTargets = async () => {
+                        const entities = body.message.entities || [];
+                        const mentionNames: string[] = [];
+                        for (const entity of entities) {
+                            if (entity.type === "text_mention" && entity.user) {
+                                const snap = await db.collection("members").where("telegramId", "==", entity.user.id).get();
+                                if (!snap.empty) mentionNames.push(snap.docs[0].data().name);
+                                else mentionNames.push(entity.user.first_name || "");
+                            } else if (entity.type === "mention") {
+                                const mName = text.substring(entity.offset + 1, entity.offset + entity.length);
+                                const snap = await db.collection("members").where("name", "==", mName).get();
+                                if (!snap.empty) mentionNames.push(snap.docs[0].data().name);
+                                else mentionNames.push(mName);
+                            }
+                        }
+                        const regexMentions = (text.match(/@([^\s@]+)/g) || []).map((s: string) => s.slice(1));
+                        let targetNames = Array.from(new Set([...mentionNames, ...regexMentions]));
+                        if (targetNames.length === 0 && currentMember) {
+                            targetNames = [currentMember.name];
+                        }
+                        return targetNames;
+                    };
+
+                    // ── 공통 헬퍼: 현재 복귀 상태 메시지 생성 및 전송 ──────────────────
+                    const sendReturnStatusMessage = async () => {
+                        const updatedSnap = await docRef.get();
+                        const updatedData = updatedSnap.data() || {};
+                        const returnedVacation = updatedData.returnedVacation || [];
+                        const returnedPass = updatedData.returnedPass || [];
+
+                        const membersSnap = await db.collection("members").get();
+                        const membersList = membersSnap.docs.map(doc => doc.data());
+
+                        const sortMembers = (names: string[], allMembers: any[]) => {
+                            return names.map(n => {
+                                const m = allMembers.find(mem => mem.name === n);
+                                return m ? m : { name: n, enlistmentDate: "9999-99-99" };
+                            }).sort((a, b) => {
+                                const dateA = a.enlistmentDate || "9999-99-99";
+                                const dateB = b.enlistmentDate || "9999-99-99";
+                                if (dateA !== dateB) return dateA.localeCompare(dateB);
+                                return a.name.localeCompare(b.name);
+                            }).map(m => {
+                                const fullMember = allMembers.find(mem => mem.name === m.name);
+                                return fullMember ? getMemberDisplayName(fullMember) : m.name;
+                            });
+                        };
+
+                        const sortedVacation = sortMembers(returnedVacation, membersList);
+                        const sortedPass = sortMembers(returnedPass, membersList);
+
+                        let msg = `대장님, `;
+                        if (sortedPass.length > 0 && sortedVacation.length > 0) {
+                            msg += `금일 외박 복귀 인원인\n\n`;
+                            msg += sortedPass.map((n: string) => `- ${n}`).join("\n") + "\n\n";
+                            msg += `휴가 복귀 인원인\n\n`;
+                            msg += sortedVacation.map((n: string) => `- ${n}`).join("\n") + "\n\n";
+                            msg += `복귀 완료하였습니다.`;
+                        } else if (sortedPass.length > 0) {
+                            msg += `금일 외박 복귀 인원인\n\n`;
+                            msg += sortedPass.map((n: string) => `- ${n}`).join("\n") + "\n\n";
+                            msg += `복귀 완료하였습니다.`;
+                        } else if (sortedVacation.length > 0) {
+                            msg += `금일 휴가 복귀 인원인\n\n`;
+                            msg += sortedVacation.map((n: string) => `- ${n}`).join("\n") + "\n\n";
+                            msg += `복귀 완료하였습니다.`;
+                        } else {
+                            msg = "현재 복귀 완료된 인원이 없습니다.";
+                        }
+
+                        await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+                            chat_id: chatId,
+                            text: msg
+                        });
+
+                        const ev = updatedData.expectedVacation || [];
+                        const ep = updatedData.expectedPass || [];
+                        const totalExpected = ev.length + ep.length;
+                        const isAllReturned = totalExpected > 0 &&
+                            ev.every((n: string) => returnedVacation.includes(n)) &&
+                            ep.every((n: string) => returnedPass.includes(n));
+
+                        if (isAllReturned) {
+                            const seniorSnap = await db.collection("settings").doc("senior").get();
+                            if (seniorSnap.exists && seniorSnap.data()?.name) {
+                                const sName = seniorSnap.data()?.name;
+                                const sMemberSnap = await db.collection("members").where("name", "==", sName).get();
+                                let mention = sName;
+                                if (!sMemberSnap.empty) {
+                                    const sData = sMemberSnap.docs[0].data();
+                                    if (sData.telegramId) {
+                                        mention = `[${sName}](tg://user?id=${sData.telegramId})`;
+                                    }
+                                }
+                                await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+                                    chat_id: chatId,
+                                    text: `전원 복귀 완료 @${mention}`,
+                                    parse_mode: "Markdown"
+                                });
+                            }
+                        }
+                    };
+
+                    // 4. 복귀취소 키워드 처리
+                    if (text.startsWith("복귀취소")) {
+                        const targetNames = await extractTargets();
+                        if (targetNames.length === 0) {
+                            await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, { chat_id: chatId, text: "⚠️ 취소할 인원을 확인할 수 없습니다." });
+                            return res.sendStatus(200);
+                        }
+
+                        const removedVacations: string[] = [];
+                        const removedPasses: string[] = [];
+
+                        for (const name of targetNames) {
+                            if ((returnsData.returnedVacation || []).includes(name)) removedVacations.push(name);
+                            if ((returnsData.returnedPass || []).includes(name)) removedPasses.push(name);
+                        }
+
+                        if (removedVacations.length > 0 || removedPasses.length > 0) {
+                            const updates: any = {};
+                            if (removedVacations.length > 0) updates.returnedVacation = FieldValue.arrayRemove(...removedVacations);
+                            if (removedPasses.length > 0) updates.returnedPass = FieldValue.arrayRemove(...removedPasses);
+                            await docRef.update(updates);
+
+                            const allRemoved = [...removedVacations, ...removedPasses];
+                            await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+                                chat_id: chatId,
+                                text: `✅ ${allRemoved.join(", ")} 님의 복귀 처리가 취소되었습니다.`
+                            });
+                            await sendReturnStatusMessage();
+                        } else {
+                            await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+                                chat_id: chatId,
+                                text: `⚠️ 해당 인원들은 아직 복귀 완료 처리되지 않았습니다.`
+                            });
+                        }
+                        return res.sendStatus(200);
+                    }
+
+                    // 5. "ㅂㄱ" 키워드 처리
+                    if (text.startsWith("ㅂㄱ")) {
+                        if (!currentMember && !(text.match(/@([^\s@]+)/g))) {
+                            await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+                                chat_id: chatId,
+                                text: `⚠️ 누구신지 아직 모르겠어요! 🫡\n\n1. 텔레그램 프로필 이름을 *실명*으로 수정하시거나\n2. \`/인증 [실명]\` 명령어를 입력해 주세요.`,
+                                parse_mode: "Markdown"
+                            });
+                            return res.sendStatus(200);
+                        }
+
+                        const targetNames = await extractTargets();
+                        const addedVacations: string[] = [];
+                        const addedPasses: string[] = [];
+                        const notFoundNames: string[] = [];
+
+                        for (const name of targetNames) {
+                            const isVacation = returnsData.expectedVacation.includes(name);
+                            const isPass = returnsData.expectedPass.includes(name);
+
+                            if (isVacation) addedVacations.push(name);
+                            else if (isPass) addedPasses.push(name);
+                            else notFoundNames.push(name);
+                        }
+
+                        if (notFoundNames.length > 0) {
+                            await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+                                chat_id: chatId,
+                                text: `⚠️ 금일 복귀 예정자 명단에 없음: ${notFoundNames.join(", ")}`
+                            });
+                        }
+
+                        if (addedVacations.length > 0 || addedPasses.length > 0) {
+                            const updates: any = {};
+                            if (addedVacations.length > 0) updates.returnedVacation = FieldValue.arrayUnion(...addedVacations);
+                            if (addedPasses.length > 0) updates.returnedPass = FieldValue.arrayUnion(...addedPasses);
+                            await docRef.update(updates);
+
+                            await sendReturnStatusMessage();
+                        }
+                        return res.sendStatus(200);
+                    }
+                    // 2. "금일 복귀 인원 리스트" 키워드 처리
+                    else if (text.includes("금일 복귀 인원 리스트")) {
+                        const tomorrowDate = new Date(new Date(todayStr).getTime() + 24 * 60 * 60 * 1000);
+                        const tomorrowStr = tomorrowDate.toISOString().split("T")[0];
+
+                        // 스프레드 시트 데이터 가져오기 및 파싱
+                        const sheetData = await getSheetData();
+                        const sheetEvents = parseSheetEvents(sheetData, sheetData, sheetData, todayStr, tomorrowStr);
+
+                        // 오늘 복귀자 필터링 (isReturnDay 가 true이고 날짜가 오늘인 경우)
+                        const vacationReturns = sheetEvents.filter(e => e.type === "vacation" && e.startDate === todayStr && e.isReturnDay);
+                        const passReturns = sheetEvents.filter(e => e.type === "pass" && e.startDate === todayStr && e.isReturnDay);
+
+                        let responseMsg = `📅 *[${todayStr}] 복귀 예정 인원*\n\n`;
+
+                        responseMsg += `🏠 *휴가 복귀 (${vacationReturns.length}명)*\n`;
+                        if (vacationReturns.length > 0) {
+                            responseMsg += vacationReturns.map(e => `• ${e.memo}`).join("\n");
+                        } else {
+                            responseMsg += `• 없음`;
+                        }
+
+                        responseMsg += `\n\n🚶 *외박 복귀 (${passReturns.length}명)*\n`;
+                        if (passReturns.length > 0) {
+                            responseMsg += passReturns.map(e => `• ${e.memo}`).join("\n");
+                        } else {
+                            responseMsg += `• 없음`;
+                        }
+
+                        responseMsg += `\n\n상세 정보는 NCOA 앱에서 확인해주세요!`;
+
+                        await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+                            chat_id: chatId,
+                            text: responseMsg,
+                            parse_mode: "Markdown"
+                        });
+                    }
+                    else if (text === "/start") {
+                        const welcomeMessage = "안녕하세요! NCOA 복귀 알림 봇입니다. 🫡\n\n'ㅂㄱ'라고 입력하시면 복귀 완료 메시지를 보내드립니다.";
+                        await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+                            chat_id: chatId,
+                            text: welcomeMessage
+                        });
+                    }
+
+                }
+
+                return res.status(200).send("OK");
+            } catch (error: any) {
+                logger.error("telegramBot error:", error);
+                await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+                    chat_id: chatId,
+                    text: `🚨 에러 발생: ${error.message}`
+                });
+                return res.sendStatus(200); // Telegram webhooks should return 2xx to stop retries
+            }
+        } catch (globalError: any) {
+            logger.error("Global telegramBot error:", globalError);
+            return res.sendStatus(200);
         }
     });
 });
