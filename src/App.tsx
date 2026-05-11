@@ -38,6 +38,9 @@ function App() {
   const [customSchedules, setCustomSchedules] = useState<{ name: string; participants: string[] }[]>([]);
   const [ktaBatches, setKtaBatches] = useState<{ batch: string, startDate: string, ktaType?: 'A' | 'B' }[]>([]);
   const [ktaTemplate, setKtaTemplate] = useState<any>(null);
+  const [blcBatches, setBlcBatches] = useState<{ batch: string, startDate: string }[]>([]);
+  const [blcTemplate, setBlcTemplate] = useState<any>(null);
+  const [holidays, setHolidays] = useState<{startDate: string, endDate: string}[]>([]);
 
 
   useEffect(() => {
@@ -59,33 +62,41 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  // KTA 데이터 구독
+  // KTA, BLC, Holiday 데이터 구독
   useEffect(() => {
-    const qBatches = query(collection(db, 'schedules'), where('type', '==', 'kta'));
-    const unsubBatches = onSnapshot(qBatches, (snap) => {
-      const batches = snap.docs
-        .map(doc => {
-          const data = doc.data();
-          // memo가 'Day 0'으로 시작하는 것만 기수의 시작일로 간주
-          if (data.memo && data.memo.startsWith('Day 0')) {
-            return { 
-              batch: data.batch, 
-              startDate: data.startDate, 
-              ktaType: data.ktaType 
-            };
-          }
-          return null;
-        })
-        .filter((b): b is { batch: string, startDate: string, ktaType: 'A' | 'B' | undefined } => !!b && !!b.batch && !!b.startDate);
-      setKtaBatches(batches);
+    const qSchedules = query(collection(db, 'schedules'), where('type', 'in', ['kta', 'blc', 'holiday']));
+    const unsubSchedules = onSnapshot(qSchedules, (snap) => {
+      const kBatches: { batch: string, startDate: string, ktaType?: 'A' | 'B' }[] = [];
+      const bBatches: { batch: string, startDate: string }[] = [];
+      const hDays: {startDate: string, endDate: string}[] = [];
+
+      snap.docs.forEach(doc => {
+        const data = doc.data();
+        if (data.type === 'kta' && data.memo && data.memo.startsWith('Day 0')) {
+          if (data.batch && data.startDate) kBatches.push({ batch: data.batch, startDate: data.startDate, ktaType: data.ktaType });
+        } else if (data.type === 'blc') {
+          if (data.batch && data.startDate) bBatches.push({ batch: data.batch, startDate: data.startDate, memo: data.memo });
+        } else if (data.type === 'holiday') {
+          if (data.startDate) hDays.push({ startDate: data.startDate, endDate: data.endDate || data.startDate });
+        }
+      });
+      setKtaBatches(kBatches);
+      setBlcBatches(bBatches);
+      setHolidays(hDays);
     });
 
-    const unsubTemplate = onSnapshot(doc(db, 'settings', 'ktaTemplate'), (snap) => {
+    const unsubKtaTemplate = onSnapshot(doc(db, 'settings', 'ktaTemplate'), (snap) => {
       if (snap.exists()) setKtaTemplate(snap.data());
     });
+
+    const unsubBlcTemplate = onSnapshot(doc(db, 'settings', 'blcTemplate'), (snap) => {
+      if (snap.exists()) setBlcTemplate(snap.data());
+    });
+
     return () => {
-      unsubBatches();
-      unsubTemplate();
+      unsubSchedules();
+      unsubKtaTemplate();
+      unsubBlcTemplate();
     };
   }, []);
 
@@ -137,6 +148,48 @@ function App() {
       });
     }
 
+    // 3. BLC 일정 추가 로직
+    if (blcBatches.length > 0 && blcTemplate) {
+      const tomorrowCalc = new Date(baseDate);
+      tomorrowCalc.setDate(tomorrowCalc.getDate() + 1);
+      tomorrowCalc.setHours(0, 0, 0, 0);
+      const tomorrowStr = `${tomorrowCalc.getFullYear()}-${String(tomorrowCalc.getMonth() + 1).padStart(2, '0')}-${String(tomorrowCalc.getDate()).padStart(2, '0')}`;
+      
+      const isSunday = tomorrowCalc.getDay() === 0;
+      const isHolidayDate = (dateStr: string) => holidays.some((h: any) => dateStr >= h.startDate && dateStr <= h.endDate);
+      const isHoliday = isHolidayDate(tomorrowStr);
+
+      if (!isSunday && !isHoliday) {
+        blcBatches.filter(b => b.memo?.startsWith('Day 0')).forEach(b => {
+          const blcStart = new Date(b.startDate);
+          blcStart.setHours(0, 0, 0, 0);
+
+          if (tomorrowCalc >= blcStart) {
+            let dayCount = 0;
+            let current = new Date(blcStart);
+            while (current < tomorrowCalc) {
+              const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
+              const cIsSunday = current.getDay() === 0;
+              const cIsHoliday = isHolidayDate(currentStr);
+              if (!cIsSunday && !cIsHoliday) {
+                dayCount++;
+              }
+              current.setDate(current.getDate() + 1);
+            }
+
+            if (dayCount <= 22) {
+              const dayData = blcTemplate.schedules?.find((s: any) => s.day === dayCount);
+              if (dayData && dayData.events.length > 0) {
+                const batch = b.batch || '';
+                const blcEvents = dayData.events.map((e: string) => e.replace(/\{batch\}/g, batch));
+                scheduleLines = [...scheduleLines, ...blcEvents];
+              }
+            }
+          }
+        });
+      }
+    }
+
     // 시간 순 정렬 (HHmm 형식으로 시작한다고 가정)
     const sortedSchedule = scheduleLines
       .filter(line => line.trim() !== '')
@@ -147,9 +200,9 @@ function App() {
       })
       .join('\n');
 
-    // 3. 날짜가 바뀌면 해당 날짜의 기본값으로 강제 업데이트
+    // 강제 업데이트
     setScheduleText(sortedSchedule);
-  }, [baseDate, ktaBatches, ktaTemplate]);
+  }, [baseDate, ktaBatches, ktaTemplate, blcBatches, blcTemplate, holidays]);
 
   if (loading) {
     return (
