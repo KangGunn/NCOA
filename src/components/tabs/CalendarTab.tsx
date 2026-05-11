@@ -414,11 +414,12 @@ export default function CalendarTab() {
     const getKtaReferenceBatch = () => {
         const todayStr = new Date().toISOString().split('T')[0];
         const ktaBatches = events
-            .filter(e => e.type === 'kta' && e.memo?.includes('Day 0'))
+            .filter(e => e.type === 'kta' && e.memo?.includes('Day 0') && e.batch)
             .sort((a, b) => a.startDate.localeCompare(b.startDate));
 
         if (ktaBatches.length === 0) return "";
 
+        // 현재 진행 중인 기수 찾기
         const activeBatch = ktaBatches.find(b => {
             const start = new Date(b.startDate);
             const end = new Date(start);
@@ -429,10 +430,36 @@ export default function CalendarTab() {
 
         if (activeBatch) return activeBatch.batch || "";
 
+        // 진행 중인 게 없다면 가장 가까운 미래 기수
         const nextBatch = ktaBatches.find(b => b.startDate > todayStr);
         if (nextBatch) return nextBatch.batch || "";
 
+        // 그것도 없다면 마지막 기수
         return ktaBatches[ktaBatches.length - 1].batch || "";
+    };
+
+    const getKtaReferenceType = () => {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const ktaBatches = events
+            .filter(e => e.type === 'kta' && e.memo?.includes('Day 0') && e.batch)
+            .sort((a, b) => a.startDate.localeCompare(b.startDate));
+
+        if (ktaBatches.length === 0) return "A";
+
+        const activeBatch = ktaBatches.find(b => {
+            const start = new Date(b.startDate);
+            const end = new Date(start);
+            end.setDate(start.getDate() + 20);
+            const endStr = end.toISOString().split('T')[0];
+            return todayStr >= b.startDate && todayStr <= endStr;
+        });
+
+        if (activeBatch) return activeBatch.ktaType || "A";
+
+        const nextBatch = ktaBatches.find(b => b.startDate > todayStr);
+        if (nextBatch) return nextBatch.ktaType || "A";
+
+        return ktaBatches[ktaBatches.length - 1].ktaType || "A";
     };
 
     const getBlcReferenceDate = () => {
@@ -1679,8 +1706,8 @@ export default function CalendarTab() {
                                 <div className="flex items-center gap-3">
                                     <h2 className="text-2xl font-black text-gray-900">KTA 주요일정 설정</h2>
                                     {getKtaReferenceBatch() && (
-                                        <span className="text-xs font-black text-red-600 bg-red-50 px-3 py-1 rounded-xl border border-red-100">
-                                            {getKtaReferenceBatch()}기
+                                        <span className="text-xs font-black text-red-600 bg-red-50 px-3 py-1 rounded-xl border border-red-100 flex items-center gap-1.5">
+                                            {getKtaReferenceBatch()}기 {getKtaReferenceType()}
                                         </span>
                                     )}
                                 </div>
@@ -1711,25 +1738,43 @@ export default function CalendarTab() {
                                         </button>
                                     </div>
                                     <div className="space-y-2">
-                                        {item.events.map((evt, idx) => (
-                                            <div key={idx} className="flex gap-2 items-center">
-                                                <div className="flex-1">
-                                                    <input
-                                                        type="text"
-                                                        value={evt}
-                                                        onChange={(e) => handleKtaTemplateChange(item.day, idx, e.target.value)}
-                                                        placeholder="예: KTA {batch} PRT Demo"
-                                                        className="w-full px-3 py-2 bg-white border border-gray-100 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-red-500 transition-all"
-                                                    />
+                                        {item.events.map((evt, idx) => {
+                                            const type = getKtaReferenceType();
+                                            const firstPlt = type === 'A' ? '1, 2' : '3, 4';
+                                            const secondPlt = type === 'A' ? '3, 4' : '1, 2';
+                                            
+                                            const preview = evt
+                                                .replace(/{batch}/g, getKtaReferenceBatch())
+                                                .replace(/{first}/g, firstPlt)
+                                                .replace(/{second}/g, secondPlt);
+
+                                            return (
+                                                <div key={idx} className="space-y-1">
+                                                    <div className="flex gap-2 items-center">
+                                                        <div className="flex-1">
+                                                            <input
+                                                                type="text"
+                                                                value={evt}
+                                                                onChange={(e) => handleKtaTemplateChange(item.day, idx, e.target.value)}
+                                                                placeholder="예: KTA {batch} PRT Demo"
+                                                                className="w-full px-3 py-2 bg-white border border-gray-100 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-red-500 transition-all"
+                                                            />
+                                                        </div>
+                                                        <button
+                                                            onClick={() => removeEventFromTemplate(item.day, idx)}
+                                                            className="p-2 text-gray-300 hover:text-red-400"
+                                                        >
+                                                            <X className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                    {evt.includes('{') && (
+                                                        <p className="text-[9px] font-bold text-gray-400 ml-1 flex items-center gap-1">
+                                                            <span className="text-red-300">→</span> {preview}
+                                                        </p>
+                                                    )}
                                                 </div>
-                                                <button
-                                                    onClick={() => removeEventFromTemplate(item.day, idx)}
-                                                    className="p-2 text-gray-300 hover:text-red-400"
-                                                >
-                                                    <X className="w-4 h-4" />
-                                                </button>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
                                         {item.events.length === 0 && (
                                             <p className="text-center py-2 text-[10px] text-gray-300 font-medium italic">등록된 일정이 없습니다.</p>
                                         )}
@@ -1798,25 +1843,37 @@ export default function CalendarTab() {
                                         </button>
                                     </div>
                                     <div className="space-y-2">
-                                        {item.events.map((evt, idx) => (
-                                            <div key={idx} className="flex gap-2 items-center">
-                                                <div className="flex-1">
-                                                    <input
-                                                        type="text"
-                                                        value={evt}
-                                                        onChange={(e) => handleBlcTemplateChange(item.day, idx, e.target.value)}
-                                                        placeholder="예: BLC {batch} In-processing"
-                                                        className="w-full px-3 py-2 bg-white border border-gray-100 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-                                                    />
+                                        {item.events.map((evt, idx) => {
+                                            const preview = evt
+                                                .replace(/{batch}/g, getBlcReferenceBatch());
+
+                                            return (
+                                                <div key={idx} className="space-y-1">
+                                                    <div className="flex gap-2 items-center">
+                                                        <div className="flex-1">
+                                                            <input
+                                                                type="text"
+                                                                value={evt}
+                                                                onChange={(e) => handleBlcTemplateChange(item.day, idx, e.target.value)}
+                                                                placeholder="예: BLC {batch} In-processing"
+                                                                className="w-full px-3 py-2 bg-white border border-gray-100 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                                                            />
+                                                        </div>
+                                                        <button
+                                                            onClick={() => removeEventFromBlcTemplate(item.day, idx)}
+                                                            className="p-2 text-gray-300 hover:text-blue-400"
+                                                        >
+                                                            <X className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                    {evt.includes('{') && (
+                                                        <p className="text-[9px] font-bold text-gray-400 ml-1 flex items-center gap-1">
+                                                            <span className="text-blue-300">→</span> {preview}
+                                                        </p>
+                                                    )}
                                                 </div>
-                                                <button
-                                                    onClick={() => removeEventFromBlcTemplate(item.day, idx)}
-                                                    className="p-2 text-gray-300 hover:text-blue-400"
-                                                >
-                                                    <X className="w-4 h-4" />
-                                                </button>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
                                         {item.events.length === 0 && (
                                             <p className="text-center py-2 text-[10px] text-gray-300 font-medium italic">등록된 일정이 없습니다.</p>
                                         )}

@@ -36,9 +36,9 @@ function App() {
     'BLC 업무지원': []
   });
   const [customSchedules, setCustomSchedules] = useState<{ name: string; participants: string[] }[]>([]);
-  const [ktaBatches, setKtaBatches] = useState<{ batch: string, startDate: string, ktaType?: 'A' | 'B' }[]>([]);
+  const [ktaBatches, setKtaBatches] = useState<{ batch: string, startDate: string, ktaType?: 'A' | 'B', memo?: string }[]>([]);
   const [ktaTemplate, setKtaTemplate] = useState<any>(null);
-  const [blcBatches, setBlcBatches] = useState<{ batch: string, startDate: string }[]>([]);
+  const [blcBatches, setBlcBatches] = useState<{ batch: string, startDate: string, memo?: string }[]>([]);
   const [blcTemplate, setBlcTemplate] = useState<any>(null);
   const [holidays, setHolidays] = useState<{startDate: string, endDate: string}[]>([]);
 
@@ -66,8 +66,8 @@ function App() {
   useEffect(() => {
     const qSchedules = query(collection(db, 'schedules'), where('type', 'in', ['kta', 'blc', 'holiday']));
     const unsubSchedules = onSnapshot(qSchedules, (snap) => {
-      const kBatches: { batch: string, startDate: string, ktaType?: 'A' | 'B' }[] = [];
-      const bBatches: { batch: string, startDate: string }[] = [];
+      const kBatches: { batch: string, startDate: string, ktaType?: 'A' | 'B', memo?: string }[] = [];
+      const bBatches: { batch: string, startDate: string, memo?: string }[] = [];
       const hDays: {startDate: string, endDate: string}[] = [];
 
       snap.docs.forEach(doc => {
