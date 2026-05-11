@@ -1703,10 +1703,10 @@ export default function CalendarTab() {
                     <div className="w-full max-w-md bg-white rounded-[2.5rem] p-8 space-y-5 shadow-2xl animate-in slide-in-from-bottom-10 flex flex-col max-h-[90vh]">
                         <div className="flex items-center justify-between shrink-0">
                             <div>
-                                <div className="flex items-center gap-3">
-                                    <h2 className="text-2xl font-black text-gray-900">KTA 주요일정 설정</h2>
+                                <div className="flex items-center gap-2">
+                                    <h2 className="text-xl sm:text-2xl font-black text-gray-900 whitespace-nowrap">KTA 주요일정</h2>
                                     {getKtaReferenceBatch() && (
-                                        <span className="text-xs font-black text-red-600 bg-red-50 px-3 py-1 rounded-xl border border-red-100 flex items-center gap-1.5">
+                                        <span className="text-[10px] sm:text-xs font-black text-red-600 bg-red-50 px-2 py-1 rounded-xl border border-red-100 whitespace-nowrap">
                                             {getKtaReferenceBatch()}기 {getKtaReferenceType()}
                                         </span>
                                     )}
@@ -1808,10 +1808,10 @@ export default function CalendarTab() {
                     <div className="w-full max-w-md bg-white rounded-[2.5rem] p-8 space-y-5 shadow-2xl animate-in slide-in-from-bottom-10 flex flex-col max-h-[90vh]">
                         <div className="flex items-center justify-between shrink-0">
                             <div>
-                                <div className="flex items-center gap-3">
-                                    <h2 className="text-2xl font-black text-gray-900">BLC 주요일정 설정</h2>
+                                <div className="flex items-center gap-2">
+                                    <h2 className="text-xl sm:text-2xl font-black text-gray-900 whitespace-nowrap">BLC 주요일정</h2>
                                     {getBlcReferenceBatch() && (
-                                        <span className="text-xs font-black text-blue-600 bg-blue-50 px-3 py-1 rounded-xl border border-blue-100">
+                                        <span className="text-[10px] sm:text-xs font-black text-blue-600 bg-blue-50 px-2 py-1 rounded-xl border border-blue-100 whitespace-nowrap">
                                             {getBlcReferenceBatch()}기
                                         </span>
                                     )}
