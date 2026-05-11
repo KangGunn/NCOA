@@ -122,7 +122,7 @@ function App() {
             const type = b.ktaType || 'A';
             const ktaEvents = dayData.events
               .map((e: string) => {
-                let replaced = e.replace(/\{batch\}/g, `${batch} ${type}`);
+                let replaced = e.replace(/\{batch\}/g, batch);
                 if (type === 'A') {
                   replaced = replaced.replace(/\{first\}/g, '1, 2').replace(/\{second\}/g, '3, 4');
                 } else {
