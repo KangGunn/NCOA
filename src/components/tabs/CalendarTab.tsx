@@ -1720,19 +1720,19 @@ export default function CalendarTab() {
 
                         <div className="overflow-y-auto flex-1 custom-scrollbar py-2 space-y-4 pr-2">
                             {ktaScheduleTemplate.map((item) => (
-                                <div key={item.day} className="bg-gray-50/50 rounded-3xl p-4 border border-gray-50 space-y-3">
-                                    <div className="flex items-center justify-between px-1">
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-xs font-black text-red-500">Day {item.day}</span>
+                                <div key={item.day} className="bg-gray-50/50 rounded-3xl p-3 sm:p-4 border border-gray-50 space-y-3">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                            <span className="text-[11px] sm:text-xs font-black text-red-500 whitespace-nowrap">Day {item.day}</span>
                                             {getKtaReferenceDate() && (
-                                                <span className="text-[10px] font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded-lg">
+                                                <span className="text-[9px] sm:text-[10px] font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded-lg whitespace-nowrap shrink-0">
                                                     {formatDateWithDay(getKtaReferenceDate()!, item.day)}
                                                 </span>
                                             )}
                                         </div>
                                         <button
                                             onClick={() => addEventToTemplate(item.day)}
-                                            className="text-[10px] font-black text-red-500 bg-white px-2 py-1 rounded-lg border border-red-100 hover:bg-red-50"
+                                            className="text-[9px] sm:text-[10px] font-black text-red-500 bg-white px-2 py-1 rounded-lg border border-red-100 hover:bg-red-50 whitespace-nowrap"
                                         >
                                             + 일정 추가
                                         </button>
@@ -1825,19 +1825,43 @@ export default function CalendarTab() {
 
                         <div className="overflow-y-auto flex-1 custom-scrollbar py-2 space-y-4 pr-2">
                             {blcScheduleTemplate.map((item) => (
-                                <div key={item.day} className="bg-gray-50/50 rounded-3xl p-4 border border-gray-50 space-y-3">
-                                    <div className="flex items-center justify-between px-1">
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-xs font-black text-blue-500">Day {item.day}</span>
-                                            {getBlcReferenceDate() && (
-                                                <span className="text-[10px] font-bold text-blue-500 bg-blue-50 px-2 py-0.5 rounded-lg">
-                                                    {formatDateWithDay(getBlcReferenceDate()!, item.day)}
-                                                </span>
-                                            )}
+                                <div key={item.day} className="bg-gray-50/50 rounded-3xl p-3 sm:p-4 border border-gray-50 space-y-3">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                            <span className="text-[11px] sm:text-xs font-black text-blue-500 whitespace-nowrap">Day {item.day}</span>
+                                            {(() => {
+                                                const base = getBlcReferenceDate();
+                                                if (!base) return null;
+                                                
+                                                // Day n에 해당하는 실제 날짜 계산 (일요일, 휴일 제외)
+                                                let target = new Date(base);
+                                                let workingDays = 0;
+                                                
+                                                // Day 0은 시작일 그대로, 그 이후부터 루프
+                                                while (workingDays < item.day) {
+                                                    target.setDate(target.getDate() + 1);
+                                                    const tStr = target.toISOString().split('T')[0];
+                                                    const isSunday = target.getDay() === 0;
+                                                    if (!isSunday && !isHolidayDate(tStr)) {
+                                                        workingDays++;
+                                                    }
+                                                }
+                                                
+                                                const mm = String(target.getMonth() + 1).padStart(2, '0');
+                                                const dd = String(target.getDate()).padStart(2, '0');
+                                                const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+                                                const dayName = dayNames[target.getDay()];
+                                                
+                                                return (
+                                                    <span className="text-[9px] sm:text-[10px] font-bold text-blue-500 bg-blue-50 px-2 py-0.5 rounded-lg whitespace-nowrap shrink-0">
+                                                        {mm}.{dd}({dayName})
+                                                    </span>
+                                                );
+                                            })()}
                                         </div>
                                         <button
                                             onClick={() => addEventToBlcTemplate(item.day)}
-                                            className="text-[10px] font-black text-blue-500 bg-white px-2 py-1 rounded-lg border border-blue-100 hover:bg-blue-50"
+                                            className="text-[9px] sm:text-[10px] font-black text-blue-500 bg-white px-2 py-1 rounded-lg border border-blue-100 hover:bg-blue-50 whitespace-nowrap"
                                         >
                                             + 일정 추가
                                         </button>
