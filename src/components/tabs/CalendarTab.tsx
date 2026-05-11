@@ -1317,10 +1317,10 @@ export default function CalendarTab() {
                                             const isVisualStart = !startsBeforeWeek;
                                             const isVisualEnd = !endsAfterWeek;
 
-                                            // Display memo
+                                            // Display memo - 캘린더 타일에서는 기수 정보(괄호) 제거
                                             let displayMemo = item.event.memo || '';
-                                            if (item.event.type === 'blc' && displayMemo && !displayMemo.includes('Day 0') && !displayMemo.includes('Graduation')) {
-                                                displayMemo = displayMemo.replace(/\s*\([^)]*\)/g, '');
+                                            if ((item.event.type === 'blc' || item.event.type === 'kta') && displayMemo) {
+                                                displayMemo = displayMemo.replace(/\s*\([^)]*\)/g, '').trim();
                                             }
 
 
@@ -1871,7 +1871,7 @@ export default function CalendarTab() {
                                                                     value={evt}
                                                                     onChange={(e) => handleKtaTemplateChange(item.day, oi, e.target.value)}
                                                                     placeholder="예: 0700 KTA {batch} PRT Demo"
-                                                                    className="w-full px-3 py-2 bg-white border border-gray-100 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-red-500 transition-all"
+                                                                    className="w-full px-2.5 py-1.5 bg-white border border-gray-100 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-red-500 transition-all"
                                                                 />
                                                             </div>
                                                             <button
@@ -1986,7 +1986,7 @@ export default function CalendarTab() {
                                                                     value={evt}
                                                                     onChange={(e) => handleBlcTemplateChange(item.day, oi, e.target.value)}
                                                                     placeholder="예: 0700 BLC {batch} In-processing"
-                                                                    className="w-full px-3 py-2 bg-white border border-gray-100 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                                                                    className="w-full px-2.5 py-1.5 bg-white border border-gray-100 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                                                                 />
                                                             </div>
                                                             <button
