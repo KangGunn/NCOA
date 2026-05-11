@@ -4,6 +4,50 @@ import { collection, query, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp,
 import { db, auth } from '../../lib/firebase';
 import { Trash2, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { DndContext, useDraggable, useDroppable, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+
+// ── 드래그 가능 이벤트 아이템 ──────────────────────────────────────
+function DraggableEventItem({ id, children }: { id: string, children: React.ReactNode }) {
+    const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id });
+    const style: React.CSSProperties = {
+        ...(transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : {}),
+        ...(isDragging ? { opacity: 0.4, zIndex: 50 } : {}),
+    };
+
+    return (
+        <div ref={setNodeRef} style={style} className="flex items-start gap-1">
+            <div
+                {...listeners}
+                {...attributes}
+                className="grid grid-cols-2 gap-[2px] p-1.5 cursor-grab active:cursor-grabbing touch-none shrink-0 mt-1.5 rounded hover:bg-gray-100 transition-colors"
+            >
+                {[...Array(6)].map((_, i) => (
+                    <div key={i} className="w-[3px] h-[3px] bg-gray-300 rounded-full" />
+                ))}
+            </div>
+            <div className="flex-1 min-w-0">{children}</div>
+        </div>
+    );
+}
+
+// ── 드롭 가능 Day 영역 ────────────────────────────────────────────
+function DroppableDayZone({ id, children, color }: { id: string, children: React.ReactNode, color: 'red' | 'blue' }) {
+    const { setNodeRef, isOver } = useDroppable({ id });
+    const ring = color === 'red' ? 'ring-red-200 bg-red-50/30' : 'ring-blue-200 bg-blue-50/30';
+
+    return (
+        <div
+            ref={setNodeRef}
+            className={cn(
+                "bg-gray-50/50 rounded-3xl p-3 sm:p-4 border space-y-3 transition-all",
+                isOver ? `border-transparent ring-2 ${ring}` : "border-gray-50"
+            )}
+        >
+            {children}
+        </div>
+    );
+}
 
 interface Event {
     id: string;
@@ -43,6 +87,66 @@ export default function CalendarTab() {
     const [holidayEndDate, setHolidayEndDate] = useState('');
     const [isHolidayNaming, setIsHolidayNaming] = useState(false);
     const [editingHoliday, setEditingHoliday] = useState<{ id: string; name: string; startDate: string; endDate: string } | null>(null);
+
+
+    // ── DnD 센서 설정 ──────────────────────────────────────────────
+    const dndSensors = useSensors(
+        useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
+        useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } })
+    );
+
+    // ── 시간순 정렬 헬퍼 ──────────────────────────────────────────
+    const sortedWithIndex = (evts: string[]) =>
+        evts.map((evt, idx) => ({ evt, oi: idx }))
+            .sort((a, b) => (a.evt.match(/^\d{4}/)?.[0] || '9999').localeCompare(b.evt.match(/^\d{4}/)?.[0] || '9999'));
+
+    // ── KTA 드래그 핸들러 ─────────────────────────────────────────
+    const handleKtaDragEnd = (event: DragEndEvent) => {
+        const { active, over } = event;
+        if (!over) return;
+        const aParts = active.id.toString().split('-');
+        const srcDay = parseInt(aParts[1]);
+        const srcIdx = parseInt(aParts[2]);
+        let tgtDay: number;
+        const oId = over.id.toString();
+        if (oId.startsWith('kta-day-')) tgtDay = parseInt(oId.replace('kta-day-', ''));
+        else tgtDay = parseInt(oId.split('-')[1]);
+        if (srcDay === tgtDay || isNaN(tgtDay)) return;
+        setKtaScheduleTemplate(prev => {
+            const updated = prev.map(item => ({ ...item, events: [...item.events] }));
+            const src = updated.find(i => i.day === srcDay);
+            const tgt = updated.find(i => i.day === tgtDay);
+            if (!src || !tgt || !src.events[srcIdx]) return prev;
+            const [moved] = src.events.splice(srcIdx, 1);
+            tgt.events.push(moved);
+            tgt.events.sort((a, b) => (a.match(/^\d{4}/)?.[0] || '9999').localeCompare(b.match(/^\d{4}/)?.[0] || '9999'));
+            return updated;
+        });
+    };
+
+    // ── BLC 드래그 핸들러 ─────────────────────────────────────────
+    const handleBlcDragEnd = (event: DragEndEvent) => {
+        const { active, over } = event;
+        if (!over) return;
+        const aParts = active.id.toString().split('-');
+        const srcDay = parseInt(aParts[1]);
+        const srcIdx = parseInt(aParts[2]);
+        let tgtDay: number;
+        const oId = over.id.toString();
+        if (oId.startsWith('blc-day-')) tgtDay = parseInt(oId.replace('blc-day-', ''));
+        else tgtDay = parseInt(oId.split('-')[1]);
+        if (srcDay === tgtDay || isNaN(tgtDay)) return;
+        setBlcScheduleTemplate(prev => {
+            const updated = prev.map(item => ({ ...item, events: [...item.events] }));
+            const src = updated.find(i => i.day === srcDay);
+            const tgt = updated.find(i => i.day === tgtDay);
+            if (!src || !tgt || !src.events[srcIdx]) return prev;
+            const [moved] = src.events.splice(srcIdx, 1);
+            tgt.events.push(moved);
+            tgt.events.sort((a, b) => (a.match(/^\d{4}/)?.[0] || '9999').localeCompare(b.match(/^\d{4}/)?.[0] || '9999'));
+            return updated;
+        });
+    };
 
     useEffect(() => {
         if (isAdding || isBatchDutyAdding || isKTAScheduleAdding || isBLCScheduleAdding) {
@@ -1718,9 +1822,10 @@ export default function CalendarTab() {
                             </button>
                         </div>
 
+                        <DndContext sensors={dndSensors} onDragEnd={handleKtaDragEnd}>
                         <div className="overflow-y-auto flex-1 custom-scrollbar py-2 space-y-4 pr-2">
                             {ktaScheduleTemplate.map((item) => (
-                                <div key={item.day} className="bg-gray-50/50 rounded-3xl p-3 sm:p-4 border border-gray-50 space-y-3">
+                                <DroppableDayZone key={item.day} id={`kta-day-${item.day}`} color="red">
                                     <div className="flex items-center justify-between gap-2">
                                         <div className="flex items-center gap-1.5 min-w-0">
                                             <span className="text-[11px] sm:text-xs font-black text-red-500 whitespace-nowrap">Day {item.day}</span>
@@ -1738,50 +1843,52 @@ export default function CalendarTab() {
                                         </button>
                                     </div>
                                     <div className="space-y-2">
-                                        {item.events.map((evt, idx) => {
+                                        {sortedWithIndex(item.events).map(({ evt, oi }) => {
                                             const type = getKtaReferenceType();
                                             const firstPlt = type === 'A' ? '1, 2' : '3, 4';
                                             const secondPlt = type === 'A' ? '3, 4' : '1, 2';
-                                            
                                             const preview = evt
                                                 .replace(/{batch}/g, getKtaReferenceBatch())
                                                 .replace(/{first}/g, firstPlt)
                                                 .replace(/{second}/g, secondPlt);
 
                                             return (
-                                                <div key={idx} className="space-y-1">
-                                                    <div className="flex gap-2 items-center">
-                                                        <div className="flex-1">
-                                                            <input
-                                                                type="text"
-                                                                value={evt}
-                                                                onChange={(e) => handleKtaTemplateChange(item.day, idx, e.target.value)}
-                                                                placeholder="예: KTA {batch} PRT Demo"
-                                                                className="w-full px-3 py-2 bg-white border border-gray-100 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-red-500 transition-all"
-                                                            />
+                                                <DraggableEventItem key={`kta-${item.day}-${oi}`} id={`kta-${item.day}-${oi}`}>
+                                                    <div className="space-y-1">
+                                                        <div className="flex gap-1 items-center">
+                                                            <div className="flex-1">
+                                                                <input
+                                                                    type="text"
+                                                                    value={evt}
+                                                                    onChange={(e) => handleKtaTemplateChange(item.day, oi, e.target.value)}
+                                                                    placeholder="예: 0700 KTA {batch} PRT Demo"
+                                                                    className="w-full px-3 py-2 bg-white border border-gray-100 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-red-500 transition-all"
+                                                                />
+                                                            </div>
+                                                            <button
+                                                                onClick={() => removeEventFromTemplate(item.day, oi)}
+                                                                className="p-2 text-gray-300 hover:text-red-400"
+                                                            >
+                                                                <X className="w-4 h-4" />
+                                                            </button>
                                                         </div>
-                                                        <button
-                                                            onClick={() => removeEventFromTemplate(item.day, idx)}
-                                                            className="p-2 text-gray-300 hover:text-red-400"
-                                                        >
-                                                            <X className="w-4 h-4" />
-                                                        </button>
+                                                        {evt.includes('{') && (
+                                                            <p className="text-[9px] font-bold text-gray-400 ml-1 flex items-center gap-1">
+                                                                <span className="text-red-300">→</span> {preview}
+                                                            </p>
+                                                        )}
                                                     </div>
-                                                    {evt.includes('{') && (
-                                                        <p className="text-[9px] font-bold text-gray-400 ml-1 flex items-center gap-1">
-                                                            <span className="text-red-300">→</span> {preview}
-                                                        </p>
-                                                    )}
-                                                </div>
+                                                </DraggableEventItem>
                                             );
                                         })}
                                         {item.events.length === 0 && (
                                             <p className="text-center py-2 text-[10px] text-gray-300 font-medium italic">등록된 일정이 없습니다.</p>
                                         )}
                                     </div>
-                                </div>
+                                </DroppableDayZone>
                             ))}
                         </div>
+                        </DndContext>
 
                         <div className="pt-2 shrink-0">
                             <button
@@ -1823,38 +1930,29 @@ export default function CalendarTab() {
                             </button>
                         </div>
 
+                        <DndContext sensors={dndSensors} onDragEnd={handleBlcDragEnd}>
                         <div className="overflow-y-auto flex-1 custom-scrollbar py-2 space-y-4 pr-2">
                             {blcScheduleTemplate.map((item) => (
-                                <div key={item.day} className="bg-gray-50/50 rounded-3xl p-3 sm:p-4 border border-gray-50 space-y-3">
+                                <DroppableDayZone key={item.day} id={`blc-day-${item.day}`} color="blue">
                                     <div className="flex items-center justify-between gap-2">
                                         <div className="flex items-center gap-1.5 min-w-0">
                                             <span className="text-[11px] sm:text-xs font-black text-blue-500 whitespace-nowrap">Day {item.day}</span>
                                             {(() => {
                                                 const base = getBlcReferenceDate();
                                                 if (!base) return null;
-                                                
-                                                // Day n에 해당하는 실제 날짜 계산 (일요일, 휴일 제외)
                                                 let target = new Date(base);
                                                 let workingDays = 0;
-                                                
-                                                // Day 0은 시작일 그대로, 그 이후부터 루프
                                                 while (workingDays < item.day) {
                                                     target.setDate(target.getDate() + 1);
                                                     const tStr = target.toISOString().split('T')[0];
-                                                    const isSunday = target.getDay() === 0;
-                                                    if (!isSunday && !isHolidayDate(tStr)) {
-                                                        workingDays++;
-                                                    }
+                                                    if (target.getDay() !== 0 && !isHolidayDate(tStr)) workingDays++;
                                                 }
-                                                
                                                 const mm = String(target.getMonth() + 1).padStart(2, '0');
                                                 const dd = String(target.getDate()).padStart(2, '0');
                                                 const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
-                                                const dayName = dayNames[target.getDay()];
-                                                
                                                 return (
                                                     <span className="text-[9px] sm:text-[10px] font-bold text-blue-500 bg-blue-50 px-2 py-0.5 rounded-lg whitespace-nowrap shrink-0">
-                                                        {mm}.{dd}({dayName})
+                                                        {mm}.{dd}({dayNames[target.getDay()]})
                                                     </span>
                                                 );
                                             })()}
@@ -1867,44 +1965,45 @@ export default function CalendarTab() {
                                         </button>
                                     </div>
                                     <div className="space-y-2">
-                                        {item.events.map((evt, idx) => {
-                                            const preview = evt
-                                                .replace(/{batch}/g, getBlcReferenceBatch());
-
+                                        {sortedWithIndex(item.events).map(({ evt, oi }) => {
+                                            const preview = evt.replace(/{batch}/g, getBlcReferenceBatch());
                                             return (
-                                                <div key={idx} className="space-y-1">
-                                                    <div className="flex gap-2 items-center">
-                                                        <div className="flex-1">
-                                                            <input
-                                                                type="text"
-                                                                value={evt}
-                                                                onChange={(e) => handleBlcTemplateChange(item.day, idx, e.target.value)}
-                                                                placeholder="예: BLC {batch} In-processing"
-                                                                className="w-full px-3 py-2 bg-white border border-gray-100 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-                                                            />
+                                                <DraggableEventItem key={`blc-${item.day}-${oi}`} id={`blc-${item.day}-${oi}`}>
+                                                    <div className="space-y-1">
+                                                        <div className="flex gap-1 items-center">
+                                                            <div className="flex-1">
+                                                                <input
+                                                                    type="text"
+                                                                    value={evt}
+                                                                    onChange={(e) => handleBlcTemplateChange(item.day, oi, e.target.value)}
+                                                                    placeholder="예: 0700 BLC {batch} In-processing"
+                                                                    className="w-full px-3 py-2 bg-white border border-gray-100 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                                                                />
+                                                            </div>
+                                                            <button
+                                                                onClick={() => removeEventFromBlcTemplate(item.day, oi)}
+                                                                className="p-2 text-gray-300 hover:text-blue-400"
+                                                            >
+                                                                <X className="w-4 h-4" />
+                                                            </button>
                                                         </div>
-                                                        <button
-                                                            onClick={() => removeEventFromBlcTemplate(item.day, idx)}
-                                                            className="p-2 text-gray-300 hover:text-blue-400"
-                                                        >
-                                                            <X className="w-4 h-4" />
-                                                        </button>
+                                                        {evt.includes('{') && (
+                                                            <p className="text-[9px] font-bold text-gray-400 ml-1 flex items-center gap-1">
+                                                                <span className="text-blue-300">→</span> {preview}
+                                                            </p>
+                                                        )}
                                                     </div>
-                                                    {evt.includes('{') && (
-                                                        <p className="text-[9px] font-bold text-gray-400 ml-1 flex items-center gap-1">
-                                                            <span className="text-blue-300">→</span> {preview}
-                                                        </p>
-                                                    )}
-                                                </div>
+                                                </DraggableEventItem>
                                             );
                                         })}
                                         {item.events.length === 0 && (
                                             <p className="text-center py-2 text-[10px] text-gray-300 font-medium italic">등록된 일정이 없습니다.</p>
                                         )}
                                     </div>
-                                </div>
+                                </DroppableDayZone>
                             ))}
                         </div>
+                        </DndContext>
 
                         <div className="pt-2 shrink-0">
                             <button
