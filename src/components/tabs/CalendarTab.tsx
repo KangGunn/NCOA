@@ -1460,11 +1460,11 @@ export default function CalendarTab() {
                                                         )}
                                                     </div>
                                                     {e.type === 'kta' && e.batch && editingBatch?.oldBatch === e.batch ? (
-                                                        <div className="flex items-center gap-2 mt-1">
+                                                        <div className="flex items-center gap-1.5 mt-1 min-w-0">
                                                             <select
                                                                 value={editingBatch.ktaType || 'A'}
                                                                 onChange={(ev) => setEditingBatch({ ...editingBatch, ktaType: ev.target.value as 'A' | 'B' })}
-                                                                className="px-2 py-1 bg-white border border-red-200 rounded-lg text-[11px] font-black text-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 w-12"
+                                                                className="px-1.5 py-1 bg-white border border-red-200 rounded-lg text-[11px] font-black text-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 shrink-0"
                                                             >
                                                                 <option value="A">A</option>
                                                                 <option value="B">B</option>
@@ -1473,7 +1473,7 @@ export default function CalendarTab() {
                                                                 type="text"
                                                                 value={editingBatch.value}
                                                                 onChange={(ev) => setEditingBatch({ ...editingBatch, value: ev.target.value })}
-                                                                className="px-2 py-1 bg-white border border-red-200 rounded-lg text-[11px] font-black text-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 w-24"
+                                                                className="px-2 py-1 bg-white border border-red-200 rounded-lg text-[11px] font-black text-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 w-[70px] shrink-0"
                                                                 autoFocus
                                                                 onKeyDown={(ev) => {
                                                                     if (ev.key === 'Enter') handleUpdateBatch(editingBatch.oldBatch, editingBatch.value, editingBatch.ktaType);
@@ -1482,24 +1482,24 @@ export default function CalendarTab() {
                                                             />
                                                             <button
                                                                 onClick={() => handleUpdateBatch(editingBatch.oldBatch, editingBatch.value, editingBatch.ktaType)}
-                                                                className="px-2 py-1 bg-red-600 text-white rounded-lg text-[10px] font-black hover:bg-red-700 transition-all"
+                                                                className="px-2 py-1 bg-red-600 text-white rounded-lg text-[10px] font-black hover:bg-red-700 transition-all whitespace-nowrap shrink-0"
                                                             >
                                                                 저장
                                                             </button>
                                                             <button
                                                                 onClick={() => setEditingBatch(null)}
-                                                                className="px-2 py-1 bg-white border border-gray-200 text-gray-500 rounded-lg text-[10px] font-black hover:bg-gray-50 transition-all"
+                                                                className="px-2 py-1 bg-white border border-gray-200 text-gray-500 rounded-lg text-[10px] font-black hover:bg-gray-50 transition-all whitespace-nowrap shrink-0"
                                                             >
                                                                 취소
                                                             </button>
                                                         </div>
                                                     ) : e.type === 'blc' && e.batch && editingBatch?.oldBatch === e.batch ? (
-                                                        <div className="flex items-center gap-2 mt-1">
+                                                        <div className="flex items-center gap-1.5 mt-1 min-w-0">
                                                             <input
                                                                 type="text"
                                                                 value={editingBatch.value}
                                                                 onChange={(ev) => setEditingBatch({ ...editingBatch, value: ev.target.value })}
-                                                                className="px-2 py-1 bg-white border border-blue-200 rounded-lg text-[11px] font-black text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 w-24"
+                                                                className="px-2 py-1 bg-white border border-blue-200 rounded-lg text-[11px] font-black text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 w-[70px] shrink-0"
                                                                 autoFocus
                                                                 onKeyDown={(ev) => {
                                                                     if (ev.key === 'Enter') handleUpdateBlcBatch(editingBatch.oldBatch, editingBatch.value);
@@ -1508,13 +1508,13 @@ export default function CalendarTab() {
                                                             />
                                                             <button
                                                                 onClick={() => handleUpdateBlcBatch(editingBatch.oldBatch, editingBatch.value)}
-                                                                className="px-2 py-1 bg-blue-600 text-white rounded-lg text-[10px] font-black hover:bg-blue-700 transition-all"
+                                                                className="px-2 py-1 bg-blue-600 text-white rounded-lg text-[10px] font-black hover:bg-blue-700 transition-all whitespace-nowrap shrink-0"
                                                             >
                                                                 저장
                                                             </button>
                                                             <button
                                                                 onClick={() => setEditingBatch(null)}
-                                                                className="px-2 py-1 bg-white border border-gray-200 text-gray-500 rounded-lg text-[10px] font-black hover:bg-gray-50 transition-all"
+                                                                className="px-2 py-1 bg-white border border-gray-200 text-gray-500 rounded-lg text-[10px] font-black hover:bg-gray-50 transition-all whitespace-nowrap shrink-0"
                                                             >
                                                                 취소
                                                             </button>
@@ -1598,7 +1598,12 @@ export default function CalendarTab() {
                                                 <div className="space-y-1">
                                                     <p className="text-[9px] font-bold text-gray-400 mb-2 ml-1">교환할 다른 날짜의 당직을 선택하세요:</p>
                                                     <div className="grid grid-cols-2 gap-1 max-h-40 overflow-y-auto custom-scrollbar p-1">
-                                                        {events.filter(other => other.type === 'duty' && other.id !== e.id).sort((a, b) => a.startDate.localeCompare(b.startDate)).map(other => (
+                                                        {events.filter(other => {
+                                                            if (other.type !== 'duty' || other.id === e.id) return false;
+                                                            const otherDate = new Date(other.startDate);
+                                                            return otherDate.getFullYear() === currentDate.getFullYear() && 
+                                                                   otherDate.getMonth() === currentDate.getMonth();
+                                                        }).sort((a, b) => a.startDate.localeCompare(b.startDate)).map(other => (
                                                             <button
                                                                 key={other.id}
                                                                 onClick={() => handleRealSwap(e.id, e.memo, other.id, other.memo)}
@@ -1608,8 +1613,13 @@ export default function CalendarTab() {
                                                                 <span className="truncate">{other.memo}</span>
                                                             </button>
                                                         ))}
-                                                        {events.filter(other => other.type === 'duty' && other.id !== e.id).length === 0 && (
-                                                            <div className="col-span-2 py-4 text-center text-[10px] text-gray-400 font-medium italic">교환 가능한 다른 당직이 없습니다.</div>
+                                                        {events.filter(other => {
+                                                            if (other.type !== 'duty' || other.id === e.id) return false;
+                                                            const otherDate = new Date(other.startDate);
+                                                            return otherDate.getFullYear() === currentDate.getFullYear() && 
+                                                                   otherDate.getMonth() === currentDate.getMonth();
+                                                        }).length === 0 && (
+                                                            <div className="col-span-2 py-4 text-center text-[10px] text-gray-400 font-medium italic">이달 내 교환 가능한 다른 당직이 없습니다.</div>
                                                         )}
                                                     </div>
                                                 </div>
@@ -1655,24 +1665,23 @@ export default function CalendarTab() {
                                             autoFocus
                                         />
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                        <div className="flex-1">
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div className="min-w-0">
                                             <label className="text-[10px] text-gray-500 font-bold ml-1 mb-1 block">시작일</label>
                                             <input
                                                 type="date"
                                                 value={holidayStartDate}
                                                 onChange={(e) => setHolidayStartDate(e.target.value)}
-                                                className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all"
+                                                className="w-full px-2 sm:px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl text-[11px] sm:text-sm font-bold focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all"
                                             />
                                         </div>
-                                        <span className="self-end pb-3 font-black text-gray-400">~</span>
-                                        <div className="flex-1">
+                                        <div className="min-w-0">
                                             <label className="text-[10px] text-gray-500 font-bold ml-1 mb-1 block">종료일</label>
                                             <input
                                                 type="date"
                                                 value={holidayEndDate}
                                                 onChange={(e) => setHolidayEndDate(e.target.value)}
-                                                className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all"
+                                                className="w-full px-2 sm:px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl text-[11px] sm:text-sm font-bold focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all"
                                             />
                                         </div>
                                     </div>
