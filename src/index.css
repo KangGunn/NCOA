@@ -11,6 +11,13 @@
   }
 }
 
+/* Only apply top padding in standalone (Web App) mode to avoid double spacing in browsers */
+@media (display-mode: standalone) {
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
 .safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom);
 }

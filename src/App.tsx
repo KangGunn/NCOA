@@ -233,7 +233,7 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-50 flex justify-center">
       <main className="w-full max-w-md min-h-screen bg-white shadow-2xl relative">
-        <div className="h-full pt-safe-top pb-6 px-6">
+        <div className="h-full safe-area-top pb-6 px-6 pt-4">
           {activeTab === 'rollcall' && (
             <RollCallTab 
               healthNote={healthNote}
