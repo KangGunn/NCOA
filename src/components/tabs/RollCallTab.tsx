@@ -507,8 +507,6 @@ export default function RollCallTab({
     };
 
     // Refs for focus management
-    const healthRef = useState<HTMLTextAreaElement | null>(null);
-    const tomorrowRef = useState<HTMLTextAreaElement | null>(null);
     // Use actual refs instead of useState for DOM access
     const [healthTextArea, setHealthTextArea] = useState<HTMLTextAreaElement | null>(null);
     const [tomorrowTextArea, setTomorrowTextArea] = useState<HTMLTextAreaElement | null>(null);
