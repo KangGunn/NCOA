@@ -552,29 +552,6 @@ export default function RollCallTab({
 
     return (
         <div className="flex flex-col gap-8 pb-32 animate-in fade-in slide-in-from-bottom-4 duration-700">
-            {/* Mention Suggestions Popup */}
-            {mentionSearch && (
-                <div 
-                    className="fixed z-[150] bg-white border border-gray-200 rounded-2xl shadow-2xl p-2 max-h-48 overflow-y-auto w-48 animate-in zoom-in-95 duration-150"
-                    style={{ 
-                        bottom: 'calc(100% - 200px)', // Rough estimate, can be improved with getBoundingClientRect
-                        left: '20px'
-                    }}
-                >
-                    <p className="text-[10px] font-bold text-gray-400 px-2 mb-1">부대원 선택</p>
-                    {mentionSuggestions.map((m, idx) => (
-                        <button
-                            key={idx}
-                            onClick={() => insertMention(m)}
-                            className="w-full text-left px-3 py-2 hover:bg-blue-50 rounded-xl transition-colors flex items-center justify-between"
-                        >
-                            <span className="text-xs font-black text-gray-900">{m.name}</span>
-                            <span className="text-[10px] font-bold text-blue-500">{m.rank}</span>
-                        </button>
-                    ))}
-                </div>
-            )}
-
             <header className="pt-8 px-1">
                 <div className="flex items-start justify-between gap-4">
                     <div className="h-[38px] flex items-center">
@@ -604,6 +581,21 @@ export default function RollCallTab({
             {/* Health */}
             <section className="space-y-1.5 relative">
                 <label className={labelBase}>1. 건강 특이사항</label>
+                {mentionSearch?.target === 'health' && (
+                    <div className="absolute bottom-full left-0 mb-2 z-[150] bg-white border border-gray-200 rounded-2xl shadow-2xl p-2 max-h-48 overflow-y-auto w-48 animate-in slide-in-from-bottom-2 duration-200">
+                        <p className="text-[10px] font-bold text-gray-400 px-2 mb-1">부대원 선택</p>
+                        {mentionSuggestions.map((m, idx) => (
+                            <button
+                                key={idx}
+                                onClick={() => insertMention(m)}
+                                className="w-full text-left px-3 py-2 hover:bg-blue-50 rounded-xl transition-colors flex items-center justify-between"
+                            >
+                                <span className="text-xs font-black text-gray-900">{m.name}</span>
+                                <span className="text-[10px] font-bold text-blue-500">{m.rank.split(' ')[0]}</span>
+                            </button>
+                        ))}
+                    </div>
+                )}
                 <textarea
                     value={healthNote}
                     onChange={(e) => handleTextChange(e.target.value, 'health', e.target.selectionStart)}
@@ -614,6 +606,21 @@ export default function RollCallTab({
             {/* Tomorrow Special Notes */}
             <section className="space-y-1.5 relative">
                 <label className={labelBase}>2. 익일 특이사항</label>
+                {mentionSearch?.target === 'tomorrow' && (
+                    <div className="absolute bottom-full left-0 mb-2 z-[150] bg-white border border-gray-200 rounded-2xl shadow-2xl p-2 max-h-48 overflow-y-auto w-48 animate-in slide-in-from-bottom-2 duration-200">
+                        <p className="text-[10px] font-bold text-gray-400 px-2 mb-1">부대원 선택</p>
+                        {mentionSuggestions.map((m, idx) => (
+                            <button
+                                key={idx}
+                                onClick={() => insertMention(m)}
+                                className="w-full text-left px-3 py-2 hover:bg-blue-50 rounded-xl transition-colors flex items-center justify-between"
+                            >
+                                <span className="text-xs font-black text-gray-900">{m.name}</span>
+                                <span className="text-[10px] font-bold text-blue-500">{m.rank.split(' ')[0]}</span>
+                            </button>
+                        ))}
+                    </div>
+                )}
                 <textarea
                     value={tomorrowNote}
                     onChange={(e) => handleTextChange(e.target.value, 'tomorrow', e.target.selectionStart)}
