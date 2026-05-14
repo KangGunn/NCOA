@@ -506,6 +506,13 @@ export default function RollCallTab({
         );
     };
 
+    // Refs for focus management
+    const healthRef = useState<HTMLTextAreaElement | null>(null);
+    const tomorrowRef = useState<HTMLTextAreaElement | null>(null);
+    // Use actual refs instead of useState for DOM access
+    const [healthTextArea, setHealthTextArea] = useState<HTMLTextAreaElement | null>(null);
+    const [tomorrowTextArea, setTomorrowTextArea] = useState<HTMLTextAreaElement | null>(null);
+
     // Autocomplete state
     const [mentionSearch, setMentionSearch] = useState<{ query: string, target: 'health' | 'tomorrow', cursor: number } | null>(null);
     const [mentionSuggestions, setMentionSuggestions] = useState<Member[]>([]);
@@ -547,7 +554,18 @@ export default function RollCallTab({
         if (mentionSearch.target === 'health') setHealthNote(newText);
         else setTomorrowNote(newText);
         
+        const targetArea = mentionSearch.target === 'health' ? healthTextArea : tomorrowTextArea;
+        const newCursorPos = before.length + textToInsert.length;
+
         setMentionSearch(null);
+
+        // Focus back and set cursor position after state update
+        setTimeout(() => {
+            if (targetArea) {
+                targetArea.focus();
+                targetArea.setSelectionRange(newCursorPos, newCursorPos);
+            }
+        }, 0);
     };
 
     return (
@@ -597,6 +615,7 @@ export default function RollCallTab({
                     </div>
                 )}
                 <textarea
+                    ref={setHealthTextArea}
                     value={healthNote}
                     onChange={(e) => handleTextChange(e.target.value, 'health', e.target.selectionStart)}
                     className={cn(inputBase, "min-h-[50px] resize-y")}
@@ -622,6 +641,7 @@ export default function RollCallTab({
                     </div>
                 )}
                 <textarea
+                    ref={setTomorrowTextArea}
                     value={tomorrowNote}
                     onChange={(e) => handleTextChange(e.target.value, 'tomorrow', e.target.selectionStart)}
                     className={cn(inputBase, "min-h-[50px] resize-y")}
