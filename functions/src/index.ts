@@ -7,6 +7,8 @@ import { FieldValue } from "firebase-admin/firestore";
 import cors from "cors";
 import axios from "axios";
 import Papa from "papaparse";
+import { google } from "googleapis";
+import * as path from "path";
 
 // Firebase Admin 초기화 (에뮬레이터 환경에서도 자동으로 동작)
 admin.initializeApp();
@@ -939,6 +941,180 @@ export const notifySpreadsheetUpdate = onRequest(async (req, res) => {
         } catch (error) {
             logger.error("notifySpreadsheetUpdate error", error);
             res.status(500).send({ status: "error", message: "Internal Server Error" });
+        }
+    });
+});
+
+// ── 구글 시트 동기화 (외특 엑셀 업로드용) ──────────────────────────────
+export const syncMovementToSheet = onRequest((req, res) => {
+    return corsHandler(req, res, async () => {
+        try {
+            const { movements } = req.body; // MovementTab에서 전송한 분석 결과
+            if (!movements || !Array.isArray(movements)) {
+                return res.status(400).json({ status: "error", message: "movements 데이터가 필요합니다." });
+            }
+
+            logger.info(`syncMovementToSheet called with ${movements.length} items`);
+
+            // 1. 서비스 계정 인증
+            const auth = new google.auth.GoogleAuth({
+                keyFile: path.join(__dirname, "../service-account.json"),
+                scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+            });
+            const sheets = google.sheets({ version: "v4", auth });
+            
+            // 시트 정보
+            const spreadsheetId = "1eyiNzyvJ1BguGzzpkYDnVegi-4U-zuCacCvy9bOW8R8";
+            const sheetName = "NEW";
+            const range = `'${sheetName}'!A1:AZ200`;
+
+            // 2. 현재 시트 데이터 가져오기
+            const response = await sheets.spreadsheets.values.get({ spreadsheetId, range });
+            const rows = response.data.values;
+            if (!rows || rows.length === 0) {
+                return res.status(500).json({ status: "error", message: "시트 데이터를 읽을 수 없습니다." });
+            }
+
+            const dateRow = rows[0]; // 1행 (날짜)
+            const nameColumn = rows.map(r => r[0]); // A열 (이름)
+
+            const updateData: any[] = [];
+
+            // 열 인덱스를 구글 시트 주소(A, B, ..., AA, AB)로 변환하는 함수
+            const getA1Address = (colIdx: number, rowIdx: number) => {
+                let temp = colIdx;
+                let letter = "";
+                while (temp >= 0) {
+                    letter = String.fromCharCode((temp % 26) + 65) + letter;
+                    temp = Math.floor(temp / 26) - 1;
+                }
+                return `'${sheetName}'!${letter}${rowIdx + 1}`;
+            };
+
+            // 3. 인원별/날짜별 업데이트 값 계산
+            const ambiguousMembers: any[] = [];
+
+            movements.forEach((m: any) => {
+                // 엑셀 데이터에서 계급과 이름 분리 (예: "상병 김대호" -> "김대호")
+                const excelNameOnly = m.name.split(/\s+/).pop();
+                
+                // 시트에서 해당 이름을 가진 모든 행 찾기
+                const matchingRows = nameColumn.map((name, idx) => ({ name, idx }))
+                    .filter(item => {
+                        if (!item.name) return false;
+                        const sheetNameOnly = item.name.split(/\s+/).pop();
+                        return sheetNameOnly === excelNameOnly;
+                    });
+
+                if (matchingRows.length === 0) {
+                    logger.warn(`Member not found in sheet: ${m.name}`);
+                    return;
+                }
+
+                let targetRowIdx = -1;
+                
+                if (matchingRows.length > 1) {
+                    // 동명이인 발생! (계급까지 정확히 일치하는 사람이 있는지 먼저 확인)
+                    const exactMatch = matchingRows.find(item => item.name === m.name);
+                    if (exactMatch) {
+                        targetRowIdx = exactMatch.idx;
+                    } else {
+                        // 계급까지 일치하는 사람이 없으면 사용자 선택 필요
+                        ambiguousMembers.push({
+                            excelName: m.name,
+                            options: matchingRows.map(r => r.name)
+                        });
+                        return;
+                    }
+                } else {
+                    // 동명이인이 없으면 계급이 달라도 동일인으로 간주
+                    targetRowIdx = matchingRows[0].idx;
+                }
+
+                const rowIdx = targetRowIdx;
+                const setStatus = (dateStr: string, status: string) => {
+                    const colIdx = dateRow.findIndex(d => d && d.replace(/\s/g, "").includes(dateStr));
+                    if (colIdx !== -1) {
+                        updateData.push({
+                            range: getA1Address(colIdx, rowIdx),
+                            values: [[status]]
+                        });
+                    }
+                };
+
+                if (m.depart) setStatus(m.depart, "외박출발");
+                
+                // 외박 복귀 처리 (휴가 연계가 아닐 때만 외박복귀 기입)
+                const isLinked = m.vacation && m.vacation.isLinked;
+                if (m.return && !isLinked) {
+                    setStatus(m.return, "외박복귀");
+                }
+
+                if (m.stayDays) {
+                    m.stayDays.forEach((d: string) => {
+                        // 출발일과 복귀일(연계일 포함)은 제외하고 '외박' 기입
+                        if (d !== m.depart && d !== m.return) {
+                            setStatus(d, "외박");
+                        }
+                    });
+                }
+
+                // 휴가 처리
+                if (m.vacation) {
+                    const v = m.vacation;
+                    if (v.depart) {
+                        setStatus(v.depart, v.isLinked ? "휴가출발(연계)" : "휴가출발");
+                    }
+                    if (v.return) {
+                        setStatus(v.return, "휴가복귀");
+                    }
+                    if (v.stayDays) {
+                        v.stayDays.forEach((d: string) => {
+                            // 휴가 출발일과 복귀일은 제외하고 '휴가' 기입
+                            if (d !== v.depart && d !== v.return) {
+                                setStatus(d, "휴가");
+                            }
+                        });
+                    }
+                }
+
+                // 당직 처리
+                if (m.type === "당직" && m.date) {
+                    setStatus(m.date, "당직");
+                }
+            });
+
+            // 4. 동명이인 확인 필요 시 중단
+            if (ambiguousMembers.length > 0) {
+                return res.json({ 
+                    status: "ambiguous", 
+                    ambiguousMembers 
+                });
+            }
+
+            // 5. 구글 시트 일괄 업데이트
+            if (updateData.length > 0) {
+                await sheets.spreadsheets.values.batchUpdate({
+                    spreadsheetId,
+                    requestBody: {
+                        valueInputOption: "RAW",
+                        data: updateData,
+                    },
+                });
+                
+                // Firestore 업데이트 시간 갱신 (앱에서 데이터 리로딩 유도)
+                await db.collection("settings").doc("spreadsheet").set({
+                    updatedAt: FieldValue.serverTimestamp()
+                }, { merge: true });
+
+                return res.json({ status: "success", count: updateData.length });
+            }
+
+            return res.json({ status: "success", message: "업데이트할 항목이 없습니다." });
+
+        } catch (error: any) {
+            logger.error("syncMovementToSheet error:", error);
+            return res.status(500).json({ status: "error", message: error.message });
         }
     });
 });

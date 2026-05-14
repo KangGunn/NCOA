@@ -1,4 +1,4 @@
-import { FileText, Calendar, Users } from 'lucide-react';
+import { FileText, Calendar, Users, ClipboardList } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { cn } from '../lib/utils';
 
@@ -11,6 +11,7 @@ export default function BottomNav({ activeTab, onTabChange }: BottomNavProps) {
     const tabs = [
         { id: 'rollcall', label: '점호', icon: FileText },
         { id: 'calendar', label: '캘린더', icon: Calendar },
+        { id: 'movement', label: '외특', icon: ClipboardList },
         { id: 'personnel', label: '인원', icon: Users },
     ];
 

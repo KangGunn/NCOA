@@ -3,6 +3,7 @@ import BottomNav from './components/BottomNav';
 import RollCallTab from './components/tabs/RollCallTab';
 import PersonnelTab from './components/tabs/PersonnelTab';
 import CalendarTab from './components/tabs/CalendarTab';
+import MovementTab from './components/tabs/MovementTab.tsx';
 import { auth, db } from './lib/firebase';
 import { onSnapshot, doc, collection, query, where } from 'firebase/firestore';
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
@@ -251,6 +252,7 @@ function App() {
             />
           )}
           {activeTab === 'calendar' && <CalendarTab />}
+          {activeTab === 'movement' && <MovementTab />}
           {activeTab === 'personnel' && <PersonnelTab />}
         </div>
 
