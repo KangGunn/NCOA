@@ -70,6 +70,11 @@ const SHEET_URLS = {
     prod: "https://docs.google.com/spreadsheets/d/1WBJXIzLbbtRxt09KOaJeXKXtgbht-GDjX3N4DyDztOY/export?format=csv&gid=1529486829"
 };
 
+const SPREADSHEET_IDS = {
+    test: "1eyiNzyvJ1BguGzzpkYDnVegi-4U-zuCacCvy9bOW8R8",
+    prod: "1WBJXIzLbbtRxt09KOaJeXKXtgbht-GDjX3N4DyDztOY"
+};
+
 async function getSheetData(): Promise<any[]> {
     const docSnap = await db.collection("settings").doc("spreadsheet").get();
     const sheetMode = docSnap.exists ? docSnap.data()?.mode || "test" : "test";
@@ -963,8 +968,12 @@ export const syncMovementToSheet = onRequest((req, res) => {
             });
             const sheets = google.sheets({ version: "v4", auth });
             
-            // 시트 정보
-            const spreadsheetId = "1eyiNzyvJ1BguGzzpkYDnVegi-4U-zuCacCvy9bOW8R8";
+            // 1.5 시트 모드 확인
+            const docSnap = await db.collection("settings").doc("spreadsheet").get();
+            const sheetMode = (docSnap.exists ? docSnap.data()?.mode || "test" : "test") as "test" | "prod";
+            const spreadsheetId = SPREADSHEET_IDS[sheetMode] || SPREADSHEET_IDS.test;
+
+            logger.info(`syncMovementToSheet: using ${sheetMode} mode (${spreadsheetId})`);
             const sheetName = "NEW";
             const range = `'${sheetName}'!A1:AZ200`;
 

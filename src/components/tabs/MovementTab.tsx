@@ -5,6 +5,8 @@ import * as XLSX from 'xlsx';
 import { Upload, CheckCircle2, AlertCircle, Send } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import axios from 'axios';
+import { doc, onSnapshot, setDoc, serverTimestamp, collection } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 
 export default function MovementTab() {
     const [fileName, setFileName] = useState<string | null>(null);
@@ -16,6 +18,40 @@ export default function MovementTab() {
     const [success, setSuccess] = useState<string | null>(null);
     const [ambiguousMembers, setAmbiguousMembers] = useState<any[] | null>(null);
     const [resolutions, setResolutions] = useState<Record<string, string>>({});
+    const [sheetMode, setSheetMode] = useState<'test' | 'prod' | null>(null);
+    const [dbMembers, setDbMembers] = useState<any[]>([]);
+
+    React.useEffect(() => {
+        const unsub = onSnapshot(doc(db, 'settings', 'spreadsheet'), (snap) => {
+            if (snap.exists()) {
+                setSheetMode(snap.data().mode || 'test');
+            } else {
+                setSheetMode('test'); // 문서가 없으면 기본값 test
+            }
+        });
+
+        const unsubMembers = onSnapshot(collection(db, 'members'), (snap) => {
+            const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            setDbMembers(rows);
+        });
+
+        return () => {
+            unsub();
+            unsubMembers();
+        };
+    }, []);
+
+    const toggleMode = async () => {
+        const newMode = sheetMode === 'test' ? 'prod' : 'test';
+        try {
+            await setDoc(doc(db, 'settings', 'spreadsheet'), {
+                mode: newMode,
+                updatedAt: serverTimestamp()
+            }, { merge: true });
+        } catch (err) {
+            console.error('Error updating mode:', err);
+        }
+    };
 
     const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -316,19 +352,43 @@ export default function MovementTab() {
         }
     };
 
-    const copyToClipboard = () => {
-        if (!parsedData) return;
-        navigator.clipboard.writeText(JSON.stringify(parsedData, null, 2));
-        alert('JSON 데이터가 클립보드에 복사되었습니다. Antigravity에게 붙여넣어 주세요!');
-    };
-
     return (
         <div className="pt-8 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32">
-            <header>
+            <header className="flex items-center justify-between gap-4">
                 <h1 className="text-3xl font-black text-gray-900 tracking-tight">
-                    외특 관리 <span className="text-blue-600 text-sm ml-2 font-bold bg-blue-50 px-2 py-1 rounded-lg">PC 전용</span>
+                    외박 특이사항
                 </h1>
-                <p className="text-gray-500 font-medium mt-1">밴드에서 다운로드한 외박 특이사항(xlsx)을 업로드합니다.</p>
+
+                <div className="flex items-center bg-gray-100 p-1 rounded-2xl w-[180px] h-[48px] justify-center shrink-0">
+                    {sheetMode === null ? (
+                        <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                        <>
+                            <button
+                                onClick={() => toggleMode()}
+                                className={cn(
+                                    "flex-1 h-full rounded-xl text-sm font-black transition-all",
+                                    sheetMode === 'prod'
+                                        ? "bg-white text-red-600 shadow-sm"
+                                        : "text-gray-400 hover:text-gray-600"
+                                )}
+                            >
+                                PROD
+                            </button>
+                            <button
+                                onClick={() => toggleMode()}
+                                className={cn(
+                                    "flex-1 h-full rounded-xl text-sm font-black transition-all",
+                                    sheetMode === 'test'
+                                        ? "bg-white text-blue-600 shadow-sm"
+                                        : "text-gray-400 hover:text-gray-600"
+                                )}
+                            >
+                                TEST
+                            </button>
+                        </>
+                    )}
+                </div>
             </header>
 
             <div className="bg-white rounded-[2rem] border-2 border-dashed border-gray-200 p-10 flex flex-col items-center justify-center gap-4 transition-colors hover:border-blue-400 group relative overflow-hidden">
@@ -343,7 +403,7 @@ export default function MovementTab() {
                 </div>
                 <div className="text-center">
                     <p className="text-lg font-bold text-gray-900">
-                        {fileName || 'xlsx 파일을 여기에 드래그하거나 클릭하세요'}
+                        {fileName || '밴드 댓글 .xlsx 파일을 업로드하세요'}
                     </p>
                     <p className="text-sm text-gray-400 font-medium mt-1">
                         최대 용량 20MB (실제 파일은 약 20kb 내외)
@@ -368,20 +428,14 @@ export default function MovementTab() {
                 <div className="space-y-4 animate-in zoom-in-95 duration-300">
                     <div className="bg-green-50 border border-green-100 rounded-2xl p-4 flex items-center justify-between gap-3 text-green-700">
                         <div className="flex items-center gap-3">
-                            <CheckCircle2 className="w-5 h-5" />
-                            <p className="font-bold">분석 완료 ({parsedData.length}건)</p>
+                            <CheckCircle2 className="w-5 h-5 shrink-0" />
+                            <p className="font-bold whitespace-nowrap text-sm sm:text-base">분석 완료 ({parsedData.length}건)</p>
                         </div>
                         <div className="flex gap-2">
                             <button
-                                onClick={copyToClipboard}
-                                className="px-3 py-2 bg-white border border-green-200 text-green-700 rounded-xl font-bold text-xs active:scale-95 transition-all"
-                            >
-                                JSON 복사
-                            </button>
-                            <button
                                 onClick={() => handleSync()}
                                 disabled={syncing}
-                                className="px-4 py-2 bg-green-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-green-200 active:scale-95 transition-all flex items-center gap-2 disabled:opacity-50"
+                                className="px-4 py-2 bg-green-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-green-200 active:scale-95 transition-all flex items-center gap-2 disabled:opacity-50 whitespace-nowrap"
                             >
                                 {syncing ? (
                                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -400,93 +454,174 @@ export default function MovementTab() {
                         </div>
                     )}
 
-                    <div className="grid gap-3">
-                        {parsedData.map((item, idx) => (
-                            <div key={idx} className="bg-white border-2 border-gray-100 rounded-2xl p-5 shadow-sm hover:border-blue-200 transition-colors">
-                                <div className="flex items-start justify-between mb-3">
-                                    <div>
-                                        <span className="text-lg font-black text-gray-900">{item.name}</span>
-                                        <span className={cn(
-                                            "ml-2 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider",
-                                            item.type === '외박' ? "bg-blue-100 text-blue-600" : "bg-gray-100 text-gray-500"
-                                        )}>
-                                            {item.type}
-                                        </span>
+                    <div className="grid gap-2">
+                        {(() => {
+                            // 1. 이름별로 데이터 그룹화
+                            const groupedMap = new Map<string, any[]>();
+                            parsedData.forEach(item => {
+                                if (!groupedMap.has(item.name)) groupedMap.set(item.name, []);
+                                groupedMap.get(item.name)?.push(item);
+                            });
+
+                            // 2. 전체 날짜 범위 계산
+                            const allDates: string[] = [];
+                            parsedData.forEach(d => {
+                                if (d.depart) allDates.push(d.depart);
+                                if (d.return) allDates.push(d.return);
+                                if (d.stayDays) allDates.push(...d.stayDays);
+                                if (d.vacation) {
+                                    if (d.vacation.depart) allDates.push(d.vacation.depart);
+                                    if (d.vacation.return) allDates.push(d.vacation.return);
+                                    if (d.vacation.stayDays) allDates.push(...d.vacation.stayDays);
+                                }
+                                if (d.date) allDates.push(d.date);
+                            });
+
+                            const dateObjects = Array.from(new Set(allDates)).map(d => {
+                                const [m, day] = d.split('.').map(Number);
+                                return { str: d, date: new Date(2026, m - 1, day) };
+                            }).sort((a, b) => a.date.getTime() - b.date.getTime());
+
+                            if (dateObjects.length === 0) return null;
+
+                            const startDate = new Date(dateObjects[0].date);
+                            // 수요일부터 시작하도록 조정 (0:일, 1:월, 2:화, 3:수, 4:목, 5:금, 6:토)
+                            const currentDay = startDate.getDay();
+                            const diffToWed = (currentDay - 3 + 7) % 7;
+                            startDate.setDate(startDate.getDate() - diffToWed);
+
+                            const endDate = new Date(dateObjects[dateObjects.length - 1].date);
+                            const timeline: string[] = [];
+                            const curr = new Date(startDate);
+                            while (curr <= endDate) {
+                                timeline.push(`${curr.getMonth() + 1}.${curr.getDate()}`);
+                                curr.setDate(curr.getDate() + 1);
+                            }
+
+                            // 3. 짬순(입대일 순) 정렬 로직
+                            const sortedEntries = Array.from(groupedMap.entries()).sort(([nameA], [nameB]) => {
+                                // DB에서 인원 정보를 찾아 입대일 비교
+                                const cleanA = nameA.replace(/^(병장|상병|일병|이병)\s*/, '');
+                                const cleanB = nameB.replace(/^(병장|상병|일병|이병)\s*/, '');
+
+                                const memA = dbMembers.find(m => m.name === cleanA);
+                                const memB = dbMembers.find(m => m.name === cleanB);
+
+                                if (memA?.enlistmentDate && memB?.enlistmentDate) {
+                                    if (memA.enlistmentDate !== memB.enlistmentDate) {
+                                        return memA.enlistmentDate < memB.enlistmentDate ? -1 : 1;
+                                    }
+                                } else if (memA?.enlistmentDate) {
+                                    return -1;
+                                } else if (memB?.enlistmentDate) {
+                                    return 1;
+                                }
+
+                                // 입대일 정보가 없으면 기존 계급순Fallback
+                                const rankPriority: Record<string, number> = { '병장': 1, '상병': 2, '일병': 3, '이병': 4 };
+                                const rA = Object.keys(rankPriority).find(r => nameA.includes(r)) || '';
+                                const rB = Object.keys(rankPriority).find(r => nameB.includes(r)) || '';
+                                const pA = rankPriority[rA] || 99;
+                                const pB = rankPriority[rB] || 99;
+
+                                if (pA !== pB) return pA - pB;
+                                return nameA.localeCompare(nameB);
+                            });
+
+                            // 4. 정렬된 이름별로 카드 렌더링
+                            return sortedEntries.map(([name, items], idx) => (
+                                <div key={idx} className="bg-white border border-gray-100 rounded-xl p-3 shadow-sm hover:border-blue-200 transition-all flex items-center gap-4">
+                                    <div className="w-24 shrink-0">
+                                        <span className="text-sm font-black text-gray-900 truncate block">{name}</span>
                                     </div>
-                                    {item.period && (
-                                        <span className="text-xs font-bold text-gray-400">{item.period}</span>
-                                    )}
+
+                                    <div className="flex-1 flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar relative pt-4">
+                                        {timeline.map((dateStr, tIdx) => {
+                                            let status = 'none';
+
+                                            // 해당 인원의 모든 항목을 검사 (우선순위: 당직 > 리커버리 > 연계 > 휴가 > 외박)
+                                            items.forEach(item => {
+                                                const yesterdayStr = tIdx > 0 ? timeline[tIdx - 1] : null;
+                                                const isRecovery = item.type === '당직' && item.date === yesterdayStr;
+
+                                                if (item.type === '당직' && item.date === dateStr) {
+                                                    status = 'duty';
+                                                } else if (isRecovery) {
+                                                    if (status !== 'duty') status = 'recovery';
+                                                } else if (item.type === '외박') {
+                                                    const isPassDepart = item.depart === dateStr;
+                                                    const isPassReturn = item.return === dateStr;
+                                                    const isVacationDepart = item.vacation?.depart === dateStr;
+                                                    const isLinked = item.vacation?.isLinked && isPassReturn && isVacationDepart;
+
+                                                    if (isLinked) {
+                                                        if (status !== 'duty' && status !== 'recovery') status = 'linked';
+                                                    } else if (isPassDepart) {
+                                                        if (status === 'none') status = 'pass-depart';
+                                                    } else {
+                                                        if (item.return === dateStr || item.stayDays.includes(dateStr)) {
+                                                            if (status !== 'duty' && status !== 'recovery' && status !== 'vacation' && status !== 'linked') status = 'pass';
+                                                        }
+                                                        if (item.vacation) {
+                                                            if (item.vacation.depart === dateStr || item.vacation.return === dateStr || item.vacation.stayDays.includes(dateStr)) {
+                                                                if (status !== 'duty' && status !== 'recovery' && status !== 'linked') status = 'vacation';
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            });
+
+                                            const [m, d] = dateStr.split('.').map(Number);
+                                            const isWeekend = new Date(2026, m - 1, d).getDay() % 6 === 0;
+
+                                            return (
+                                                <div key={tIdx} className="flex flex-col items-center gap-1 relative">
+                                                    <div
+                                                        className={cn(
+                                                            "w-4 h-4 rounded-sm transition-all duration-300",
+                                                            status === 'none' && "bg-gray-100",
+                                                            status === 'pass' && "bg-blue-500 shadow-[0_0_6px_rgba(59,130,246,0.3)]",
+                                                            status === 'pass-depart' && "",
+                                                            status === 'vacation' && "bg-orange-500 shadow-[0_0_6px_rgba(249,115,22,0.3)]",
+                                                            status === 'duty' && "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]",
+                                                            status === 'recovery' && "bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.4)]",
+                                                            status === 'linked' && "shadow-[0_0_8px_rgba(59,130,246,0.4)]",
+                                                            isWeekend && "border-2 border-black"
+                                                        )}
+                                                        style={
+                                                            status === 'linked' ? {
+                                                                background: 'linear-gradient(135deg, #3b82f6 50%, #f97316 50%)'
+                                                            } : status === 'pass-depart' ? {
+                                                                background: 'linear-gradient(135deg, #f3f4f6 50%, #3b82f6 50%)'
+                                                            } : undefined
+                                                        }
+                                                    />
+                                                    {(() => {
+                                                        const isFirst = tIdx === 0;
+                                                        const isLast = tIdx === timeline.length - 1;
+                                                        const isSunday = new Date(2026, m - 1, d).getDay() === 0;
+                                                        const isMonthStart = d === 1;
+                                                        
+                                                        if (isFirst || isLast || isSunday || isMonthStart) {
+                                                            return (
+                                                                <span className={cn(
+                                                                    "text-[8px] font-black absolute -top-4 whitespace-nowrap",
+                                                                    isSunday ? "text-red-400" : "text-gray-300"
+                                                                )}>
+                                                                    {dateStr}
+                                                                </span>
+                                                            );
+                                                        }
+                                                        return null;
+                                                    })()}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
-
-                                {item.type === '외박' ? (
-                                    <div className="space-y-3">
-                                        <div className="grid grid-cols-3 gap-2">
-                                            <div className="bg-blue-50/50 rounded-xl p-2 text-center border border-blue-100/50">
-                                                <div className="text-[10px] font-bold text-blue-400 mb-0.5">외박출발</div>
-                                                <div className="text-sm font-black text-blue-600">{item.depart}</div>
-                                            </div>
-                                            <div className="bg-indigo-50/50 rounded-xl p-2 text-center border border-indigo-100/50">
-                                                <div className="text-[10px] font-bold text-indigo-400 mb-0.5">중간</div>
-                                                <div className="text-xs font-black text-indigo-600 truncate">{item.stayDays.join(', ')}</div>
-                                            </div>
-                                            <div className="bg-purple-50/50 rounded-xl p-2 text-center border border-purple-100/50">
-                                                <div className="text-[10px] font-bold text-purple-400 mb-0.5">외박복귀</div>
-                                                <div className="text-sm font-black text-purple-600">{item.return}</div>
-                                            </div>
-                                        </div>
-
-                                        {item.vacation && (
-                                            <div className="bg-orange-50/30 border border-orange-100 rounded-xl p-3">
-                                                <div className="flex items-center justify-between mb-2">
-                                                    <span className="text-[11px] font-black text-orange-600 uppercase tracking-wider">휴가 정보</span>
-                                                    <span className="text-[10px] font-bold text-orange-400">{item.vacation.period}</span>
-                                                </div>
-                                                <div className="grid grid-cols-3 gap-2">
-                                                    <div className="bg-orange-50 rounded-lg p-1.5 text-center">
-                                                        <div className="text-[9px] font-bold text-orange-400">출발</div>
-                                                        <div className={cn(
-                                                            "text-xs font-black",
-                                                            item.vacation.isLinked ? "text-red-500" : "text-orange-600"
-                                                        )}>
-                                                            {item.vacation.depart}
-                                                            {item.vacation.isLinked && <span className="text-[8px] ml-0.5">(연계)</span>}
-                                                        </div>
-                                                    </div>
-                                                    <div className="bg-orange-50 rounded-lg p-1.5 text-center">
-                                                        <div className="text-[9px] font-bold text-orange-400">중간</div>
-                                                        <div className="text-[10px] font-black text-orange-600 truncate">
-                                                            {item.vacation.stayDays.join(', ')}
-                                                        </div>
-                                                    </div>
-                                                    <div className="bg-orange-50 rounded-lg p-1.5 text-center">
-                                                        <div className="text-[9px] font-bold text-orange-400">복귀</div>
-                                                        <div className="text-xs font-black text-orange-600">{item.vacation.return}</div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                ) : item.type === '당직' ? (
-                                    <div className="bg-red-50/50 rounded-xl p-4 border border-red-100 flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                                            <span className="text-sm font-bold text-red-700">당직 근무</span>
-                                        </div>
-                                        <span className="text-sm font-black text-red-600">{item.date}</span>
-                                    </div>
-                                ) : (
-                                    <div className="bg-gray-50 rounded-xl p-3 text-sm font-bold text-gray-500 text-center italic">
-                                        해당 주차 열외 사항 없음 (잔류)
-                                    </div>
-                                )}
-                            </div>
-                        ))}
+                            ));
+                        })()}
                     </div>
-
-                    <p className="text-xs text-center text-gray-400 font-medium pb-8">
-                        이 데이터는 2026년 기준으로 계산되었습니다.
-                        상태값이 정확한지 확인 후 알려주세요!
-                    </p>
                 </div>
             )}
 
@@ -498,7 +633,7 @@ export default function MovementTab() {
                             <h3 className="text-xl font-black mb-1">동명이인 확인 필요</h3>
                             <p className="text-sm opacity-90 font-bold">엑셀의 이름과 일치하는 인원이 여러 명입니다.</p>
                         </div>
-                        
+
                         <div className="p-6 space-y-6 max-h-[60vh] overflow-y-auto">
                             {ambiguousMembers.map((member, idx) => (
                                 <div key={idx} className="bg-gray-50 rounded-2xl p-4 border border-gray-100">
