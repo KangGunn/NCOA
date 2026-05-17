@@ -41,7 +41,7 @@ export default function MovementTab({ baseDate }: MovementTabProps) {
                 const data = snap.data();
                 const currentMode = data.mode || 'test';
                 setSheetMode(currentMode);
-                
+
                 // 현재 모드에 알맞은 수정 시각(testUpdatedAt / prodUpdatedAt)을 추적, 없으면 전체 updatedAt 사용
                 const targetKey = currentMode === 'prod' ? 'prodUpdatedAt' : 'testUpdatedAt';
                 const lastUpdate = data[targetKey] || data.updatedAt;
@@ -75,7 +75,7 @@ export default function MovementTab({ baseDate }: MovementTabProps) {
             const isInitialLoad = lastLoadedTimestampRef.current === '0';
             const isModeChange = sheetMode !== lastLoadedModeRef.current;
             const isTimestampChange = !isInitialLoad && !isModeChange && sheetUpdatedAt !== lastLoadedTimestampRef.current;
-            
+
             // 시트 타임스탬프가 변경된 경우(편집 발생): 4초 디바운스 대기하여 연속 편집 신호 수집
             // 초기 진입, 모드 전환인 경우: 즉시 로딩(0초)
             const delay = isTimestampChange ? 4000 : 0;
@@ -94,14 +94,14 @@ export default function MovementTab({ baseDate }: MovementTabProps) {
         const today = baseDate ? new Date(baseDate) : new Date();
         today.setHours(0, 0, 0, 0);
         const year = today.getFullYear();
-        
+
         let defaultIdx = 0;
         for (let i = 0; i < weeks.length; i++) {
             const w = weeks[i];
             if (!w) continue;
             let lastActivityDate = new Date();
             lastActivityDate.setFullYear(1970);
-            
+
             for (let d = 0; d < w.timeline.length; d++) {
                 const dateStr = w.timeline[d];
                 const hasAct = w.data.some((m: any) => m.dayStatuses[dateStr] && m.dayStatuses[dateStr] !== 'none' && m.dayStatuses[dateStr] !== 'duty' && m.dayStatuses[dateStr] !== 'recovery');
@@ -164,12 +164,12 @@ export default function MovementTab({ baseDate }: MovementTabProps) {
                     const sharedData = cacheDoc.data().data;
                     setSheetWeeks(sharedData);
                     setCurrentWeekIndex(findMatchingWeekIndex(sharedData, activeWeekStartDateRef.current));
-                    
+
                     // 로컬에도 캐싱
                     if (cacheKey) {
                         localStorage.setItem(cacheKey, JSON.stringify(sharedData));
                     }
-                    
+
                     setViewMode('sheet');
                     setParsedData(null);
                     setLoading(false);
@@ -292,7 +292,7 @@ export default function MovementTab({ baseDate }: MovementTabProps) {
                     if (updatedAtStr) {
                         // 최신 데이터 파싱 완료 시 새로운 시간의 캐시키로 로컬스토리지에 영구 저장
                         const cacheKey = `ncoa_movement_${mode}_${updatedAtStr}`;
-                        
+
                         // 기존 캐시 청소 (이전 시간에 저장된 동일 모드의 캐시 삭제)
                         const keysToRemove = [];
                         for (let i = 0; i < localStorage.length; i++) {
@@ -302,7 +302,7 @@ export default function MovementTab({ baseDate }: MovementTabProps) {
                             }
                         }
                         keysToRemove.forEach(k => localStorage.removeItem(k));
-                        
+
                         localStorage.setItem(cacheKey, JSON.stringify(parsedWeeks));
 
                         // Firestore 공유 캐시 저장
@@ -657,9 +657,18 @@ export default function MovementTab({ baseDate }: MovementTabProps) {
 
                 <div className="flex-1 flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar relative pt-4">
                     {timeline.map((dateStr, tIdx) => {
-                        const status = member.dayStatuses[dateStr] || 'none';
+                        let status = member.dayStatuses[dateStr] || 'none';
                         const [m, d] = dateStr.split('.').map(Number);
                         const isWeekend = new Date(2026, m - 1, d).getDay() % 6 === 0;
+
+                        // Dynamically detect if we are departing for/on a pass on the recovery day (day after duty)
+                        if (status === 'pass-depart' || status === 'pass') {
+                            const yesterdayStr = tIdx > 0 ? timeline[tIdx - 1] : null;
+                            const yesterdayStatus = yesterdayStr ? (member.dayStatuses[yesterdayStr] || 'none') : 'none';
+                            if (yesterdayStatus === 'duty') {
+                                status = 'recovery-pass-depart';
+                            }
+                        }
 
                         return (
                             <div key={tIdx} className="flex flex-col items-center gap-1 relative">
@@ -673,6 +682,7 @@ export default function MovementTab({ baseDate }: MovementTabProps) {
                                         status === 'duty' && "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]",
                                         status === 'recovery' && "bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.4)]",
                                         status === 'linked' && "shadow-[0_0_8px_rgba(59,130,246,0.4)]",
+                                        status === 'recovery-pass-depart' && "shadow-[0_0_6px_rgba(250,204,21,0.4)]",
                                         isWeekend && "border-2 border-black"
                                     )}
                                     style={
@@ -680,6 +690,8 @@ export default function MovementTab({ baseDate }: MovementTabProps) {
                                             background: 'linear-gradient(135deg, #3b82f6 50%, #f97316 50%)'
                                         } : status === 'pass-depart' ? {
                                             background: 'linear-gradient(135deg, #f3f4f6 50%, #3b82f6 50%)'
+                                        } : status === 'recovery-pass-depart' ? {
+                                            background: 'linear-gradient(135deg, #facc15 50%, #3b82f6 50%)'
                                         } : undefined
                                     }
                                 />
