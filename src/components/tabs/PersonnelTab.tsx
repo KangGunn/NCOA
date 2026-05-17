@@ -32,7 +32,11 @@ export interface MemberDoc {
     updatedAt?: unknown;
 }
 
-export default function PersonnelTab() {
+interface PersonnelTabProps {
+    baseDate: Date;
+}
+
+export default function PersonnelTab({ baseDate }: PersonnelTabProps) {
     const [members, setMembers] = useState<MemberDoc[]>([]);
     const [addOpen, setAddOpen] = useState(false);
     const [addingRunner, setAddingRunner] = useState(false);
@@ -112,7 +116,7 @@ export default function PersonnelTab() {
                                     <span className="text-sm font-bold text-gray-500 shrink-0">
                                         {m.role === 'runner' 
                                             ? m.rank 
-                                            : calculateRank(new Date(m.enlistmentDate), m.earlyPromotion || 0)
+                                            : calculateRank(new Date(m.enlistmentDate), m.earlyPromotion || 0, baseDate)
                                         }
                                     </span>
                                     {(m.earlyPromotion || 0) > 0 && (
@@ -193,6 +197,7 @@ export default function PersonnelTab() {
             {detailMember && (
                 <MemberDetailModal
                     member={detailMember}
+                    baseDate={baseDate}
                     onClose={() => setSelectedId(null)}
                     onDeleted={() => setSelectedId(null)}
                 />
@@ -406,10 +411,12 @@ function MemberFormModal({
 
 function MemberDetailModal({
     member,
+    baseDate,
     onClose,
     onDeleted,
 }: {
     member: MemberDoc;
+    baseDate: Date;
     onClose: () => void;
     onDeleted: () => void;
 }) {
@@ -467,7 +474,7 @@ function MemberDetailModal({
                             <div className="text-lg font-bold text-gray-800">
                                 {member.role === 'runner' 
                                     ? member.rank.split(' ')[0] 
-                                    : calculateRank(new Date(member.enlistmentDate), member.earlyPromotion || 0)
+                                    : calculateRank(new Date(member.enlistmentDate), member.earlyPromotion || 0, baseDate)
                                 }
                             </div>
                             {member.role !== 'runner' && (member.earlyPromotion || 0) > 0 && (

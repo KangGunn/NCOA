@@ -251,9 +251,9 @@ function App() {
               setCustomSchedules={setCustomSchedules}
             />
           )}
-          {activeTab === 'calendar' && <CalendarTab />}
-          {activeTab === 'movement' && <MovementTab />}
-          {activeTab === 'personnel' && <PersonnelTab />}
+          {activeTab === 'calendar' && <CalendarTab baseDate={baseDate} />}
+          {activeTab === 'movement' && <MovementTab baseDate={baseDate} />}
+          {activeTab === 'personnel' && <PersonnelTab baseDate={baseDate} />}
         </div>
 
         <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />

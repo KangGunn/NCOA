@@ -79,8 +79,9 @@ async function getSheetData(): Promise<any[]> {
     const docSnap = await db.collection("settings").doc("spreadsheet").get();
     const sheetMode = docSnap.exists ? docSnap.data()?.mode || "test" : "test";
     const sheetUrl = SHEET_URLS[sheetMode as keyof typeof SHEET_URLS] || SHEET_URLS.test;
+    const finalUrl = `${sheetUrl}&t=${Date.now()}`;
 
-    const csvRes = await axios.get(sheetUrl);
+    const csvRes = await axios.get(finalUrl);
 
     return new Promise<any[]>((resolve) => {
         Papa.parse(csvRes.data, {
@@ -1112,8 +1113,9 @@ export const syncMovementToSheet = onRequest((req, res) => {
                 });
                 
                 // Firestore 업데이트 시간 갱신 (앱에서 데이터 리로딩 유도)
+                const updateKey = sheetMode === "prod" ? "prodUpdatedAt" : "testUpdatedAt";
                 await db.collection("settings").doc("spreadsheet").set({
-                    updatedAt: FieldValue.serverTimestamp()
+                    [updateKey]: FieldValue.serverTimestamp()
                 }, { merge: true });
 
                 return res.json({ status: "success", count: updateData.length });
@@ -1124,6 +1126,25 @@ export const syncMovementToSheet = onRequest((req, res) => {
         } catch (error: any) {
             logger.error("syncMovementToSheet error:", error);
             return res.status(500).json({ status: "error", message: error.message });
+        }
+    });
+});
+
+// Google Apps Script (onEdit 트리거) 용 웹훅 엔드포인트
+export const notifySheetUpdated = onRequest((req, res) => {
+    corsHandler(req, res, async () => {
+        try {
+            const mode = req.query.mode === "prod" ? "prod" : "test";
+            const updateKey = mode === "prod" ? "prodUpdatedAt" : "testUpdatedAt";
+            
+            await db.collection("settings").doc("spreadsheet").set({
+                [updateKey]: FieldValue.serverTimestamp()
+            }, { merge: true });
+            
+            return res.json({ status: "success", message: `${mode} updatedAt timestamp refreshed.` });
+        } catch (err: any) {
+            logger.error("notifySheetUpdated error:", err);
+            return res.status(500).json({ status: "error", message: err.message });
         }
     });
 });

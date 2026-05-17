@@ -1,16 +1,29 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // MovementTab for Special Leave (외특)
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { Upload, CheckCircle2, AlertCircle, Send } from 'lucide-react';
+import Papa from 'papaparse';
+import { Upload, CheckCircle2, AlertCircle, Send, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import axios from 'axios';
-import { doc, onSnapshot, setDoc, serverTimestamp, collection } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, serverTimestamp, collection, getDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 
-export default function MovementTab() {
-    const [fileName, setFileName] = useState<string | null>(null);
+const SPREADSHEET_URLS = {
+    test: "https://docs.google.com/spreadsheets/d/1eyiNzyvJ1BguGzzpkYDnVegi-4U-zuCacCvy9bOW8R8/export?format=csv&gid=1529486829",
+    prod: "https://docs.google.com/spreadsheets/d/1WBJXIzLbbtRxt09KOaJeXKXtgbht-GDjX3N4DyDztOY/export?format=csv&gid=1529486829"
+};
+
+interface MovementTabProps {
+    baseDate?: Date;
+}
+
+export default function MovementTab({ baseDate }: MovementTabProps) {
     const [parsedData, setParsedData] = useState<any[] | null>(null);
+
+    const [sheetWeeks, setSheetWeeks] = useState<any[]>([]);
+    const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
+    const [viewMode, setViewMode] = useState<'sheet' | 'excel'>('sheet');
 
     const [loading, setLoading] = useState(false);
     const [syncing, setSyncing] = useState(false);
@@ -19,14 +32,27 @@ export default function MovementTab() {
     const [ambiguousMembers, setAmbiguousMembers] = useState<any[] | null>(null);
     const [resolutions, setResolutions] = useState<Record<string, string>>({});
     const [sheetMode, setSheetMode] = useState<'test' | 'prod' | null>(null);
+    const [sheetUpdatedAt, setSheetUpdatedAt] = useState<string>('0');
     const [dbMembers, setDbMembers] = useState<any[]>([]);
 
-    React.useEffect(() => {
+    useEffect(() => {
         const unsub = onSnapshot(doc(db, 'settings', 'spreadsheet'), (snap) => {
             if (snap.exists()) {
-                setSheetMode(snap.data().mode || 'test');
+                const data = snap.data();
+                const currentMode = data.mode || 'test';
+                setSheetMode(currentMode);
+                
+                // 현재 모드에 알맞은 수정 시각(testUpdatedAt / prodUpdatedAt)을 추적, 없으면 전체 updatedAt 사용
+                const targetKey = currentMode === 'prod' ? 'prodUpdatedAt' : 'testUpdatedAt';
+                const lastUpdate = data[targetKey] || data.updatedAt;
+                if (lastUpdate) {
+                    setSheetUpdatedAt(lastUpdate.toMillis ? lastUpdate.toMillis().toString() : lastUpdate.toString());
+                } else {
+                    // DB에 타임스탬프가 없는 경우 임의의 시간으로 설정하여 무한 대기를 방지하고 최초 1회 로드 유도
+                    setSheetUpdatedAt(Date.now().toString());
+                }
             } else {
-                setSheetMode('test'); // 문서가 없으면 기본값 test
+                setSheetMode('test');
             }
         });
 
@@ -41,12 +67,274 @@ export default function MovementTab() {
         };
     }, []);
 
+    const lastLoadedTimestampRef = useRef<string>('0');
+    const lastLoadedModeRef = useRef<'test' | 'prod'>('test');
+
+    useEffect(() => {
+        if (sheetMode && sheetUpdatedAt !== '0') {
+            const isInitialLoad = lastLoadedTimestampRef.current === '0';
+            const isModeChange = sheetMode !== lastLoadedModeRef.current;
+            const isTimestampChange = !isInitialLoad && !isModeChange && sheetUpdatedAt !== lastLoadedTimestampRef.current;
+            
+            // 시트 타임스탬프가 변경된 경우(편집 발생): 4초 디바운스 대기하여 연속 편집 신호 수집
+            // 초기 진입, 모드 전환인 경우: 즉시 로딩(0초)
+            const delay = isTimestampChange ? 4000 : 0;
+
+            const timer = setTimeout(() => {
+                fetchSpreadsheet(sheetMode, sheetUpdatedAt);
+                lastLoadedTimestampRef.current = sheetUpdatedAt;
+                lastLoadedModeRef.current = sheetMode;
+            }, delay);
+
+            return () => clearTimeout(timer);
+        }
+    }, [sheetMode, sheetUpdatedAt]);
+
+    const selectDefaultWeekIndex = (weeks: any[]) => {
+        const today = baseDate ? new Date(baseDate) : new Date();
+        today.setHours(0, 0, 0, 0);
+        const year = today.getFullYear();
+        
+        let defaultIdx = 0;
+        for (let i = 0; i < weeks.length; i++) {
+            const w = weeks[i];
+            if (!w) continue;
+            let lastActivityDate = new Date();
+            lastActivityDate.setFullYear(1970);
+            
+            for (let d = 0; d < w.timeline.length; d++) {
+                const dateStr = w.timeline[d];
+                const hasAct = w.data.some((m: any) => m.dayStatuses[dateStr] && m.dayStatuses[dateStr] !== 'none' && m.dayStatuses[dateStr] !== 'duty' && m.dayStatuses[dateStr] !== 'recovery');
+                if (hasAct) {
+                    const [mm, dd] = dateStr.split('.').map(Number);
+                    lastActivityDate = new Date(year, mm - 1, dd);
+                }
+            }
+            if (today <= lastActivityDate) {
+                defaultIdx = i;
+                break;
+            }
+            if (i === weeks.length - 1) {
+                defaultIdx = i;
+            }
+        }
+        return defaultIdx;
+    };
+
+    const activeWeekStartDateRef = useRef<string | null>(null);
+
+    useEffect(() => {
+        if (sheetWeeks && sheetWeeks[currentWeekIndex]) {
+            activeWeekStartDateRef.current = sheetWeeks[currentWeekIndex].startDate;
+        }
+    }, [sheetWeeks, currentWeekIndex]);
+
+    const findMatchingWeekIndex = (weeks: any[], targetStartDate: string | null) => {
+        if (!targetStartDate) return selectDefaultWeekIndex(weeks);
+        const idx = weeks.findIndex(w => w.startDate === targetStartDate);
+        return idx !== -1 ? idx : selectDefaultWeekIndex(weeks);
+    };
+
+    const fetchSpreadsheet = async (mode: 'test' | 'prod', updatedAtStr?: string) => {
+        const cacheKey = updatedAtStr ? `ncoa_movement_${mode}_${updatedAtStr}` : null;
+        const cached = cacheKey ? localStorage.getItem(cacheKey) : null;
+
+        // 1. 로컬 브라우저 캐시 확인
+        if (cached) {
+            try {
+                const parsed = JSON.parse(cached);
+                if (parsed && Array.isArray(parsed)) {
+                    setSheetWeeks(parsed);
+                    setCurrentWeekIndex(findMatchingWeekIndex(parsed, activeWeekStartDateRef.current));
+                    setViewMode('sheet');
+                    setParsedData(null);
+                    setLoading(false);
+                    return; // 완전 일치하는 캐시가 있으면 여기서 네트워크 요청 즉시 중단!
+                }
+            } catch (e) {
+                console.error('Cache parsing error:', e);
+            }
+        }
+
+        // 2. Firestore 공유 캐시 확인
+        if (updatedAtStr) {
+            try {
+                const cacheDoc = await getDoc(doc(db, "movement_cache", `${mode}_${updatedAtStr}`));
+                if (cacheDoc.exists()) {
+                    const sharedData = cacheDoc.data().data;
+                    setSheetWeeks(sharedData);
+                    setCurrentWeekIndex(findMatchingWeekIndex(sharedData, activeWeekStartDateRef.current));
+                    
+                    // 로컬에도 캐싱
+                    if (cacheKey) {
+                        localStorage.setItem(cacheKey, JSON.stringify(sharedData));
+                    }
+                    
+                    setViewMode('sheet');
+                    setParsedData(null);
+                    setLoading(false);
+                    return;
+                }
+            } catch (e) {
+                console.error("Firestore movement cache read error:", e);
+            }
+        }
+
+        // 캐시가 없거나, 구글 시트 변동으로 인해 새로운 updatedAt이 내려왔을 경우에만 스피너와 함께 새로 다운로드
+        setLoading(true);
+        setError(null);
+        try {
+            const url = `${SPREADSHEET_URLS[mode]}&t=${Date.now()}`;
+            const res = await axios.get(url);
+            Papa.parse(res.data, {
+                complete: async (results) => {
+                    const rows = results.data as string[][];
+                    if (rows.length < 2) {
+                        setLoading(false);
+                        return;
+                    }
+
+                    const dateRow = rows[0];
+                    const year = new Date().getFullYear();
+
+                    const cols: { col: number, date: Date, dateStr: string }[] = [];
+                    for (let c = 1; c < dateRow.length; c++) {
+                        if (!dateRow[c]) continue;
+                        const parts = dateRow[c].split(/[./]/).map(p => p.trim());
+                        if (parts.length < 3) continue;
+                        const m = parseInt(parts[1]);
+                        const d = parseInt(parts[2]);
+                        const date = new Date(year, m - 1, d);
+                        cols.push({ col: c, date, dateStr: `${m}.${d}` });
+                    }
+
+                    const sortedCols = cols.sort((a, b) => a.date.getTime() - b.date.getTime());
+                    if (sortedCols.length === 0) {
+                        setLoading(false);
+                        return;
+                    }
+
+                    const blockStarts: Date[] = [];
+                    const firstDate = new Date(sortedCols[0].date);
+                    const diffToWed = (firstDate.getDay() - 3 + 7) % 7;
+                    firstDate.setDate(firstDate.getDate() - diffToWed);
+
+                    const lastDate = sortedCols[sortedCols.length - 1].date;
+                    const currWed = new Date(firstDate);
+                    while (currWed <= lastDate) {
+                        blockStarts.push(new Date(currWed));
+                        currWed.setDate(currWed.getDate() + 7);
+                    }
+
+                    const parsedWeeks = blockStarts.map((wed) => {
+                        const defaultEnd = new Date(wed);
+                        defaultEnd.setDate(defaultEnd.getDate() + 9); // 수요일부터 다음주 금요일까지 (10일 범위)
+
+                        const blockCols = sortedCols.filter(c => c.date >= wed && c.date <= defaultEnd);
+                        if (blockCols.length === 0) return null;
+
+                        const weekData: any[] = [];
+                        for (let r = 2; r < rows.length; r++) {
+                            const row = rows[r];
+                            if (!row || !row[0]) continue;
+                            const nameWithRank = row[0].trim();
+
+                            let hasActivity = false;
+                            const dayStatuses: Record<string, string> = {};
+
+                            blockCols.forEach((c, idx) => {
+                                const cell = row[c.col] || '';
+                                let status = 'none';
+                                if (cell.includes('외박')) {
+                                    if (cell.includes('출발')) status = 'pass-depart';
+                                    else status = 'pass';
+                                }
+                                if (cell.includes('휴가')) {
+                                    status = 'vacation';
+                                }
+                                if (cell.includes('당직')) status = 'duty';
+                                if (cell.includes('연계')) status = 'linked';
+
+                                if (status === 'none' && idx > 0) {
+                                    const yesterdayCell = row[blockCols[idx - 1].col] || '';
+                                    if (yesterdayCell.includes('당직')) status = 'recovery';
+                                } else if (status === 'none' && idx === 0) {
+                                    const overallColIdx = cols.findIndex(col => col.col === c.col);
+                                    if (overallColIdx > 0) {
+                                        const yCell = row[cols[overallColIdx - 1].col] || '';
+                                        if (yCell.includes('당직')) status = 'recovery';
+                                    }
+                                }
+
+                                if (status !== 'none' && status !== 'duty' && status !== 'recovery') {
+                                    hasActivity = true;
+                                }
+                                dayStatuses[c.dateStr] = status;
+                            });
+
+                            if (hasActivity) {
+                                weekData.push({
+                                    name: nameWithRank,
+                                    dayStatuses
+                                });
+                            }
+                        }
+
+                        return {
+                            id: wed.getTime(),
+                            startDate: blockCols[0].dateStr,
+                            endDate: blockCols[blockCols.length - 1].dateStr,
+                            timeline: blockCols.map(c => c.dateStr),
+                            data: weekData
+                        };
+                    }).filter(Boolean).filter((w: any) => w.data.length > 0) as any[];
+
+                    if (updatedAtStr) {
+                        // 최신 데이터 파싱 완료 시 새로운 시간의 캐시키로 로컬스토리지에 영구 저장
+                        const cacheKey = `ncoa_movement_${mode}_${updatedAtStr}`;
+                        
+                        // 기존 캐시 청소 (이전 시간에 저장된 동일 모드의 캐시 삭제)
+                        const keysToRemove = [];
+                        for (let i = 0; i < localStorage.length; i++) {
+                            const k = localStorage.key(i);
+                            if (k && k.startsWith(`ncoa_movement_${mode}_`) && k !== cacheKey) {
+                                keysToRemove.push(k);
+                            }
+                        }
+                        keysToRemove.forEach(k => localStorage.removeItem(k));
+                        
+                        localStorage.setItem(cacheKey, JSON.stringify(parsedWeeks));
+
+                        // Firestore 공유 캐시 저장
+                        try {
+                            await setDoc(doc(db, "movement_cache", `${mode}_${updatedAtStr}`), {
+                                data: parsedWeeks,
+                                updatedAt: serverTimestamp()
+                            });
+                        } catch (e) {
+                            console.error("Firestore movement cache write error:", e);
+                        }
+                    }
+
+                    setSheetWeeks(parsedWeeks);
+                    setCurrentWeekIndex(findMatchingWeekIndex(parsedWeeks, activeWeekStartDateRef.current));
+                    setViewMode('sheet');
+                    setParsedData(null);
+                    setLoading(false);
+                }
+            });
+        } catch (e) {
+            console.error("fetchSpreadsheet error:", e);
+            setError('스프레드시트 데이터를 불러오는 중 오류가 발생했습니다.');
+            setLoading(false);
+        }
+    };
+
     const toggleMode = async () => {
         const newMode = sheetMode === 'test' ? 'prod' : 'test';
         try {
             await setDoc(doc(db, 'settings', 'spreadsheet'), {
-                mode: newMode,
-                updatedAt: serverTimestamp()
+                mode: newMode
             }, { merge: true });
         } catch (err) {
             console.error('Error updating mode:', err);
@@ -57,13 +345,13 @@ export default function MovementTab() {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        setFileName(file.name);
         setLoading(true);
         setError(null);
-        setSuccess(null); // 기존 성공 메시지 초기화
-        setParsedData(null); // 기존 분석 데이터 초기화
+        setSuccess(null);
+        setParsedData(null);
         setAmbiguousMembers(null);
         setResolutions({});
+        setViewMode('excel');
 
         const reader = new FileReader();
         reader.onload = (evt) => {
@@ -78,20 +366,17 @@ export default function MovementTab() {
                 let isCapturing = false;
                 let isDutyCapturing = false;
 
-                // 연도는 현재 시스템 연도 사용 (2026)
                 const currentYear = new Date().getFullYear();
 
                 for (let i = 0; i < rawData.length; i++) {
                     const content = String(rawData[i]['댓글 내용'] || '').trim();
 
-                    // 1. 외박 특이사항 (ㅌㅇㅅㅎ) 시작 체크
                     if (content === 'ㅌㅇㅅㅎ') {
                         isCapturing = true;
                         isDutyCapturing = false;
                         continue;
                     }
 
-                    // 2. 당직 시작 체크 (내용에 '당직' 포함)
                     if (content.includes('당직') && !content.startsWith('ㄴ')) {
                         isDutyCapturing = true;
                         isCapturing = false;
@@ -103,24 +388,16 @@ export default function MovementTab() {
                             const lines = content.split('\n');
                             lines.forEach(line => {
                                 const cleanLine = line.replace(/^ㄴ/, '').trim();
-
-                                // 1. 관등성명 인식
                                 const nameMatch = cleanLine.match(/^(병장|상병|일병|이병)\s+([가-힣]+)/);
                                 if (nameMatch) {
                                     const rank = nameMatch[1];
                                     const name = nameMatch[2];
-
-                                    // 2. + 기준 분리 (앞은 외박)
                                     const passPart = cleanLine.split('+')[0];
-
-                                    // 3. 날짜 추출 로직 (기간 -> 단일 날짜 순서)
                                     const rangeRegex = /(\d{1,2})[./](\d{1,2})\s*~\s*(\d{1,2})[./](\d{1,2})/;
                                     const singleRegex = /(\d{1,2})[./](\d{1,2})/;
-
                                     const rangeMatch = passPart.match(rangeRegex);
 
                                     if (rangeMatch) {
-                                        // 5. 날짜 범위인 경우 (5/23~5/25)
                                         const startM = parseInt(rangeMatch[1]);
                                         const startD = parseInt(rangeMatch[2]);
                                         const endM = parseInt(rangeMatch[3]);
@@ -140,7 +417,6 @@ export default function MovementTab() {
                                             stayDays: getDatesBetween(startDate, endDate, true)
                                         };
 
-                                        // 7. 휴가 부분 처리 (+ 이후)
                                         const vacationPart = cleanLine.split('+')[1];
                                         if (vacationPart) {
                                             const vRangeMatch = vacationPart.match(rangeRegex);
@@ -186,7 +462,6 @@ export default function MovementTab() {
                                             const isDayOff = passPart.match(/(원|투|쓰리|포|파이브)데이/);
                                             const hasStayKeyword = passPart.includes('잔류');
 
-                                            // 단일 날짜인데 '잔류'가 있고 '데이' 표현이 없으면 잔류로 처리
                                             if (hasStayKeyword && !isDayOff) {
                                                 extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: '당직/업무 등으로 인한 잔류' });
                                             } else {
@@ -199,7 +474,6 @@ export default function MovementTab() {
                                                     stayDays: []
                                                 };
 
-                                                // 단일 날짜 뒤에 휴가가 있는 경우 처리
                                                 const vacationPart = cleanLine.split('+')[1];
                                                 if (vacationPart) {
                                                     const vRangeMatch = vacationPart.match(rangeRegex);
@@ -235,7 +509,6 @@ export default function MovementTab() {
                                                 }
                                             }
                                         } else if (passPart.includes('잔류')) {
-                                            // 날짜도 없고 '잔류'라는 단어가 있을 때만 잔류 처리
                                             extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: '잔류' });
                                         } else {
                                             extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: '날짜 데이터 없음' });
@@ -248,11 +521,9 @@ export default function MovementTab() {
                         }
                     }
 
-                    // 4. 당직 파싱 영역
                     if (isDutyCapturing) {
                         if (content.startsWith('ㄴ')) {
                             const cleanLine = content.replace(/^ㄴ/, '').trim();
-                            // "ㄴ 상병 김대호, 5월 9일 (토) 당직입니다." 형식 파싱 (/, ., 월/일 모두 지원)
                             const dutyMatch = cleanLine.match(/^(병장|상병|일병|이병)\s+([가-힣]+)[,\s]+(\d{1,2})\s*[./월]\s*(\d{1,2})/);
 
                             if (dutyMatch) {
@@ -282,27 +553,25 @@ export default function MovementTab() {
             }
         };
 
-        // 날짜 사이의 중간 날짜들 구하는 헬퍼 함수
         function getDatesBetween(start: Date, end: Date, includeStart: boolean = true) {
             const dates = [];
             const curr = new Date(start);
             if (!includeStart) {
                 curr.setDate(curr.getDate() + 1);
             }
-
             while (curr < end) {
                 dates.push(`${curr.getMonth() + 1}.${curr.getDate()}`);
                 curr.setDate(curr.getDate() + 1);
             }
             return dates;
         }
+
         reader.onerror = () => {
             setError('파일 읽기 실패');
             setLoading(false);
         };
         reader.readAsBinaryString(file);
 
-        // 입력창 초기화 (동일 파일 재업로드 가능하게 함)
         e.target.value = '';
     };
 
@@ -320,9 +589,7 @@ export default function MovementTab() {
                 ? 'http://127.0.0.1:5001/seniorkatusa-aa594/asia-northeast3'
                 : 'https://asia-northeast3-seniorkatusa-aa594.cloudfunctions.net';
 
-            // 해결된 데이터가 있으면 그것을 사용, 없으면 원본 파싱 데이터 사용
             const movementsToSync = (resolvedData || parsedData!).map(m => {
-                // 이미 해결된 동명이인이라면 이름 교체
                 const resolvedName = resolutions[m.name] || m.name;
                 return { ...m, name: resolvedName };
             });
@@ -341,6 +608,8 @@ export default function MovementTab() {
                 setSuccess(`${response.data.count}개의 셀이 성공적으로 업데이트되었습니다!`);
                 setAmbiguousMembers(null);
                 setResolutions({});
+                // 성공 후 시트 데이터 다시 로드
+                if (sheetMode) fetchSpreadsheet(sheetMode);
             } else {
                 throw new Error(response.data.message);
             }
@@ -350,6 +619,179 @@ export default function MovementTab() {
         } finally {
             setSyncing(false);
         }
+    };
+
+    const renderGrid = (timeline: string[], dataList: { name: string, dayStatuses: Record<string, string> }[]) => {
+        const sortedEntries = [...dataList].sort((a, b) => {
+            const cleanA = a.name.replace(/^(병장|상병|일병|이병)\s*/, '');
+            const cleanB = b.name.replace(/^(병장|상병|일병|이병)\s*/, '');
+
+            const memA = dbMembers.find(m => m.name === cleanA);
+            const memB = dbMembers.find(m => m.name === cleanB);
+
+            if (memA?.enlistmentDate && memB?.enlistmentDate) {
+                if (memA.enlistmentDate !== memB.enlistmentDate) {
+                    return memA.enlistmentDate < memB.enlistmentDate ? -1 : 1;
+                }
+            } else if (memA?.enlistmentDate) {
+                return -1;
+            } else if (memB?.enlistmentDate) {
+                return 1;
+            }
+
+            const rankPriority: Record<string, number> = { '병장': 1, '상병': 2, '일병': 3, '이병': 4 };
+            const rA = Object.keys(rankPriority).find(r => a.name.includes(r)) || '';
+            const rB = Object.keys(rankPriority).find(r => b.name.includes(r)) || '';
+            const pA = rankPriority[rA] || 99;
+            const pB = rankPriority[rB] || 99;
+
+            if (pA !== pB) return pA - pB;
+            return a.name.localeCompare(b.name);
+        });
+
+        return sortedEntries.map((member, idx) => (
+            <div key={idx} className="bg-white border border-gray-100 rounded-xl p-3 shadow-sm hover:border-blue-200 transition-all flex items-center gap-4">
+                <div className="w-24 shrink-0">
+                    <span className="text-sm font-black text-gray-900 truncate block">{member.name}</span>
+                </div>
+
+                <div className="flex-1 flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar relative pt-4">
+                    {timeline.map((dateStr, tIdx) => {
+                        const status = member.dayStatuses[dateStr] || 'none';
+                        const [m, d] = dateStr.split('.').map(Number);
+                        const isWeekend = new Date(2026, m - 1, d).getDay() % 6 === 0;
+
+                        return (
+                            <div key={tIdx} className="flex flex-col items-center gap-1 relative">
+                                <div
+                                    className={cn(
+                                        "w-4 h-4 rounded-sm transition-all duration-300",
+                                        status === 'none' && "bg-gray-100",
+                                        status === 'pass' && "bg-blue-500 shadow-[0_0_6px_rgba(59,130,246,0.3)]",
+                                        status === 'pass-depart' && "",
+                                        status === 'vacation' && "bg-orange-500 shadow-[0_0_6px_rgba(249,115,22,0.3)]",
+                                        status === 'duty' && "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]",
+                                        status === 'recovery' && "bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.4)]",
+                                        status === 'linked' && "shadow-[0_0_8px_rgba(59,130,246,0.4)]",
+                                        isWeekend && "border-2 border-black"
+                                    )}
+                                    style={
+                                        status === 'linked' ? {
+                                            background: 'linear-gradient(135deg, #3b82f6 50%, #f97316 50%)'
+                                        } : status === 'pass-depart' ? {
+                                            background: 'linear-gradient(135deg, #f3f4f6 50%, #3b82f6 50%)'
+                                        } : undefined
+                                    }
+                                />
+                                {(() => {
+                                    const isFirst = tIdx === 0;
+                                    const isLast = tIdx === timeline.length - 1;
+                                    const isSunday = new Date(2026, m - 1, d).getDay() === 0;
+                                    const isMonthStart = d === 1;
+                                    const today = baseDate || new Date();
+                                    const isToday = today.getMonth() === m - 1 && today.getDate() === d;
+
+                                    if (isFirst || isLast || isSunday || isMonthStart || isToday) {
+                                        return (
+                                            <span className={cn(
+                                                "text-[8px] font-black absolute -top-4 whitespace-nowrap",
+                                                isToday ? "text-red-500 font-extrabold" : "text-gray-300"
+                                            )}>
+                                                {dateStr}
+                                            </span>
+                                        );
+                                    }
+                                    return null;
+                                })()}
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        ));
+    };
+
+    const getExcelTimelineAndData = () => {
+        if (!parsedData) return { timeline: [], dataList: [] };
+        const groupedMap = new Map<string, any[]>();
+        parsedData.forEach(item => {
+            if (!groupedMap.has(item.name)) groupedMap.set(item.name, []);
+            groupedMap.get(item.name)?.push(item);
+        });
+
+        const allDates: string[] = [];
+        parsedData.forEach(d => {
+            if (d.depart) allDates.push(d.depart);
+            if (d.return) allDates.push(d.return);
+            if (d.stayDays) allDates.push(...d.stayDays);
+            if (d.vacation) {
+                if (d.vacation.depart) allDates.push(d.vacation.depart);
+                if (d.vacation.return) allDates.push(d.vacation.return);
+                if (d.vacation.stayDays) allDates.push(...d.vacation.stayDays);
+            }
+            if (d.date) allDates.push(d.date);
+        });
+
+        const dateObjects = Array.from(new Set(allDates)).map(d => {
+            const [m, day] = d.split('.').map(Number);
+            return { str: d, date: new Date(2026, m - 1, day) };
+        }).sort((a, b) => a.date.getTime() - b.date.getTime());
+
+        if (dateObjects.length === 0) return { timeline: [], dataList: [] };
+
+        const startDate = new Date(dateObjects[0].date);
+        const currentDay = startDate.getDay();
+        const diffToWed = (currentDay - 3 + 7) % 7;
+        startDate.setDate(startDate.getDate() - diffToWed);
+
+        const endDate = new Date(dateObjects[dateObjects.length - 1].date);
+        const timeline: string[] = [];
+        const curr = new Date(startDate);
+        while (curr <= endDate) {
+            timeline.push(`${curr.getMonth() + 1}.${curr.getDate()}`);
+            curr.setDate(curr.getDate() + 1);
+        }
+
+        const dataList = Array.from(groupedMap.entries()).map(([name, items]) => {
+            const dayStatuses: Record<string, string> = {};
+            timeline.forEach((dateStr, tIdx) => {
+                let status = 'none';
+                items.forEach(item => {
+                    const yesterdayStr = tIdx > 0 ? timeline[tIdx - 1] : null;
+                    const isRecovery = item.type === '당직' && item.date === yesterdayStr;
+
+                    if (item.type === '당직' && item.date === dateStr) {
+                        status = 'duty';
+                    } else if (isRecovery) {
+                        if (status !== 'duty') status = 'recovery';
+                    } else if (item.type === '외박') {
+                        const isPassDepart = item.depart === dateStr;
+                        const isPassReturn = item.return === dateStr;
+                        const isVacationDepart = item.vacation?.depart === dateStr;
+                        const isLinked = item.vacation?.isLinked && isPassReturn && isVacationDepart;
+
+                        if (isLinked) {
+                            if (status !== 'duty' && status !== 'recovery') status = 'linked';
+                        } else if (isPassDepart) {
+                            if (status === 'none') status = 'pass-depart';
+                        } else {
+                            if (item.return === dateStr || item.stayDays.includes(dateStr)) {
+                                if (status !== 'duty' && status !== 'recovery' && status !== 'vacation' && status !== 'linked') status = 'pass';
+                            }
+                            if (item.vacation) {
+                                if (item.vacation.depart === dateStr || item.vacation.return === dateStr || item.vacation.stayDays.includes(dateStr)) {
+                                    if (status !== 'duty' && status !== 'recovery' && status !== 'linked') status = 'vacation';
+                                }
+                            }
+                        }
+                    }
+                });
+                dayStatuses[dateStr] = status;
+            });
+            return { name, dayStatuses };
+        });
+
+        return { timeline, dataList };
     };
 
     return (
@@ -391,26 +833,6 @@ export default function MovementTab() {
                 </div>
             </header>
 
-            <div className="bg-white rounded-[2rem] border-2 border-dashed border-gray-200 p-10 flex flex-col items-center justify-center gap-4 transition-colors hover:border-blue-400 group relative overflow-hidden">
-                <input
-                    type="file"
-                    accept=".xlsx, .xls"
-                    onChange={handleFileUpload}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                />
-                <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform relative">
-                    <Upload className="w-8 h-8 text-blue-600" />
-                </div>
-                <div className="text-center">
-                    <p className="text-lg font-bold text-gray-900">
-                        {fileName || '밴드 댓글 .xlsx 파일을 업로드하세요'}
-                    </p>
-                    <p className="text-sm text-gray-400 font-medium mt-1">
-                        최대 용량 20MB (실제 파일은 약 20kb 내외)
-                    </p>
-                </div>
-            </div>
-
             {loading && (
                 <div className="flex items-center justify-center py-10">
                     <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
@@ -424,12 +846,61 @@ export default function MovementTab() {
                 </div>
             )}
 
-            {parsedData && (
+            {/* Sheet Mode View */}
+            {viewMode === 'sheet' && sheetWeeks.length > 0 && !loading && (
+                <div className="space-y-4 animate-in zoom-in-95 duration-300">
+                    <div className="flex flex-col sm:flex-row items-center justify-between bg-white border border-gray-200 rounded-2xl p-3 shadow-sm gap-3">
+                        {/* Left: File upload button */}
+                        <div className="relative group shrink-0 w-full sm:w-auto">
+                            <input
+                                type="file"
+                                accept=".xlsx, .xls"
+                                onChange={handleFileUpload}
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                            />
+                            <button className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 h-[44px] bg-white border border-gray-200 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm">
+                                <Upload className="w-4 h-4 text-blue-500" />
+                                <span>엑셀 파일 업로드</span>
+                            </button>
+                        </div>
+
+                        {/* Center: Date Range */}
+                        <div className="text-lg font-black text-gray-900 tracking-tight text-center">
+                            {sheetWeeks[currentWeekIndex].startDate} ~ {sheetWeeks[currentWeekIndex].endDate}
+                        </div>
+
+                        {/* Right: Navigation buttons side-by-side */}
+                        <div className="flex items-center justify-center gap-1.5 w-full sm:w-auto">
+                            <button
+                                onClick={() => setCurrentWeekIndex(i => Math.max(0, i - 1))}
+                                disabled={currentWeekIndex === 0}
+                                className="w-11 h-11 bg-gray-50 rounded-xl flex items-center justify-center hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-gray-50 transition-all text-gray-600"
+                            >
+                                <ChevronLeft className="w-5 h-5" />
+                            </button>
+                            <button
+                                onClick={() => setCurrentWeekIndex(i => Math.min(sheetWeeks.length - 1, i + 1))}
+                                disabled={currentWeekIndex === sheetWeeks.length - 1}
+                                className="w-11 h-11 bg-gray-50 rounded-xl flex items-center justify-center hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-gray-50 transition-all text-gray-600"
+                            >
+                                <ChevronRight className="w-5 h-5" />
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="grid gap-2">
+                        {renderGrid(sheetWeeks[currentWeekIndex].timeline, sheetWeeks[currentWeekIndex].data)}
+                    </div>
+                </div>
+            )}
+
+            {/* Excel Mode View */}
+            {viewMode === 'excel' && parsedData && (
                 <div className="space-y-4 animate-in zoom-in-95 duration-300">
                     <div className="bg-green-50 border border-green-100 rounded-2xl p-4 flex items-center justify-between gap-3 text-green-700">
                         <div className="flex items-center gap-3">
                             <CheckCircle2 className="w-5 h-5 shrink-0" />
-                            <p className="font-bold whitespace-nowrap text-sm sm:text-base">분석 완료 ({parsedData.length}건)</p>
+                            <p className="font-bold whitespace-nowrap text-sm sm:text-base">업로드 데이터 ({parsedData.length}건)</p>
                         </div>
                         <div className="flex gap-2">
                             <button
@@ -444,6 +915,12 @@ export default function MovementTab() {
                                 )}
                                 시트 동기화
                             </button>
+                            <button
+                                onClick={() => { setViewMode('sheet'); setParsedData(null); }}
+                                className="px-4 py-2 bg-white text-gray-600 border border-gray-200 rounded-xl font-bold text-sm active:scale-95 transition-all"
+                            >
+                                취소
+                            </button>
                         </div>
                     </div>
 
@@ -456,170 +933,8 @@ export default function MovementTab() {
 
                     <div className="grid gap-2">
                         {(() => {
-                            // 1. 이름별로 데이터 그룹화
-                            const groupedMap = new Map<string, any[]>();
-                            parsedData.forEach(item => {
-                                if (!groupedMap.has(item.name)) groupedMap.set(item.name, []);
-                                groupedMap.get(item.name)?.push(item);
-                            });
-
-                            // 2. 전체 날짜 범위 계산
-                            const allDates: string[] = [];
-                            parsedData.forEach(d => {
-                                if (d.depart) allDates.push(d.depart);
-                                if (d.return) allDates.push(d.return);
-                                if (d.stayDays) allDates.push(...d.stayDays);
-                                if (d.vacation) {
-                                    if (d.vacation.depart) allDates.push(d.vacation.depart);
-                                    if (d.vacation.return) allDates.push(d.vacation.return);
-                                    if (d.vacation.stayDays) allDates.push(...d.vacation.stayDays);
-                                }
-                                if (d.date) allDates.push(d.date);
-                            });
-
-                            const dateObjects = Array.from(new Set(allDates)).map(d => {
-                                const [m, day] = d.split('.').map(Number);
-                                return { str: d, date: new Date(2026, m - 1, day) };
-                            }).sort((a, b) => a.date.getTime() - b.date.getTime());
-
-                            if (dateObjects.length === 0) return null;
-
-                            const startDate = new Date(dateObjects[0].date);
-                            // 수요일부터 시작하도록 조정 (0:일, 1:월, 2:화, 3:수, 4:목, 5:금, 6:토)
-                            const currentDay = startDate.getDay();
-                            const diffToWed = (currentDay - 3 + 7) % 7;
-                            startDate.setDate(startDate.getDate() - diffToWed);
-
-                            const endDate = new Date(dateObjects[dateObjects.length - 1].date);
-                            const timeline: string[] = [];
-                            const curr = new Date(startDate);
-                            while (curr <= endDate) {
-                                timeline.push(`${curr.getMonth() + 1}.${curr.getDate()}`);
-                                curr.setDate(curr.getDate() + 1);
-                            }
-
-                            // 3. 짬순(입대일 순) 정렬 로직
-                            const sortedEntries = Array.from(groupedMap.entries()).sort(([nameA], [nameB]) => {
-                                // DB에서 인원 정보를 찾아 입대일 비교
-                                const cleanA = nameA.replace(/^(병장|상병|일병|이병)\s*/, '');
-                                const cleanB = nameB.replace(/^(병장|상병|일병|이병)\s*/, '');
-
-                                const memA = dbMembers.find(m => m.name === cleanA);
-                                const memB = dbMembers.find(m => m.name === cleanB);
-
-                                if (memA?.enlistmentDate && memB?.enlistmentDate) {
-                                    if (memA.enlistmentDate !== memB.enlistmentDate) {
-                                        return memA.enlistmentDate < memB.enlistmentDate ? -1 : 1;
-                                    }
-                                } else if (memA?.enlistmentDate) {
-                                    return -1;
-                                } else if (memB?.enlistmentDate) {
-                                    return 1;
-                                }
-
-                                // 입대일 정보가 없으면 기존 계급순Fallback
-                                const rankPriority: Record<string, number> = { '병장': 1, '상병': 2, '일병': 3, '이병': 4 };
-                                const rA = Object.keys(rankPriority).find(r => nameA.includes(r)) || '';
-                                const rB = Object.keys(rankPriority).find(r => nameB.includes(r)) || '';
-                                const pA = rankPriority[rA] || 99;
-                                const pB = rankPriority[rB] || 99;
-
-                                if (pA !== pB) return pA - pB;
-                                return nameA.localeCompare(nameB);
-                            });
-
-                            // 4. 정렬된 이름별로 카드 렌더링
-                            return sortedEntries.map(([name, items], idx) => (
-                                <div key={idx} className="bg-white border border-gray-100 rounded-xl p-3 shadow-sm hover:border-blue-200 transition-all flex items-center gap-4">
-                                    <div className="w-24 shrink-0">
-                                        <span className="text-sm font-black text-gray-900 truncate block">{name}</span>
-                                    </div>
-
-                                    <div className="flex-1 flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar relative pt-4">
-                                        {timeline.map((dateStr, tIdx) => {
-                                            let status = 'none';
-
-                                            // 해당 인원의 모든 항목을 검사 (우선순위: 당직 > 리커버리 > 연계 > 휴가 > 외박)
-                                            items.forEach(item => {
-                                                const yesterdayStr = tIdx > 0 ? timeline[tIdx - 1] : null;
-                                                const isRecovery = item.type === '당직' && item.date === yesterdayStr;
-
-                                                if (item.type === '당직' && item.date === dateStr) {
-                                                    status = 'duty';
-                                                } else if (isRecovery) {
-                                                    if (status !== 'duty') status = 'recovery';
-                                                } else if (item.type === '외박') {
-                                                    const isPassDepart = item.depart === dateStr;
-                                                    const isPassReturn = item.return === dateStr;
-                                                    const isVacationDepart = item.vacation?.depart === dateStr;
-                                                    const isLinked = item.vacation?.isLinked && isPassReturn && isVacationDepart;
-
-                                                    if (isLinked) {
-                                                        if (status !== 'duty' && status !== 'recovery') status = 'linked';
-                                                    } else if (isPassDepart) {
-                                                        if (status === 'none') status = 'pass-depart';
-                                                    } else {
-                                                        if (item.return === dateStr || item.stayDays.includes(dateStr)) {
-                                                            if (status !== 'duty' && status !== 'recovery' && status !== 'vacation' && status !== 'linked') status = 'pass';
-                                                        }
-                                                        if (item.vacation) {
-                                                            if (item.vacation.depart === dateStr || item.vacation.return === dateStr || item.vacation.stayDays.includes(dateStr)) {
-                                                                if (status !== 'duty' && status !== 'recovery' && status !== 'linked') status = 'vacation';
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            });
-
-                                            const [m, d] = dateStr.split('.').map(Number);
-                                            const isWeekend = new Date(2026, m - 1, d).getDay() % 6 === 0;
-
-                                            return (
-                                                <div key={tIdx} className="flex flex-col items-center gap-1 relative">
-                                                    <div
-                                                        className={cn(
-                                                            "w-4 h-4 rounded-sm transition-all duration-300",
-                                                            status === 'none' && "bg-gray-100",
-                                                            status === 'pass' && "bg-blue-500 shadow-[0_0_6px_rgba(59,130,246,0.3)]",
-                                                            status === 'pass-depart' && "",
-                                                            status === 'vacation' && "bg-orange-500 shadow-[0_0_6px_rgba(249,115,22,0.3)]",
-                                                            status === 'duty' && "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]",
-                                                            status === 'recovery' && "bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.4)]",
-                                                            status === 'linked' && "shadow-[0_0_8px_rgba(59,130,246,0.4)]",
-                                                            isWeekend && "border-2 border-black"
-                                                        )}
-                                                        style={
-                                                            status === 'linked' ? {
-                                                                background: 'linear-gradient(135deg, #3b82f6 50%, #f97316 50%)'
-                                                            } : status === 'pass-depart' ? {
-                                                                background: 'linear-gradient(135deg, #f3f4f6 50%, #3b82f6 50%)'
-                                                            } : undefined
-                                                        }
-                                                    />
-                                                    {(() => {
-                                                        const isFirst = tIdx === 0;
-                                                        const isLast = tIdx === timeline.length - 1;
-                                                        const isSunday = new Date(2026, m - 1, d).getDay() === 0;
-                                                        const isMonthStart = d === 1;
-                                                        
-                                                        if (isFirst || isLast || isSunday || isMonthStart) {
-                                                            return (
-                                                                <span className={cn(
-                                                                    "text-[8px] font-black absolute -top-4 whitespace-nowrap",
-                                                                    isSunday ? "text-red-400" : "text-gray-300"
-                                                                )}>
-                                                                    {dateStr}
-                                                                </span>
-                                                            );
-                                                        }
-                                                        return null;
-                                                    })()}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            ));
+                            const { timeline, dataList } = getExcelTimelineAndData();
+                            return renderGrid(timeline, dataList);
                         })()}
                     </div>
                 </div>

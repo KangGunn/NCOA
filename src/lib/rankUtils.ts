@@ -54,8 +54,16 @@ export const getRankDetails = (enlistmentDate: Date, asOf: Date = new Date(), ea
     return { rank: tier, hobong, totalMonths: baseMonths + 1 };
 };
 
-export const calculateRank = (enlistmentDate: Date, earlyPromotionMonths: number = 0): string => {
-    const { rank, hobong } = getRankDetails(enlistmentDate, new Date(), earlyPromotionMonths);
+export const calculateRank = (enlistmentDate: Date, earlyPromotionMonths: number = 0, asOf: Date = new Date()): string => {
+    const discharge = getExpectedDischargeDate(enlistmentDate);
+    const dischargeMidnight = new Date(discharge.getFullYear(), discharge.getMonth(), discharge.getDate()).getTime();
+    const asOfMidnight = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate()).getTime();
+
+    if (asOfMidnight > dischargeMidnight) {
+        return "민간인";
+    }
+
+    const { rank, hobong } = getRankDetails(enlistmentDate, asOf, earlyPromotionMonths);
     return `${rank} ${hobong}호봉`;
 };
 

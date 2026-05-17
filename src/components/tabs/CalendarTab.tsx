@@ -59,9 +59,19 @@ interface Event {
     ktaType?: 'A' | 'B';
 }
 
-export default function CalendarTab() {
+interface CalendarTabProps {
+    baseDate?: Date;
+}
+
+export default function CalendarTab({ baseDate }: CalendarTabProps) {
     const [events, setEvents] = useState<Event[]>([]);
     const [currentDate, setCurrentDate] = useState(new Date());
+
+    useEffect(() => {
+        if (baseDate) {
+            setCurrentDate(new Date(baseDate.getFullYear(), baseDate.getMonth(), 1));
+        }
+    }, [baseDate]);
     const [isAdding, setIsAdding] = useState(false);
     const [selectedDate, setSelectedDate] = useState<string | null>(null);
     const [activeAction, setActiveAction] = useState<{ id: string, mode: 'replace' | 'swap' } | null>(null);
@@ -1270,7 +1280,9 @@ export default function CalendarTab() {
                                 {/* Background grid: date numbers + click targets */}
                                 <div className="grid grid-cols-7 absolute inset-0 h-full">
                                     {week.map((cell, ci) => {
-                                        const isToday = new Date().toISOString().split('T')[0] === cell.dateStr;
+                                        const isToday = baseDate
+                                            ? `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, '0')}-${String(baseDate.getDate()).padStart(2, '0')}` === cell.dateStr
+                                            : new Date().toISOString().split('T')[0] === cell.dateStr;
                                         return (
                                             <div
                                                 key={cell.dateStr}
