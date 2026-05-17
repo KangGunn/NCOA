@@ -796,12 +796,14 @@ export default function MovementTab({ baseDate }: MovementTabProps) {
 
     return (
         <div className="pt-8 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32">
-            <header className="flex items-center justify-between gap-2 sm:gap-4 mb-8">
-                <h1 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight whitespace-nowrap">
-                    외박 특이사항
-                </h1>
+            <header className="flex items-start justify-between gap-2 sm:gap-4 mb-8">
+                <div className="flex items-center h-[44px]">
+                    <h1 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight whitespace-nowrap">
+                        외박 특이사항
+                    </h1>
+                </div>
 
-                <div className="flex items-center bg-gray-100 p-1 rounded-2xl w-[180px] h-[48px] justify-center shrink-0">
+                <div className="flex items-center bg-gray-100 p-1 rounded-2xl w-[180px] h-[44px] justify-center shrink-0">
                     {sheetMode === null ? (
                         <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
                     ) : (
@@ -866,7 +868,7 @@ export default function MovementTab({ baseDate }: MovementTabProps) {
                         </div>
 
                         {/* Center: Date Range */}
-                        <div className="text-[14px] sm:text-base md:text-lg font-black text-gray-900 tracking-tight text-center whitespace-nowrap shrink-0">
+                        <div className="text-[17px] sm:text-lg md:text-xl font-black text-gray-900 tracking-tight text-center whitespace-nowrap shrink-0">
                             {sheetWeeks[currentWeekIndex].startDate} ~ {sheetWeeks[currentWeekIndex].endDate}
                         </div>
 

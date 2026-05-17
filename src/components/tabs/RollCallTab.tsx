@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
-import { Copy, Check, Clock, FileText, RotateCcw } from 'lucide-react';
+import { Copy, Check, Clock, FileText, RotateCcw, Calendar } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { db } from '../../lib/firebase';
 import { collection, onSnapshot, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
@@ -120,7 +120,7 @@ export default function RollCallTab({
     const [rollCallData, setRollCallData] = useState<RollCallData | null>(null);
     const [sheetMode, setSheetMode] = useState<'test' | 'prod'>('test');
     const [sheetUpdatedAt, setSheetUpdatedAt] = useState<string>('0');
-    
+
     // 세션 UI 렌더링용 멤버 목록 (Firestore 실시간 구독)
     const [members, setMembers] = useState<Member[]>([]);
 
@@ -146,7 +146,7 @@ export default function RollCallTab({
                 const data = docSnap.data();
                 const currentMode = data.mode || 'test';
                 setSheetMode(currentMode);
-                
+
                 const targetKey = currentMode === 'prod' ? 'prodUpdatedAt' : 'testUpdatedAt';
                 const lastUpdate = data[targetKey] || data.updatedAt;
                 if (lastUpdate) {
@@ -168,11 +168,11 @@ export default function RollCallTab({
             const FUNCTION_URL = `https://getrollcalldata-daomamzojq-du.a.run.app`;
             const res = await fetch(`${FUNCTION_URL}?date=${dateStr}&t=${Date.now()}`);
             const json = await res.json();
-            
+
             if (json.status === 'success') {
                 const data = json.data;
                 setRollCallData(data);
-                
+
                 if (sheetUpdatedAt !== '0') {
                     const cacheKey = `rollcall_${sheetMode}_${dateStr}_${sheetUpdatedAt}`;
                     localStorage.setItem(cacheKey, JSON.stringify(data));
@@ -196,7 +196,7 @@ export default function RollCallTab({
     const fetchData = async (mode: 'test' | 'prod', updatedAtStr?: string) => {
         try {
             const dateStr = `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, '0')}-${String(baseDate.getDate()).padStart(2, '0')}`;
-            
+
             // 캐시 키 설정
             const cacheKey = updatedAtStr ? `rollcall_${mode}_${dateStr}_${updatedAtStr}` : null;
             const cached = cacheKey ? localStorage.getItem(cacheKey) : null;
@@ -222,7 +222,7 @@ export default function RollCallTab({
                     if (cacheDoc.exists()) {
                         const sharedData = cacheDoc.data().data;
                         setRollCallData(sharedData);
-                        
+
                         // 로컬에도 저장
                         if (cacheKey) {
                             localStorage.setItem(cacheKey, JSON.stringify(sharedData));
@@ -238,14 +238,14 @@ export default function RollCallTab({
             const FUNCTION_URL = `https://getrollcalldata-daomamzojq-du.a.run.app`;
             const res = await fetch(`${FUNCTION_URL}?date=${dateStr}`);
             const json = await res.json();
-            
+
             if (json.status === 'success') {
                 const data = json.data;
                 setRollCallData(data);
-                
+
                 if (updatedAtStr) {
                     const cacheKey = `rollcall_${mode}_${dateStr}_${updatedAtStr}`;
-                    
+
                     // 기존 캐시 청소 (이전 시간에 저장된 동일 날짜의 캐시 삭제)
                     const keysToRemove = [];
                     for (let i = 0; i < localStorage.length; i++) {
@@ -255,7 +255,7 @@ export default function RollCallTab({
                         }
                     }
                     keysToRemove.forEach(k => localStorage.removeItem(k));
-                    
+
                     localStorage.setItem(cacheKey, JSON.stringify(data));
 
                     // Firestore 공유 캐시에 저장 (다른 사용자와 공유)
@@ -284,12 +284,12 @@ export default function RollCallTab({
     useEffect(() => {
         if (sheetMode && sheetUpdatedAt !== '0') {
             const dateStr = `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, '0')}-${String(baseDate.getDate()).padStart(2, '0')}`;
-            
+
             const isInitialLoad = lastLoadedTimestampRef.current === '0';
             const isModeChange = sheetMode !== lastLoadedModeRef.current;
             const isDateChange = dateStr !== lastLoadedDateRef.current;
             const isTimestampChange = !isInitialLoad && !isModeChange && !isDateChange && sheetUpdatedAt !== lastLoadedTimestampRef.current;
-            
+
             // 시트 타임스탬프가 변경된 경우(편집 발생): 4초 디바운스 대기하여 연속 편집 신호 수집
             // 초기 진입, 모드 전환, 날짜 전환인 경우: 즉시 로딩(0초)
             const delay = isTimestampChange ? 4000 : 0;
@@ -594,15 +594,15 @@ export default function RollCallTab({
         const note = mentionSearch.target === 'health' ? healthNote : tomorrowNote;
         const before = note.substring(0, mentionSearch.cursor - mentionSearch.query.length);
         const after = note.substring(mentionSearch.cursor);
-        
+
         // Format: "이희승 일병 " (Strip paygrade like '3호봉' if present)
         const cleanRank = member.rank.split(' ')[0];
         const textToInsert = `${member.name} ${cleanRank} `;
         const newText = before + textToInsert + after;
-        
+
         if (mentionSearch.target === 'health') setHealthNote(newText);
         else setTomorrowNote(newText);
-        
+
         const targetArea = mentionSearch.target === 'health' ? healthTextArea : tomorrowTextArea;
         const newCursorPos = before.length + textToInsert.length;
 
@@ -619,18 +619,22 @@ export default function RollCallTab({
 
     return (
         <div className="pt-8 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32">
-            <header className="flex items-center justify-between gap-2 sm:gap-4 mb-8">
-                <div className="flex items-center gap-2 sm:gap-4 min-h-[44px]">
-                    <img src="/favicon.png" alt="로고" className="w-10 h-10 sm:w-11 sm:h-11 object-contain" />
-                    <h1 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight leading-none translate-y-[-2px] whitespace-nowrap">점호 보고</h1>
+            <header className="flex items-start justify-between gap-2 sm:gap-4 mb-8">
+                <div className="flex items-center gap-2 sm:gap-4 h-[44px]">
+                    <img src="/favicon.png" alt="로고" className="w-10 h-10 object-contain shrink-0" />
+                    <h1 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight leading-none translate-y-[-1px] whitespace-nowrap">점호 보고</h1>
                 </div>
-                <div className="flex flex-col gap-1.5 w-[116px] sm:w-[125px] shrink-0">
-                    <div className="relative group w-full">
+                <div className="flex flex-col gap-1.5 w-[130px] sm:w-[135px] shrink-0 pt-[2px] sm:pt-0">
+                    <div className="relative group w-full h-[32px] sm:h-[38px] bg-white border-2 border-slate-200 rounded-xl flex items-center justify-between pl-2.5 pr-2.5 hover:border-slate-300 transition-all cursor-pointer">
+                        <span className="text-[11px] sm:text-[11px] font-black text-slate-600 select-none">
+                            {baseDate.getFullYear()}-{String(baseDate.getMonth() + 1).padStart(2, '0')}-{String(baseDate.getDate()).padStart(2, '0')}
+                        </span>
+                        <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                         <input
                             type="date"
                             value={todayStr}
                             onChange={(e) => setBaseDate(new Date(e.target.value))}
-                            className="w-full h-[32px] sm:h-[38px] bg-white border-2 border-slate-200 rounded-xl pl-1.5 pr-0.5 sm:px-3 text-[10px] sm:text-[11px] font-bold text-slate-600 focus:outline-none focus:border-blue-500 transition-all hover:border-slate-300 appearance-none m-0"
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10 m-0"
                         />
                     </div>
                     <button
@@ -638,9 +642,9 @@ export default function RollCallTab({
                         className="w-full h-[32px] sm:h-[38px] flex items-center justify-center gap-1 px-2 sm:px-3 rounded-xl bg-white border-2 border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-95 shadow-sm shadow-slate-100"
                     >
                         <RotateCcw className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                        <span className="text-[10px] sm:text-[11px] font-bold">새로고침</span>
+                        <span className="text-[9px] sm:text-[11px] font-black">새로고침</span>
                     </button>
-                    </div>
+                </div>
             </header>
 
 
