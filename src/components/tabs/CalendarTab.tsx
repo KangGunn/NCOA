@@ -1132,9 +1132,9 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
     };
 
     const renderHeader = () => (
-        <header className="flex items-center justify-between mb-8">
+        <header className="flex items-center justify-between mb-8 gap-2">
             <div>
-                <h1 className="text-3xl font-black text-gray-900 tracking-tight">
+                <h1 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight whitespace-nowrap">
                     {currentDate.getFullYear()}년 {currentDate.getMonth() + 1}월
                 </h1>
             </div>
@@ -1376,7 +1376,7 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
     };
 
     return (
-        <div className="pt-8 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32">
+        <div className="pt-8 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32">
             {renderHeader()}
 
             {renderCalendar()}

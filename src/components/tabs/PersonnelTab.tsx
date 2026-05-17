@@ -77,12 +77,12 @@ export default function PersonnelTab({ baseDate }: PersonnelTabProps) {
 
     return (
         <div className="pt-8 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32">
-            <header className="flex items-start justify-between gap-4">
+            <header className="flex items-start justify-between gap-2 sm:gap-4">
                 <div>
-                    <h1 className="text-3xl font-black text-gray-900 tracking-tight">
-                        인원 <span className="text-blue-600 text-2xl ml-1">{regularMembers.length}</span><span className="text-xl text-gray-400">명</span>
+                    <h1 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight whitespace-nowrap">
+                        인원 <span className="text-blue-600 text-xl sm:text-2xl ml-1">{regularMembers.length}</span><span className="text-lg sm:text-xl text-gray-400">명</span>
                     </h1>
-                    <p className="text-gray-500 font-medium mt-1">부대원 정보를 관리합니다.</p>
+                    <p className="text-xs sm:text-sm text-gray-500 font-medium mt-1">부대원 정보를 관리합니다.</p>
                 </div>
                 <button
                     type="button"

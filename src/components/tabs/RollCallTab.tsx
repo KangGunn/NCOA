@@ -618,31 +618,29 @@ export default function RollCallTab({
     };
 
     return (
-        <div className="flex flex-col gap-8 pb-32 animate-in fade-in slide-in-from-bottom-4 duration-700">
-            <header className="pt-8 px-1">
-                <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-center gap-4 min-h-[44px]">
-                        <img src="/favicon.png" alt="로고" className="w-11 h-11 object-contain" />
-                        <h1 className="text-3xl font-black text-gray-900 tracking-tight leading-none translate-y-[-2px]">점호 보고</h1>
-                    </div>
-                    <div className="flex flex-col gap-2 min-w-[125px]">
-                        <div className="relative group w-full">
-                            <input
-                                type="date"
-                                value={todayStr}
-                                onChange={(e) => setBaseDate(new Date(e.target.value))}
-                                className="w-full h-[38px] bg-white border-2 border-slate-200 rounded-xl px-3 text-[11px] font-bold text-slate-600 focus:outline-none focus:border-blue-500 transition-all hover:border-slate-300 appearance-none m-0"
-                            />
-                        </div>
-                        <button
-                            onClick={handleManualRefresh}
-                            className="w-full h-[38px] flex items-center justify-center gap-1.5 px-3 rounded-xl bg-white border-2 border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-95 shadow-sm shadow-slate-100"
-                        >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                            <span className="text-[11px] font-bold">새로고침</span>
-                        </button>
-                    </div>
+        <div className="pt-8 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32">
+            <header className="flex items-center justify-between gap-2 sm:gap-4 mb-8">
+                <div className="flex items-center gap-2 sm:gap-4 min-h-[44px]">
+                    <img src="/favicon.png" alt="로고" className="w-10 h-10 sm:w-11 sm:h-11 object-contain" />
+                    <h1 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight leading-none translate-y-[-2px] whitespace-nowrap">점호 보고</h1>
                 </div>
+                <div className="flex flex-col gap-1.5 w-[116px] sm:w-[125px] shrink-0">
+                    <div className="relative group w-full">
+                        <input
+                            type="date"
+                            value={todayStr}
+                            onChange={(e) => setBaseDate(new Date(e.target.value))}
+                            className="w-full h-[32px] sm:h-[38px] bg-white border-2 border-slate-200 rounded-xl pl-1.5 pr-0.5 sm:px-3 text-[10px] sm:text-[11px] font-bold text-slate-600 focus:outline-none focus:border-blue-500 transition-all hover:border-slate-300 appearance-none m-0"
+                        />
+                    </div>
+                    <button
+                        onClick={handleManualRefresh}
+                        className="w-full h-[32px] sm:h-[38px] flex items-center justify-center gap-1 px-2 sm:px-3 rounded-xl bg-white border-2 border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-95 shadow-sm shadow-slate-100"
+                    >
+                        <RotateCcw className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                        <span className="text-[10px] sm:text-[11px] font-bold">새로고침</span>
+                    </button>
+                    </div>
             </header>
 
 
