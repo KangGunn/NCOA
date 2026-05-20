@@ -307,7 +307,7 @@ function MemberFormModal({
                             value={name}
                             onChange={(e) => setName(e.target.value)}
                             placeholder="홍길동"
-                            className="w-full px-5 py-4 rounded-2xl bg-gray-50 border border-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-lg font-bold"
+                            className="w-full px-4 py-3 sm:px-5 sm:py-4 rounded-2xl bg-gray-50 border border-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-base sm:text-lg font-bold"
                         />
                     </div>
                     {isRunner ? (
@@ -318,7 +318,7 @@ function MemberFormModal({
                                 value={rank}
                                 onChange={(e) => setRank(e.target.value)}
                                 placeholder="예: 상병"
-                                className="w-full px-5 py-4 rounded-2xl bg-gray-50 border border-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-lg font-bold"
+                                className="w-full px-4 py-3 sm:px-5 sm:py-4 rounded-2xl bg-gray-50 border border-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-base sm:text-lg font-bold"
                             />
                         </div>
                     ) : (
@@ -328,7 +328,7 @@ function MemberFormModal({
                                 type="date"
                                 value={enlistmentDate}
                                 onChange={(e) => setEnlistmentDate(e.target.value)}
-                                className="w-full px-5 py-4 rounded-2xl bg-gray-50 border border-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-lg font-bold"
+                                className="w-full px-4 py-3 sm:px-5 sm:py-4 rounded-2xl bg-gray-50 border border-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-base sm:text-lg font-bold"
                             />
                             <p className="text-xs text-blue-500 font-bold ml-1">
                                 입대일 기준으로 계급이 자동 반영됩니다.

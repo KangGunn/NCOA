@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import BottomNav from './components/BottomNav';
-import RollCallTab from './components/tabs/RollCallTab';
+import RollCallTab from './components/rollcall/rollcall.tab';
 import PersonnelTab from './components/tabs/PersonnelTab';
 import CalendarTab from './components/tabs/CalendarTab';
 import MovementTab from './components/tabs/MovementTab.tsx';
@@ -8,6 +8,7 @@ import { auth, db } from './lib/firebase';
 import { onSnapshot, doc, collection, query, where } from 'firebase/firestore';
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import type { User } from 'firebase/auth';
+import { useRollCallSchedule } from './hooks/rollcall/rollcall.schedule.hook';
 
 function App() {
   const [activeTab, setActiveTab] = useState(() => {
@@ -30,13 +31,13 @@ function App() {
     const day = today.getDay();
     return (day >= 0 && day <= 4) ? '0620 HQ PT' : '';
   });
-  const [scheduleParticipants, setScheduleParticipants] = useState<Record<string, string[]>>({
-    'HQ PT': [],
-    'KTA 업무지원': [],
-    'MEDIC 의무지원': [],
-    'BLC 업무지원': []
-  });
-  const [customSchedules, setCustomSchedules] = useState<{ name: string; participants: string[] }[]>([]);
+  const {
+    scheduleParticipants,
+    customSchedules,
+    addCustomSchedule,
+    removeCustomSchedule,
+    toggleMember
+  } = useRollCallSchedule();
   const [ktaBatches, setKtaBatches] = useState<{ batch: string, startDate: string, ktaType?: 'A' | 'B', memo?: string }[]>([]);
   const [ktaTemplate, setKtaTemplate] = useState<any>(null);
   const [blcBatches, setBlcBatches] = useState<{ batch: string, startDate: string, memo?: string }[]>([]);
@@ -246,9 +247,10 @@ function App() {
               scheduleText={scheduleText}
               setScheduleText={setScheduleText}
               scheduleParticipants={scheduleParticipants}
-              setScheduleParticipants={setScheduleParticipants}
               customSchedules={customSchedules}
-              setCustomSchedules={setCustomSchedules}
+              addCustomSchedule={addCustomSchedule}
+              removeCustomSchedule={removeCustomSchedule}
+              toggleMember={toggleMember}
             />
           )}
           {activeTab === 'calendar' && <CalendarTab baseDate={baseDate} />}
