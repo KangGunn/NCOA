@@ -587,7 +587,7 @@ export function useMovementSync(baseDate?: Date) {
         try {
             const isLocal = window.location.hostname === 'localhost';
             const baseUrl = isLocal
-                ? 'https://2ef7-2001-e60-925d-f0af-4982-5a5-74da-6c26.ngrok-free.app/seniorkatusa-aa594/asia-northeast3'
+                ? 'http://127.0.0.1:5001/seniorkatusa-aa594/asia-northeast3'
                 : 'https://asia-northeast3-seniorkatusa-aa594.cloudfunctions.net';
 
             const movementsToSync = targetData.map(m => {
