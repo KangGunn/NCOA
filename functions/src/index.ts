@@ -1043,7 +1043,18 @@ export const syncMovementToSheet = onRequest((req, res) => {
 
                 const rowIdx = targetRowIdx;
                 const setStatus = (dateStr: string, status: string) => {
-                    const colIdx = dateRow.findIndex(d => d && d.replace(/\s/g, "").includes(dateStr));
+                    const [targetM, targetD] = dateStr.split(".").map(Number);
+                    const colIdx = dateRow.findIndex(d => {
+                        if (!d) return false;
+                        const clean = d.replace(/\s/g, "");
+                        const parts = clean.split(".").filter((p: string) => p !== "");
+                        if (parts.length >= 3) {
+                            const month = parseInt(parts[1]);
+                            const day = parseInt(parts[2]);
+                            return month === targetM && day === targetD;
+                        }
+                        return false;
+                    });
                     if (colIdx !== -1) {
                         updateData.push({
                             range: getA1Address(colIdx, rowIdx),

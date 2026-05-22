@@ -6,10 +6,10 @@ import { useMembers } from '../../hooks/member/member.subscription.hook';
 import { useRollCallSync } from '../../hooks/rollcall/rollcall.sync.hook';
 import { generateEveningReportText, generateMorningReportText } from '../../utils/rollcall/rollcall.parser.util';
 
-import { RollCallHeader } from './rollcall.header.component';
-import { RollCallPreview } from './rollcall.preview.component';
-import { RollCallMentionInput } from './rollcall.mention-input.component';
-import { RollCallScheduleList } from './rollcall.schedule-list.component';
+import { RollCallHeader } from '../rollcall/rollcall.header.component';
+import { RollCallPreview } from '../rollcall/rollcall.preview.component';
+import { RollCallMentionInput } from '../rollcall/rollcall.mention-input.component';
+import { RollCallScheduleList } from '../rollcall/rollcall.schedule-list.component';
 
 interface RollCallTabProps {
     healthNote: string;
