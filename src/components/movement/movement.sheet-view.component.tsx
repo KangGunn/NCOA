@@ -26,16 +26,16 @@ export function MovementSheetView({
 
     return (
         <div className="space-y-4 animate-in zoom-in-95 duration-300">
-            <div className="flex flex-col sm:flex-row items-center justify-between bg-white border border-gray-200 rounded-2xl p-2 sm:p-3 shadow-sm gap-2 sm:gap-4 overflow-visible">
+            <div className="flex flex-row items-center justify-between bg-white border border-gray-200 rounded-2xl p-2 sm:p-3 shadow-sm gap-2 sm:gap-4 overflow-visible">
                 {/* Left: File upload button */}
-                <div className="relative group shrink-0 w-full sm:w-auto">
+                <div className="relative group shrink-0 w-auto">
                     <input
                         type="file"
                         accept=".xlsx, .xls"
                         onChange={handleFileUpload}
                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                     />
-                    <button className="flex items-center justify-center gap-1.5 px-2.5 sm:px-4 h-[44px] bg-white border border-gray-200 rounded-xl text-xs sm:text-sm font-bold text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm w-full">
+                    <button className="flex items-center justify-center gap-1.5 px-2.5 sm:px-4 h-[44px] bg-white border border-gray-200 rounded-xl text-xs sm:text-sm font-bold text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm w-auto whitespace-nowrap">
                         <Upload className="w-4 h-4 text-blue-500 shrink-0" />
                         <span className="hidden sm:inline">엑셀 파일 업로드</span>
                         <span className="inline sm:hidden">업로드</span>
@@ -43,7 +43,7 @@ export function MovementSheetView({
                 </div>
 
                 {/* Center: Date Range */}
-                <div className="text-[17px] sm:text-lg md:text-xl font-black text-gray-900 tracking-tight text-center whitespace-normal break-words shrink-0">
+                <div className="text-[15px] sm:text-lg md:text-xl font-black text-gray-900 tracking-tight text-center whitespace-nowrap shrink-0">
                     {currentWeek.startDate} ~ {currentWeek.endDate}
                 </div>
 

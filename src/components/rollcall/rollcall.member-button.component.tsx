@@ -29,7 +29,7 @@ export function RollCallMemberButton({
             }}
             disabled={isDisabled}
             className={cn(
-                "px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl text-[10px] sm:text-[11px] font-black transition-all border break-keep",
+                "px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-[11px] sm:text-xs font-black transition-all border whitespace-nowrap break-keep",
                 isDuty
                     ? "bg-amber-100 border-amber-300 text-amber-700 opacity-80 cursor-not-allowed"
                     : isAway
