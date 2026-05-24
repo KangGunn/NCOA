@@ -13,6 +13,9 @@ export interface CalendarMember {
     name: string;
     enlistmentDate: string;
     role?: 'member' | 'runner';
+    rank?: string;
+    sections?: string[];
+    dutyCompleted?: boolean;
 }
 
 export interface ScheduleTemplateDay {

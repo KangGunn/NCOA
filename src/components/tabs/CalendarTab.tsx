@@ -29,7 +29,8 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
     // 1. Data Sync Hook
     const {
         events, members, ktaScheduleTemplate, blcScheduleTemplate,
-        setKtaScheduleTemplate, setBlcScheduleTemplate
+        setKtaScheduleTemplate, setBlcScheduleTemplate,
+        ktaDayLabels, blcDayLabels
     } = useCalendarSync();
 
     // 2. Schedule & State Hook
@@ -104,6 +105,8 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
                     setSelectedDate(dateStr);
                     setIsAdding(true);
                 }}
+                ktaDayLabels={ktaDayLabels}
+                blcDayLabels={blcDayLabels}
             />
 
             <div
@@ -195,6 +198,7 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
                 ktaReferenceBatch={getKtaReferenceBatch(events)}
                 ktaReferenceType={getKtaReferenceType(events)}
                 ktaReferenceDate={getKtaReferenceDate(events)}
+                ktaDayLabels={ktaDayLabels}
             />
 
             <BlcTemplateModal
@@ -210,6 +214,7 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
                 blcReferenceBatch={getBlcReferenceBatch(events)}
                 blcReferenceDate={getBlcReferenceDate(events)}
                 isHolidayDate={isHolidayDate}
+                blcDayLabels={blcDayLabels}
             />
         </div>
     );

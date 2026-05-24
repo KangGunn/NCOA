@@ -12,6 +12,8 @@ export function useCalendarSync() {
     const [blcScheduleTemplate, setBlcScheduleTemplate] = useState<ScheduleTemplateDay[]>(
         Array.from({ length: 23 }, (_, i) => ({ day: i, events: [] }))
     );
+    const [ktaDayLabels, setKtaDayLabels] = useState<Record<number, string>>({});
+    const [blcDayLabels, setBlcDayLabels] = useState<Record<number, string>>({});
 
     useEffect(() => {
         let unsubscribeSchedules: () => void = () => { };
@@ -56,7 +58,9 @@ export function useCalendarSync() {
                 const qKta = doc(db, 'settings', 'ktaTemplate');
                 unsubscribeKta = onSnapshot(qKta, (docSnap) => {
                     if (docSnap.exists()) {
-                        const savedSchedules = docSnap.data().schedules || [];
+                        const data = docSnap.data();
+                        const savedSchedules = data.schedules || [];
+                        setKtaDayLabels(data.dayLabels || {});
                         setKtaScheduleTemplate(
                             Array.from({ length: 21 }, (_, i) => {
                                 const found = savedSchedules.find((s: any) => s.day === i);
@@ -68,6 +72,7 @@ export function useCalendarSync() {
                             })
                         );
                     } else {
+                        setKtaDayLabels({});
                         setKtaScheduleTemplate(Array.from({ length: 21 }, (_, i) => ({ day: i, events: [] })));
                     }
                 });
@@ -76,7 +81,9 @@ export function useCalendarSync() {
                 const qBlc = doc(db, 'settings', 'blcTemplate');
                 unsubscribeBlc = onSnapshot(qBlc, (docSnap) => {
                     if (docSnap.exists()) {
-                        const savedSchedules = docSnap.data().schedules || [];
+                        const data = docSnap.data();
+                        const savedSchedules = data.schedules || [];
+                        setBlcDayLabels(data.dayLabels || {});
                         setBlcScheduleTemplate(
                             Array.from({ length: 23 }, (_, i) => {
                                 const found = savedSchedules.find((s: any) => s.day === i);
@@ -88,12 +95,15 @@ export function useCalendarSync() {
                             })
                         );
                     } else {
+                        setBlcDayLabels({});
                         setBlcScheduleTemplate(Array.from({ length: 23 }, (_, i) => ({ day: i, events: [] })));
                     }
                 });
             } else {
                 setEvents([]);
                 setMembers([]);
+                setKtaDayLabels({});
+                setBlcDayLabels({});
                 setKtaScheduleTemplate(Array.from({ length: 21 }, (_, i) => ({ day: i, events: [] })));
                 setBlcScheduleTemplate(Array.from({ length: 23 }, (_, i) => ({ day: i, events: [] })));
             }
@@ -114,6 +124,10 @@ export function useCalendarSync() {
         ktaScheduleTemplate,
         blcScheduleTemplate,
         setKtaScheduleTemplate, // Exposed for Template Hook DnD
-        setBlcScheduleTemplate  // Exposed for Template Hook DnD
+        setBlcScheduleTemplate, // Exposed for Template Hook DnD
+        ktaDayLabels,
+        blcDayLabels,
+        setKtaDayLabels,
+        setBlcDayLabels
     };
 }

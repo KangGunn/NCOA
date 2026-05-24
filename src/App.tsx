@@ -9,6 +9,7 @@ import { onSnapshot, doc, collection, query, where } from 'firebase/firestore';
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import type { User } from 'firebase/auth';
 import { useRollCallSchedule } from './hooks/rollcall/rollcall.schedule.hook';
+import DutySchedulerWorkspace from './components/duty/DutySchedulerWorkspace';
 
 function App() {
   const [activeTab, setActiveTab] = useState(() => {
@@ -17,6 +18,7 @@ function App() {
   });
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showDutyScheduler, setShowDutyScheduler] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('ncoa_active_tab', activeTab);
@@ -232,8 +234,33 @@ function App() {
     );
   }
 
+  if (showDutyScheduler) {
+    return <DutySchedulerWorkspace onClose={() => setShowDutyScheduler(false)} />;
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50 flex justify-center">
+    <div className="min-h-screen bg-gray-50 flex justify-center items-center relative overflow-x-hidden">
+      {/* 데스크톱 전용 모바일 프레임 외곽 플로팅 위젯 카드 */}
+      <div className="hidden lg:flex flex-col gap-4 fixed left-[calc(50%+240px)] top-1/2 -translate-y-1/2 p-6 bg-white rounded-3xl border border-gray-100 shadow-xl max-w-xs transition-all hover:scale-105 hover:shadow-2xl z-10 animate-in slide-in-from-right-12 duration-500">
+        <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-650">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-calendar"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg>
+        </div>
+        <div>
+          <h3 className="text-sm font-black text-gray-900 tracking-tight flex items-center gap-1.5">
+            🖥️ PC 전용 당직 플래너
+          </h3>
+          <p className="text-[11px] leading-relaxed text-gray-500 font-bold mt-1.5">
+            더 넓은 데스크톱 화면에서 한눈에 당직 일정을 조율, 배정, 실시간 횟수 통계 조회까지 간편하게 관리하세요!
+          </p>
+        </div>
+        <button
+          onClick={() => setShowDutyScheduler(true)}
+          className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-2xl transition-all shadow-md shadow-indigo-100 flex items-center justify-center gap-1.5 active:scale-95"
+        >
+          당직표 짜기 시작
+        </button>
+      </div>
+
       <main className="w-full max-w-md min-h-screen bg-white shadow-2xl relative">
         <div className="h-full safe-area-top pb-6 px-6 pt-4">
           {activeTab === 'rollcall' && (

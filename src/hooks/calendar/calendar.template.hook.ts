@@ -66,15 +66,16 @@ export function useCalendarTemplate(
         ));
     };
 
-    const handleKtaSave = async () => {
+    const handleKtaSave = async (dayLabels?: Record<number, string>) => {
         setIsKTASaving(true);
         try {
             await setDoc(doc(db, 'settings', 'ktaTemplate'), {
                 schedules: ktaScheduleTemplate.map(s => ({
                     day: s.day,
                     events: s.events.filter(e => e.trim() !== '')
-                }))
-            });
+                })),
+                ...(dayLabels ? { dayLabels } : {})
+            }, { merge: true });
             setIsKTAScheduleAdding(false);
         } catch (error) {
             console.error("Error saving KTA template:", error);
@@ -134,15 +135,16 @@ export function useCalendarTemplate(
         ));
     };
 
-    const handleBlcSave = async () => {
+    const handleBlcSave = async (dayLabels?: Record<number, string>) => {
         setIsBLCSaving(true);
         try {
             await setDoc(doc(db, 'settings', 'blcTemplate'), {
                 schedules: blcScheduleTemplate.map(s => ({
                     day: s.day,
                     events: s.events.filter(e => e.trim() !== '')
-                }))
-            });
+                })),
+                ...(dayLabels ? { dayLabels } : {})
+            }, { merge: true });
             setIsBLCScheduleAdding(false);
         } catch (error) {
             console.error("Error saving BLC template:", error);

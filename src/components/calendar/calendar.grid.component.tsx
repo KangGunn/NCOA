@@ -14,6 +14,8 @@ interface CalendarGridProps {
     baseDate?: Date;
     events: CalendarEvent[];
     onDateClick: (dateStr: string) => void;
+    ktaDayLabels?: Record<number, string>;
+    blcDayLabels?: Record<number, string>;
 }
 
 export function CalendarGrid({ currentDate, baseDate, events, onDateClick }: CalendarGridProps) {
@@ -183,6 +185,7 @@ export function CalendarGrid({ currentDate, baseDate, events, onDateClick }: Cal
                                     const isToday = baseDate
                                         ? `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, '0')}-${String(baseDate.getDate()).padStart(2, '0')}` === cell.dateStr
                                         : new Date().toISOString().split('T')[0] === cell.dateStr;
+
                                     return (
                                         <div
                                             key={cell.dateStr}
@@ -193,9 +196,9 @@ export function CalendarGrid({ currentDate, baseDate, events, onDateClick }: Cal
                                                 ci > 0 && "border-l border-gray-50/50"
                                             )}
                                         >
-                                            <div className="p-1">
+                                            <div className="p-1 flex items-center justify-between flex-wrap gap-1">
                                                 <span className={cn(
-                                                    "text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full",
+                                                    "text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full shrink-0",
                                                     isToday ? "bg-blue-600 text-white" :
                                                         cell.isCurrentMonth ? "text-gray-400" : "text-gray-300"
                                                 )}>
@@ -224,7 +227,10 @@ export function CalendarGrid({ currentDate, baseDate, events, onDateClick }: Cal
 
                                         let displayMemo = item.event.memo || '';
                                         if ((item.event.type === 'blc' || item.event.type === 'kta') && displayMemo) {
-                                            displayMemo = displayMemo.replace(/\s*\([^)]*\)/g, '').trim();
+                                            const isDay0OrGrad = displayMemo.includes('Day 0') || displayMemo.includes('Graduation') || displayMemo.includes('수료') || displayMemo.includes('🎓');
+                                            if (!isDay0OrGrad) {
+                                                displayMemo = displayMemo.replace(/\s*\([^)]*\)/g, '').trim();
+                                            }
                                         }
 
                                         const marginLeft = isVisualStart ? 3 : 0;
