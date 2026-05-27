@@ -39,7 +39,7 @@ export function PersonnelFormModal({
     const [rank, setRank] = useState(initial?.rank ?? '');
     const [sections, setSections] = useState<string[]>(initial?.sections ?? []);
     const [earlyPromotion, setEarlyPromotion] = useState<number>(initial?.earlyPromotion ?? 0);
-    const availableSections = ['KTA', 'MEDIC', 'BLC', 'S1', 'S3', 'S4', 'S6', 'RSO', 'PAO'];
+    const availableSections = ['KTA', 'MEDIC', 'BLC', 'S1', 'S3', 'S4', 'S6', 'RSO', 'PAO', 'SK'];
     const [saving, setSaving] = useState(false);
 
     const handleSave = async () => {

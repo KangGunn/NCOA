@@ -8,6 +8,7 @@ import { CalendarGrid } from '../calendar/calendar.grid.component';
 import { EventModal } from '../calendar/calendar.event-modal.component';
 import { BatchDutyModal } from '../calendar/calendar.batch-duty-modal.component';
 import { KtaTemplateModal, BlcTemplateModal } from '../calendar/calendar.template-modals.component';
+import { DutyTrackerModal } from '../calendar/calendar.tracker-modal.component';
 import {
     getKtaReferenceDate, getKtaReferenceBatch, getKtaReferenceType,
     getBlcReferenceDate, getBlcReferenceBatch
@@ -19,6 +20,15 @@ interface CalendarTabProps {
 
 export default function CalendarTab({ baseDate }: CalendarTabProps) {
     const [currentDate, setCurrentDate] = useState(new Date());
+    const [isTrackerOpen, setIsTrackerOpen] = useState(false);
+    const [calendarMode, setCalendarMode] = useState<'schedule' | 'duty'>(() => {
+        const saved = localStorage.getItem('ncoa_calendar_mode');
+        return (saved === 'schedule' || saved === 'duty') ? saved : 'schedule';
+    });
+
+    useEffect(() => {
+        localStorage.setItem('ncoa_calendar_mode', calendarMode);
+    }, [calendarMode]);
 
     useEffect(() => {
         if (baseDate) {
@@ -51,7 +61,7 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
         handleAutoKtaDay0, handleAutoBlcDay0, handleAddDuty, handleAddHoliday,
         handleUpdateHoliday, handleDeleteEvent, handleUpdateBatch, handleUpdateBlcBatch,
         handleReplace, handleRealSwap, openBatchDutyModal, handleBatchSaveDuties
-    } = useCalendarSchedule(events, currentDate);
+    } = useCalendarSchedule(events, currentDate, calendarMode);
 
     // 3. Template & DnD Hook
     const {
@@ -69,7 +79,7 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
 
     // Stop scrolling when modals are open
     useEffect(() => {
-        if (isAdding || isBatchDutyAdding || isKTAScheduleAdding || isBLCScheduleAdding) {
+        if (isAdding || isBatchDutyAdding || isKTAScheduleAdding || isBLCScheduleAdding || isTrackerOpen) {
             document.documentElement.style.overflow = 'hidden';
             document.body.style.overflow = 'hidden';
         } else {
@@ -80,14 +90,25 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
             document.documentElement.style.overflow = '';
             document.body.style.overflow = '';
         };
-    }, [isAdding, isBatchDutyAdding, isKTAScheduleAdding, isBLCScheduleAdding]);
+    }, [isAdding, isBatchDutyAdding, isKTAScheduleAdding, isBLCScheduleAdding, isTrackerOpen]);
 
     const prevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1));
     const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1));
 
     const isHolidayDate = (dateStr: string) => {
-        return events.some(e => e.type === 'holiday' && dateStr >= e.startDate && dateStr <= e.endDate);
+        return events.some(e => {
+            if (e.type !== 'holiday') return false;
+            if (calendarMode === 'duty') {
+                return e.holidayType === 'duty' && dateStr >= e.startDate && dateStr <= e.endDate;
+            } else {
+                return e.holidayType !== 'duty' && dateStr >= e.startDate && dateStr <= e.endDate;
+            }
+        });
     };
+
+    const calendarEvents = calendarMode === 'duty' 
+        ? events.filter(e => e.type === 'duty' || (e.type === 'holiday' && e.holidayType === 'duty')) 
+        : events.filter(e => e.type !== 'duty' && e.holidayType !== 'duty');
 
     return (
         <div className="w-full max-w-7xl mx-auto pb-20 animate-in fade-in duration-500">
@@ -95,50 +116,68 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
                 currentDate={currentDate}
                 prevMonth={prevMonth}
                 nextMonth={nextMonth}
+                mode={calendarMode}
+                setMode={setCalendarMode}
             />
 
             <CalendarGrid
                 currentDate={currentDate}
                 baseDate={baseDate}
-                events={events}
+                events={calendarEvents}
                 onDateClick={(dateStr) => {
                     setSelectedDate(dateStr);
                     setIsAdding(true);
                 }}
                 ktaDayLabels={ktaDayLabels}
                 blcDayLabels={blcDayLabels}
+                calendarMode={calendarMode}
             />
 
             <div
                 className="grid grid-cols-2 gap-2 mt-4 shrink-0"
             >
-                <button
-                    onClick={() => setIsKTAScheduleAdding(true)}
-                    style={{ height: '44px' }}
-                    className="col-span-1 px-4 bg-red-50 text-red-600 rounded-xl text-sm font-black hover:bg-red-100 transition-colors border border-red-100/50 flex items-center justify-center gap-1.5 whitespace-nowrap"
-                >
-                    <Settings className="w-3.5 h-3.5" />
-                    <span>KTA 일정 템플릿</span>
-                </button>
-                <button
-                    onClick={() => setIsBLCScheduleAdding(true)}
-                    style={{ height: '44px' }}
-                    className="col-span-1 px-4 bg-blue-50 text-blue-600 rounded-xl text-sm font-black hover:bg-blue-100 transition-colors border border-blue-100/50 flex items-center justify-center gap-1.5 whitespace-nowrap"
-                >
-                    <Settings className="w-3.5 h-3.5" />
-                    <span>BLC 일정 템플릿</span>
-                </button>
-                <button
-                    onClick={openBatchDutyModal}
-                    style={{ height: '44px' }}
-                    className="col-span-2 px-4 bg-yellow-50 text-yellow-600 rounded-xl text-sm font-black hover:bg-yellow-100 transition-colors border border-yellow-100/50 flex items-center justify-center whitespace-nowrap"
-                >
-                    당직 일괄 등록
-                </button>
+                {calendarMode === 'schedule' ? (
+                    <>
+                        <button
+                            onClick={() => setIsKTAScheduleAdding(true)}
+                            style={{ height: '44px' }}
+                            className="col-span-1 px-4 bg-red-50 text-red-600 rounded-xl text-sm font-black hover:bg-red-100 transition-colors border border-red-100/50 flex items-center justify-center gap-1.5 whitespace-nowrap"
+                        >
+                            <Settings className="w-3.5 h-3.5" />
+                            <span>KTA 일정 템플릿</span>
+                        </button>
+                        <button
+                            onClick={() => setIsBLCScheduleAdding(true)}
+                            style={{ height: '44px' }}
+                            className="col-span-1 px-4 bg-blue-50 text-blue-600 rounded-xl text-sm font-black hover:bg-blue-100 transition-colors border border-blue-100/50 flex items-center justify-center gap-1.5 whitespace-nowrap"
+                        >
+                            <Settings className="w-3.5 h-3.5" />
+                            <span>BLC 일정 템플릿</span>
+                        </button>
+                    </>
+                ) : (
+                    <>
+                        <button
+                            onClick={() => setIsTrackerOpen(true)}
+                            style={{ height: '44px' }}
+                            className="col-span-1 px-4 bg-amber-50 text-amber-600 rounded-xl text-sm font-black hover:bg-amber-100 transition-colors border border-amber-100/50 flex items-center justify-center whitespace-nowrap"
+                        >
+                            당직 횟수 트래커
+                        </button>
+                        <button
+                            onClick={openBatchDutyModal}
+                            style={{ height: '44px' }}
+                            className="col-span-1 px-4 bg-yellow-50 text-yellow-600 rounded-xl text-sm font-black hover:bg-yellow-100 transition-colors border border-yellow-100/50 flex items-center justify-center whitespace-nowrap"
+                        >
+                            당직 일괄 등록
+                        </button>
+                    </>
+                )}
             </div>
 
             <EventModal
                 events={events}
+                calendarMode={calendarMode}
                 members={members}
                 currentDate={currentDate}
                 selectedDate={selectedDate}
@@ -198,7 +237,6 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
                 ktaReferenceBatch={getKtaReferenceBatch(events)}
                 ktaReferenceType={getKtaReferenceType(events)}
                 ktaReferenceDate={getKtaReferenceDate(events)}
-                ktaDayLabels={ktaDayLabels}
             />
 
             <BlcTemplateModal
@@ -214,7 +252,14 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
                 blcReferenceBatch={getBlcReferenceBatch(events)}
                 blcReferenceDate={getBlcReferenceDate(events)}
                 isHolidayDate={isHolidayDate}
-                blcDayLabels={blcDayLabels}
+            />
+
+            <DutyTrackerModal
+                isOpen={isTrackerOpen}
+                onClose={() => setIsTrackerOpen(false)}
+                events={events}
+                members={members}
+                currentDate={currentDate}
             />
         </div>
     );

@@ -16,14 +16,45 @@ interface CalendarGridProps {
     onDateClick: (dateStr: string) => void;
     ktaDayLabels?: Record<number, string>;
     blcDayLabels?: Record<number, string>;
+    calendarMode?: 'schedule' | 'duty';
 }
 
-export function CalendarGrid({ currentDate, baseDate, events, onDateClick }: CalendarGridProps) {
+export function CalendarGrid({ currentDate, baseDate, events, onDateClick, calendarMode }: CalendarGridProps) {
     const daysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
     const firstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
 
     const isHolidayDate = (dateStr: string) => {
         return events.some(e => e.type === 'holiday' && dateStr >= e.startDate && dateStr <= e.endDate);
+    };
+
+    const getDutyType = (dateStr: string): 'weekday' | 'friSun' | 'sat' => {
+        const getPrevDateStr = (dStr: string) => {
+            const d = new Date(dStr + 'T00:00:00');
+            d.setDate(d.getDate() - 1);
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        };
+        const getNextDateStr = (dStr: string) => {
+            const d = new Date(dStr + 'T00:00:00');
+            d.setDate(d.getDate() + 1);
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        };
+
+        if (isHolidayDate(dateStr)) return 'sat';
+        if (isHolidayDate(getNextDateStr(dateStr))) return 'friSun';
+        if (isHolidayDate(getPrevDateStr(dateStr))) return 'friSun';
+
+        const d = new Date(dateStr + 'T00:00:00');
+        const dayOfWeek = d.getDay();
+        if (dayOfWeek === 6) return 'sat';
+        if (dayOfWeek === 0 || dayOfWeek === 5) return 'friSun';
+        return 'weekday';
+    };
+
+    const getDutyColorClass = (dateStr: string, isCurrent: boolean) => {
+        const type = getDutyType(dateStr);
+        if (type === 'sat') return isCurrent ? "text-red-600 font-extrabold" : "text-red-300";
+        if (type === 'friSun') return isCurrent ? "text-blue-600 font-extrabold" : "text-blue-300";
+        return isCurrent ? "text-gray-400" : "text-gray-300";
     };
 
     const isDateInRange = (dateStr: string, start: string, end: string) => {
@@ -200,7 +231,9 @@ export function CalendarGrid({ currentDate, baseDate, events, onDateClick }: Cal
                                                 <span className={cn(
                                                     "text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full shrink-0",
                                                     isToday ? "bg-blue-600 text-white" :
-                                                        cell.isCurrentMonth ? "text-gray-400" : "text-gray-300"
+                                                        calendarMode === 'duty'
+                                                            ? getDutyColorClass(cell.dateStr, cell.isCurrentMonth)
+                                                            : cell.isCurrentMonth ? "text-gray-400" : "text-gray-300"
                                                 )}>
                                                     {cell.d}
                                                 </span>

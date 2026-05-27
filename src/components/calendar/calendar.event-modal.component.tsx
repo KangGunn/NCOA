@@ -41,6 +41,7 @@ interface EventModalProps {
     
     isKTASaving: boolean;
     isBLCSaving: boolean;
+    calendarMode: 'schedule' | 'duty';
 }
 
 export function EventModal(props: EventModalProps) {
@@ -49,7 +50,14 @@ export function EventModal(props: EventModalProps) {
     const isDateInRange = (dateStr: string, start: string, end: string) => dateStr >= start && dateStr <= end;
 
     const getEventsForDate = (dateStr: string) => {
-        const dateEvents = props.events.filter(e => isDateInRange(dateStr, e.startDate, e.endDate));
+        const dateEvents = props.events.filter(e => {
+            if (!isDateInRange(dateStr, e.startDate, e.endDate)) return false;
+            if (props.calendarMode === 'duty') {
+                return e.type === 'duty' || (e.type === 'holiday' && e.holidayType === 'duty');
+            } else {
+                return e.type !== 'duty' && e.holidayType !== 'duty';
+            }
+        });
         const order = { duty: 1, blc: 2, holiday: 2, kta: 3 };
         return dateEvents.sort((a, b) => (order[a.type as keyof typeof order] || 0) - (order[b.type as keyof typeof order] || 0));
     };
@@ -291,7 +299,7 @@ export function EventModal(props: EventModalProps) {
                 </div>
 
                 {/* Duty assignment UI if empty */}
-                {props.selectedDate && getEventsForDate(props.selectedDate).filter(e => e.type === 'duty').length === 0 && (
+                {props.calendarMode === 'duty' && props.selectedDate && getEventsForDate(props.selectedDate).filter(e => e.type === 'duty').length === 0 && (
                     <div className="pt-4 border-t border-gray-100 space-y-4">
                         <div className="flex items-center justify-between">
                             <h3 className="text-sm font-black text-gray-900 ml-1">당직 지정</h3>
@@ -360,9 +368,9 @@ export function EventModal(props: EventModalProps) {
                                 }}
                                 className="flex-1 py-3 bg-purple-50 text-purple-600 rounded-2xl text-xs font-black hover:bg-purple-100 transition-colors"
                             >
-                                휴일 추가
+                                {props.calendarMode === 'duty' ? '당직용 휴일 추가' : 'BLC 기수용 휴일 추가'}
                             </button>
-                            {props.selectedDate && new Date(props.selectedDate).getDay() === 4 && (
+                            {props.calendarMode === 'schedule' && props.selectedDate && new Date(props.selectedDate).getDay() === 4 && (
                                 <button
                                     onClick={props.handleAutoKtaDay0}
                                     disabled={props.isKTASaving}
@@ -371,13 +379,15 @@ export function EventModal(props: EventModalProps) {
                                     KTA Day 0
                                 </button>
                             )}
-                            <button
-                                onClick={props.handleAutoBlcDay0}
-                                disabled={props.isBLCSaving}
-                                className="flex-1 py-3 bg-blue-50 text-blue-600 rounded-2xl text-xs font-black hover:bg-blue-100 transition-colors disabled:opacity-50"
-                            >
-                                BLC Day 0
-                            </button>
+                            {props.calendarMode === 'schedule' && (
+                                <button
+                                    onClick={props.handleAutoBlcDay0}
+                                    disabled={props.isBLCSaving}
+                                    className="flex-1 py-3 bg-blue-50 text-blue-600 rounded-2xl text-xs font-black hover:bg-blue-100 transition-colors disabled:opacity-50"
+                                >
+                                    BLC Day 0
+                                </button>
+                            )}
                         </div>
                     )}
                 </div>

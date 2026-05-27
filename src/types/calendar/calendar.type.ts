@@ -6,6 +6,7 @@ export interface CalendarEvent {
     memo: string;
     batch?: string;
     ktaType?: 'A' | 'B';
+    holidayType?: 'blc' | 'duty';
 }
 
 export interface CalendarMember {
@@ -16,6 +17,9 @@ export interface CalendarMember {
     rank?: string;
     sections?: string[];
     dutyCompleted?: boolean;
+    baselineWeekday?: number;
+    baselineFriSun?: number;
+    baselineSat?: number;
 }
 
 export interface ScheduleTemplateDay {

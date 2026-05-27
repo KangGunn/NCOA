@@ -5,7 +5,8 @@ import type { CalendarEvent } from '../../types/calendar/calendar.type';
 
 export function useCalendarSchedule(
     events: CalendarEvent[],
-    currentDate: Date
+    currentDate: Date,
+    calendarMode: 'schedule' | 'duty' = 'schedule'
 ) {
     const [isAdding, setIsAdding] = useState(false);
     const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -23,7 +24,14 @@ export function useCalendarSchedule(
     const [editingHoliday, setEditingHoliday] = useState<{ id: string; name: string; startDate: string; endDate: string } | null>(null);
 
     const isHolidayDate = (dateStr: string) => {
-        return events.some(e => e.type === 'holiday' && dateStr >= e.startDate && dateStr <= e.endDate);
+        return events.some(e => {
+            if (e.type !== 'holiday') return false;
+            if (calendarMode === 'duty') {
+                return e.holidayType === 'duty' && dateStr >= e.startDate && dateStr <= e.endDate;
+            } else {
+                return e.holidayType !== 'duty' && dateStr >= e.startDate && dateStr <= e.endDate;
+            }
+        });
     };
 
     const daysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
@@ -210,6 +218,7 @@ export function useCalendarSchedule(
                 startDate: holidayStartDate,
                 endDate: holidayEndDate,
                 memo: holidayName.trim() || "휴일",
+                holidayType: calendarMode === 'duty' ? 'duty' : 'blc',
                 createdAt: serverTimestamp()
             });
             setHolidayName('');
