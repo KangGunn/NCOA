@@ -39,6 +39,30 @@ const MONTH_LABELS: MonthOption[] = [
 
 export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate }: DutyTrackerModalProps) {
     const [showCompleted, setShowCompleted] = useState(false);
+    const [showCriteriaSettings, setShowCriteriaSettings] = useState(false);
+
+    const [criteriaWeekday, setCriteriaWeekday] = useState<number>(() => {
+        const saved = localStorage.getItem('ncoa_criteria_weekday');
+        return saved ? parseInt(saved, 10) : 13;
+    });
+    const [criteriaFriSun, setCriteriaFriSun] = useState<number>(() => {
+        const saved = localStorage.getItem('ncoa_criteria_frisun');
+        return saved ? parseInt(saved, 10) : 9;
+    });
+    const [criteriaSat, setCriteriaSat] = useState<number>(() => {
+        const saved = localStorage.getItem('ncoa_criteria_sat');
+        return saved ? parseInt(saved, 10) : 6;
+    });
+
+    const handleSaveCriteria = (w: number, f: number, s: number) => {
+        setCriteriaWeekday(w);
+        setCriteriaFriSun(f);
+        setCriteriaSat(s);
+        localStorage.setItem('ncoa_criteria_weekday', String(w));
+        localStorage.setItem('ncoa_criteria_frisun', String(f));
+        localStorage.setItem('ncoa_criteria_sat', String(s));
+    };
+
     const sortField: SortField = 'seniority';
     const sortOrder: SortOrder = 'asc';
     
@@ -173,8 +197,8 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
 
         const isSK = member.sections?.includes('SK') || false;
 
-        // Completion logic: 平 13, 金日 9, 土 6, or SK section
-        const isCompleted = isSK || (weekday >= 13 && friSun >= 9 && sat >= 6);
+        // Completion logic: 평 criteriaWeekday, 금일 criteriaFriSun, 토 criteriaSat, or SK section
+        const isCompleted = isSK || (weekday >= criteriaWeekday && friSun >= criteriaFriSun && sat >= criteriaSat);
 
         return {
             member,
@@ -437,6 +461,70 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
                         </div>
                     )}
                 </div>
+
+                {/* Collapsible criteria settings */}
+                {showCriteriaSettings ? (
+                    <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-3 animate-in slide-in-from-bottom-2 shrink-0 select-none">
+                        <h3 className="text-xs font-black text-gray-800">⚙️ 당직 완료 기준 설정</h3>
+                        <div className="grid grid-cols-3 gap-2">
+                            <div className="flex flex-col gap-1">
+                                <span className="text-[9px] text-gray-500 font-bold ml-1">평당 기준</span>
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    value={criteriaWeekday}
+                                    onChange={(e) => {
+                                        const val = Math.max(0, parseInt(e.target.value, 10) || 0);
+                                        handleSaveCriteria(val, criteriaFriSun, criteriaSat);
+                                    }}
+                                    className="h-9 px-3 bg-white border border-gray-205 rounded-xl text-center text-xs font-black focus:outline-none focus:ring-1 focus:ring-yellow-500"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <span className="text-[9px] text-blue-500 font-bold ml-1">금일 기준</span>
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    value={criteriaFriSun}
+                                    onChange={(e) => {
+                                        const val = Math.max(0, parseInt(e.target.value, 10) || 0);
+                                        handleSaveCriteria(criteriaWeekday, val, criteriaSat);
+                                    }}
+                                    className="h-9 px-3 bg-white border border-gray-205 rounded-xl text-center text-xs font-black focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <span className="text-[9px] text-red-500 font-bold ml-1">토당 기준</span>
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    value={criteriaSat}
+                                    onChange={(e) => {
+                                        const val = Math.max(0, parseInt(e.target.value, 10) || 0);
+                                        handleSaveCriteria(criteriaWeekday, criteriaFriSun, val);
+                                    }}
+                                    className="h-9 px-3 bg-white border border-gray-205 rounded-xl text-center text-xs font-black focus:outline-none focus:ring-1 focus:ring-red-500"
+                                />
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => setShowCriteriaSettings(false)}
+                            className="w-full py-2 bg-gray-200 hover:bg-gray-300 rounded-xl text-[10px] font-black text-gray-700 transition-colors"
+                        >
+                            닫기
+                        </button>
+                    </div>
+                ) : (
+                    <button
+                        onClick={() => setShowCriteriaSettings(true)}
+                        className="w-full py-2.5 bg-gray-50 hover:bg-gray-100 border border-gray-200/50 rounded-2xl flex items-center justify-center gap-1.5 text-xs font-black text-gray-500 transition-all cursor-pointer shrink-0"
+                    >
+                        ⚙️ 당직 완료 기준 설정
+                    </button>
+                )}
             </div>
         </div>,
         document.body

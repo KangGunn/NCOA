@@ -222,6 +222,7 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
                 setDutyHistory={setDutyHistory}
                 handleBatchSaveDuties={handleBatchSaveDuties}
                 isBatchSaving={isBatchSaving}
+                events={events}
             />
 
             <KtaTemplateModal
