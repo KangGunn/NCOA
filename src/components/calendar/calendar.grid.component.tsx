@@ -33,15 +33,26 @@ export function CalendarGrid({ currentDate, baseDate, events, onDateClick, calen
             d.setDate(d.getDate() - 1);
             return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         };
-        const getNextDateStr = (dStr: string) => {
-            const d = new Date(dStr + 'T00:00:00');
-            d.setDate(d.getDate() + 1);
-            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        };
 
-        if (isHolidayDate(dateStr)) return 'sat';
-        if (isHolidayDate(getNextDateStr(dateStr))) return 'friSun';
-        if (isHolidayDate(getPrevDateStr(dateStr))) return 'friSun';
+        const dutyHolidays = events.filter(e => e.type === 'holiday' && e.holidayType === 'duty');
+
+        // 1. 연휴 시작 전날 -> 금일당 ('friSun')
+        const isDayBeforeHolidayStart = dutyHolidays.some(h => dateStr === getPrevDateStr(h.startDate));
+        if (isDayBeforeHolidayStart) {
+            return 'friSun';
+        }
+
+        // 2. 연휴 마지막 날 -> 금일당 ('friSun')
+        const isHolidayLastDay = dutyHolidays.some(h => dateStr === h.endDate);
+        if (isHolidayLastDay) {
+            return 'friSun';
+        }
+
+        // 3. 연휴 그 사이 -> 토당 ('sat')
+        const isHolidayBetween = dutyHolidays.some(h => dateStr >= h.startDate && dateStr < h.endDate);
+        if (isHolidayBetween) {
+            return 'sat';
+        }
 
         const d = new Date(dateStr + 'T00:00:00');
         const dayOfWeek = d.getDay();

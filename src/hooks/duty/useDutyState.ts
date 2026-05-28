@@ -44,10 +44,6 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
         return eDate.getFullYear() === year && eDate.getMonth() === month;
     });
 
-    const isHolidayDate = (dateStr: string) => {
-        return dutyHolidays.some(h => dateStr >= h.startDate && dateStr <= h.endDate);
-    };
-
     const getPrevDateStr = (dateStr: string) => {
         const d = new Date(dateStr + 'T00:00:00');
         d.setDate(d.getDate() - 1);
@@ -57,31 +53,23 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
         return `${y}-${m}-${day}`;
     };
 
-    const getNextDateStr = (dateStr: string) => {
-        const d = new Date(dateStr + 'T00:00:00');
-        d.setDate(d.getDate() + 1);
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return `${y}-${m}-${day}`;
-    };
-
     const getDutyType = (dateStr: string): 'weekday' | 'friSun' | 'sat' => {
-        // 1. 등록된 휴일인 경우 -> 무조건 토당 ('sat')
-        if (isHolidayDate(dateStr)) {
+        // 1. 연휴 시작 전날 -> 금일당 ('friSun')
+        const isDayBeforeHolidayStart = dutyHolidays.some(h => dateStr === getPrevDateStr(h.startDate));
+        if (isDayBeforeHolidayStart) {
+            return 'friSun';
+        }
+
+        // 2. 연휴 마지막 날 -> 금일당 ('friSun')
+        const isHolidayLastDay = dutyHolidays.some(h => dateStr === h.endDate);
+        if (isHolidayLastDay) {
+            return 'friSun';
+        }
+
+        // 3. 연휴 그 사이 -> 토당 ('sat')
+        const isHolidayBetween = dutyHolidays.some(h => dateStr >= h.startDate && dateStr < h.endDate);
+        if (isHolidayBetween) {
             return 'sat';
-        }
-        
-        // 2. 휴일 전날인 경우 -> 무조건 금일당 ('friSun')
-        const nextDateStr = getNextDateStr(dateStr);
-        if (isHolidayDate(nextDateStr)) {
-            return 'friSun';
-        }
-        
-        // 3. 휴일 다음날인 경우 -> 무조건 금일당 ('friSun')
-        const prevDateStr = getPrevDateStr(dateStr);
-        if (isHolidayDate(prevDateStr)) {
-            return 'friSun';
         }
         
         // 4. 일반적인 주말 및 금요일 판단
@@ -99,30 +87,47 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
         return 'weekday';
     };
 
-    // 각 대원별 당월 당직 근무 횟수 통계 (평당/금일당/토당 세분화)
+    // 각 대원별 누적 당직 근무 횟수 통계 (평당/금일당/토당 세분화)
     const dutyStats = members.reduce((acc: Record<string, { total: number; weekday: number; friSun: number; sat: number }>, member: CalendarMember) => {
-        const memberDuties = currentMonthDuties.filter((d: CalendarEvent) => d.memo === member.name);
-        
-        let weekdayCount = 0;
-        let friSunCount = 0;
-        let satCount = 0;
-        
+        if (member.role === 'runner') {
+            acc[member.name] = { total: 0, weekday: 0, friSun: 0, sat: 0 };
+            return acc;
+        }
+
+        const baselineWeekday = member.baselineWeekday || 0;
+        const baselineFriSun = member.baselineFriSun || 0;
+        const baselineSat = member.baselineSat || 0;
+
+        let extraWeekday = 0;
+        let extraFriSun = 0;
+        let extraSat = 0;
+
+        const targetMonth = currentDate.getMonth() + 1; // 1-indexed selected month in planner
+        const memberDuties = duties.filter((d: CalendarEvent) => d.memo === member.name && d.startDate.startsWith('2026-'));
+
         memberDuties.forEach((d: CalendarEvent) => {
-            const dutyType = getDutyType(d.startDate);
-            if (dutyType === 'weekday') {
-                weekdayCount++;
-            } else if (dutyType === 'friSun') {
-                friSunCount++;
-            } else if (dutyType === 'sat') {
-                satCount++;
+            const parts = d.startDate.split('-');
+            const eventMonth = parseInt(parts[1], 10);
+            const eventYear = parseInt(parts[0], 10);
+
+            if (eventYear === 2026 && eventMonth >= 4 && eventMonth <= targetMonth) {
+                const dutyType = getDutyType(d.startDate);
+                if (dutyType === 'weekday') extraWeekday++;
+                else if (dutyType === 'friSun') extraFriSun++;
+                else if (dutyType === 'sat') extraSat++;
             }
         });
-        
+
+        const weekday = baselineWeekday + extraWeekday;
+        const friSun = baselineFriSun + extraFriSun;
+        const sat = baselineSat + extraSat;
+        const total = weekday + friSun + sat;
+
         acc[member.name] = {
-            total: memberDuties.length,
-            weekday: weekdayCount,
-            friSun: friSunCount,
-            sat: satCount
+            total,
+            weekday,
+            friSun,
+            sat
         };
         return acc;
     }, {} as Record<string, { total: number; weekday: number; friSun: number; sat: number }>);

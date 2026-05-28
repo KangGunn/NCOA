@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { collection, query, onSnapshot, doc, setDoc } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
+import { collection, query, onSnapshot, doc, addDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { db, auth } from '../../lib/firebase';
 import type { CalendarEvent, CalendarMember } from '../../types/calendar/calendar.type';
 
 export interface DutyHoliday {
@@ -17,7 +17,16 @@ export function useDutySync(showToast: (message: string, type?: 'success' | 'err
     const [ktaTemplate, setKtaTemplate] = useState<any>(null);
     const [blcTemplate, setBlcTemplate] = useState<any>(null);
     const [personalRestrictions, setPersonalRestrictions] = useState<Record<string, string[]>>({});
-    const [dutyHolidays, setDutyHolidays] = useState<DutyHoliday[]>([]);
+    
+    // Derived dutyHolidays from events
+    const dutyHolidays = events
+        .filter(e => e.type === 'holiday' && e.holidayType === 'duty')
+        .map(e => ({
+            id: e.id,
+            name: e.memo,
+            startDate: e.startDate,
+            endDate: e.endDate
+        }));
     
     // KTA Template 연관 상태
     const [extraBefore, setExtraBefore] = useState<number>(0);
@@ -134,43 +143,26 @@ export function useDutySync(showToast: (message: string, type?: 'success' | 'err
             console.error("Personal restrictions fetch error:", error);
         });
 
-        // 당직 전용 휴일 실시간 구독 추가
-        const unsubDutyHolidays = onSnapshot(doc(db, 'settings', 'dutyHolidays'), (snapshot) => {
-            if (snapshot.exists()) {
-                const data = snapshot.data();
-                if (Array.isArray(data.holidays)) {
-                    setDutyHolidays(data.holidays);
-                } else {
-                    setDutyHolidays([]);
-                }
-            } else {
-                setDutyHolidays([]);
-            }
-        }, (error) => {
-            console.error("Duty holidays fetch error:", error);
-        });
-
         return () => {
             unsubSchedules();
             unsubMembers();
             unsubKtaTemplate();
             unsubBlcTemplate();
             unsubPersonalRestrictions();
-            unsubDutyHolidays();
         };
     }, [showToast]);
 
     const handleAddDutyHoliday = async (name: string, startDate: string, endDate: string) => {
         try {
-            const newHoliday: DutyHoliday = {
-                id: `duty-holiday-${Date.now()}`,
-                name: name.trim(),
+            const user = auth.currentUser;
+            await addDoc(collection(db, "schedules"), {
+                uid: user?.uid || "",
+                type: 'holiday',
+                holidayType: 'duty',
                 startDate,
-                endDate
-            };
-            const updated = [...dutyHolidays, newHoliday];
-            await setDoc(doc(db, 'settings', 'dutyHolidays'), {
-                holidays: updated
+                endDate,
+                memo: name.trim(),
+                createdAt: serverTimestamp()
             });
             showToast(`'${name}' 휴일이 추가되었습니다.`);
         } catch (e) {
@@ -181,10 +173,7 @@ export function useDutySync(showToast: (message: string, type?: 'success' | 'err
 
     const handleDeleteDutyHoliday = async (id: string) => {
         try {
-            const updated = dutyHolidays.filter(h => h.id !== id);
-            await setDoc(doc(db, 'settings', 'dutyHolidays'), {
-                holidays: updated
-            });
+            await deleteDoc(doc(db, "schedules", id));
             showToast("휴일이 삭제되었습니다.");
         } catch (e) {
             console.error("Error deleting duty holiday:", e);

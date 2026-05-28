@@ -15,12 +15,17 @@ const SPREADSHEET_URLS = {
 export function getDatesBetween(start: Date, end: Date, includeStart: boolean = true) {
     const dates = [];
     const curr = new Date(start);
+    curr.setHours(12, 0, 0, 0);
+    const targetEnd = new Date(end);
+    targetEnd.setHours(12, 0, 0, 0);
     if (!includeStart) {
         curr.setDate(curr.getDate() + 1);
+        curr.setHours(12, 0, 0, 0);
     }
-    while (curr < end) {
+    while (curr < targetEnd) {
         dates.push(`${curr.getMonth() + 1}.${curr.getDate()}`);
         curr.setDate(curr.getDate() + 1);
+        curr.setHours(12, 0, 0, 0);
     }
     return dates;
 }
@@ -29,7 +34,7 @@ export function selectDefaultWeekIndex(weeks: any[], baseDate?: Date) {
     if (!weeks || weeks.length === 0) return 0;
 
     const today = baseDate ? new Date(baseDate) : new Date();
-    today.setHours(0, 0, 0, 0);
+    today.setHours(12, 0, 0, 0);
     const year = today.getFullYear();
 
     // 계산식: (today.getDay() - 3 + 7) % 7
@@ -37,6 +42,7 @@ export function selectDefaultWeekIndex(weeks: any[], baseDate?: Date) {
     const targetWed = new Date(today);
     const diffToWed = (today.getDay() - 3 + 7) % 7;
     targetWed.setDate(today.getDate() - diffToWed);
+    targetWed.setHours(12, 0, 0, 0);
 
     const targetWedStr = `${targetWed.getMonth() + 1}.${targetWed.getDate()}`;
 
@@ -61,7 +67,7 @@ export function selectDefaultWeekIndex(weeks: any[], baseDate?: Date) {
             wYear = year + 1;
         }
 
-        const wDate = new Date(wYear, m - 1, d);
+        const wDate = new Date(wYear, m - 1, d, 12, 0, 0, 0);
         const diff = Math.abs(wDate.getTime() - targetWed.getTime());
         if (diff < minDiff) {
             minDiff = diff;
@@ -152,7 +158,7 @@ export function useMovementSync(baseDate?: Date) {
     }, [sheetWeeks, currentWeekIndex]);
 
     const fetchSpreadsheet = async (mode: 'test' | 'prod', updatedAtStr?: string) => {
-        const cacheKey = updatedAtStr ? `ncoa_movement_${mode}_${updatedAtStr}` : null;
+        const cacheKey = updatedAtStr ? `ncoa_movement_${mode}_${updatedAtStr}_v2` : null;
         const cached = cacheKey ? localStorage.getItem(cacheKey) : null;
 
         // 1. 로컬 브라우저 캐시 확인
@@ -175,7 +181,7 @@ export function useMovementSync(baseDate?: Date) {
         // 2. Firestore 공유 캐시 확인
         if (updatedAtStr) {
             try {
-                const cacheDoc = await getDoc(doc(db, "movement_cache", `${mode}_${updatedAtStr}`));
+                const cacheDoc = await getDoc(doc(db, "movement_cache_v2", `${mode}_${updatedAtStr}`));
                 if (cacheDoc.exists()) {
                     const sharedData = cacheDoc.data().data;
                     setSheetWeeks(sharedData);
@@ -214,14 +220,21 @@ export function useMovementSync(baseDate?: Date) {
                     const year = new Date().getFullYear();
 
                     const cols: { col: number, date: Date, dateStr: string }[] = [];
+                    const seenDates = new Set<string>();
+
                     for (let c = 1; c < dateRow.length; c++) {
                         if (!dateRow[c]) continue;
                         const parts = dateRow[c].split(/[./]/).map(p => p.trim());
                         if (parts.length < 3) continue;
                         const m = parseInt(parts[1]);
                         const d = parseInt(parts[2]);
-                        const date = new Date(year, m - 1, d);
-                        cols.push({ col: c, date, dateStr: `${m}.${d}` });
+                        const dateStr = `${m}.${d}`;
+                        
+                        if (seenDates.has(dateStr)) continue;
+                        seenDates.add(dateStr);
+
+                        const date = new Date(year, m - 1, d, 12, 0, 0, 0);
+                        cols.push({ col: c, date, dateStr });
                     }
 
                     const sortedCols = cols.sort((a, b) => a.date.getTime() - b.date.getTime());
@@ -232,19 +245,25 @@ export function useMovementSync(baseDate?: Date) {
 
                     const blockStarts: Date[] = [];
                     const firstDate = new Date(sortedCols[0].date);
+                    firstDate.setHours(12, 0, 0, 0);
                     const diffToWed = (firstDate.getDay() - 3 + 7) % 7;
                     firstDate.setDate(firstDate.getDate() - diffToWed);
+                    firstDate.setHours(12, 0, 0, 0);
 
                     const lastDate = sortedCols[sortedCols.length - 1].date;
                     const currWed = new Date(firstDate);
+                    currWed.setHours(12, 0, 0, 0);
                     while (currWed <= lastDate) {
                         blockStarts.push(new Date(currWed));
                         currWed.setDate(currWed.getDate() + 7);
+                        currWed.setHours(12, 0, 0, 0);
                     }
 
                     const parsedWeeks = blockStarts.map((wed) => {
                         const defaultEnd = new Date(wed);
+                        defaultEnd.setHours(12, 0, 0, 0);
                         defaultEnd.setDate(defaultEnd.getDate() + 9); // 수요일부터 다음주 금요일까지 (10일 범위)
+                        defaultEnd.setHours(12, 0, 0, 0);
 
                         const blockCols = sortedCols.filter(c => c.date >= wed && c.date <= defaultEnd);
                         if (blockCols.length === 0) return null;
@@ -306,7 +325,7 @@ export function useMovementSync(baseDate?: Date) {
                     }).filter(Boolean).filter((w: any) => w.data.length > 0) as any[];
 
                     if (updatedAtStr) {
-                        const cacheKey = `ncoa_movement_${mode}_${updatedAtStr}`;
+                        const cacheKey = `ncoa_movement_${mode}_${updatedAtStr}_v2`;
 
                         const keysToRemove = [];
                         for (let i = 0; i < localStorage.length; i++) {
@@ -320,7 +339,7 @@ export function useMovementSync(baseDate?: Date) {
                         localStorage.setItem(cacheKey, JSON.stringify(parsedWeeks));
 
                         try {
-                            await setDoc(doc(db, "movement_cache", `${mode}_${updatedAtStr}`), {
+                            await setDoc(doc(db, "movement_cache_v2", `${mode}_${updatedAtStr}`), {
                                 data: parsedWeeks,
                                 updatedAt: serverTimestamp()
                             });
@@ -416,10 +435,11 @@ export function useMovementSync(baseDate?: Date) {
                                         const endM = parseInt(rangeMatch[3]);
                                         const endD = parseInt(rangeMatch[4]);
 
-                                        const startDate = new Date(currentYear, startM - 1, startD);
-                                        const endDate = new Date(currentYear, endM - 1, endD);
+                                        const startDate = new Date(currentYear, startM - 1, startD, 12, 0, 0, 0);
+                                        const endDate = new Date(currentYear, endM - 1, endD, 12, 0, 0, 0);
                                         const departDate = new Date(startDate);
                                         departDate.setDate(startDate.getDate() - 1);
+                                        departDate.setHours(12, 0, 0, 0);
 
                                         const passData = {
                                             name: `${rank} ${name}`,
@@ -441,8 +461,8 @@ export function useMovementSync(baseDate?: Date) {
                                                 const vM2 = vRangeMatch ? parseInt(vRangeMatch[3]) : vM1;
                                                 const vD2 = vRangeMatch ? parseInt(vRangeMatch[4]) : vD1;
 
-                                                const vStartDate = new Date(currentYear, vM1 - 1, vD1);
-                                                const vEndDate = new Date(currentYear, vM2 - 1, vD2);
+                                                const vStartDate = new Date(currentYear, vM1 - 1, vD1, 12, 0, 0, 0);
+                                                const vEndDate = new Date(currentYear, vM2 - 1, vD2, 12, 0, 0, 0);
 
                                                 const vStartStr = `${vM1}.${vD1}`;
                                                 const isLinked = vStartStr === passData.return;
@@ -468,9 +488,10 @@ export function useMovementSync(baseDate?: Date) {
                                         if (singleMatch) {
                                             const m = parseInt(singleMatch[1]);
                                             const d = parseInt(singleMatch[2]);
-                                            const endDate = new Date(currentYear, m - 1, d);
+                                            const endDate = new Date(currentYear, m - 1, d, 12, 0, 0, 0);
                                             const departDate = new Date(endDate);
                                             departDate.setDate(endDate.getDate() - 1);
+                                            departDate.setHours(12, 0, 0, 0);
 
                                             const isDayOff = passPart.match(/(원|투|쓰리|포|파이브)데이/);
                                             const hasStayKeyword = passPart.includes('잔류');
@@ -498,8 +519,8 @@ export function useMovementSync(baseDate?: Date) {
                                                         const vM2 = vRangeMatch ? parseInt(vRangeMatch[3]) : vM1;
                                                         const vD2 = vRangeMatch ? parseInt(vRangeMatch[4]) : vD1;
 
-                                                        const vStartDate = new Date(currentYear, vM1 - 1, vD1);
-                                                        const vEndDate = new Date(currentYear, vM2 - 1, vD2);
+                                                        const vStartDate = new Date(currentYear, vM1 - 1, vD1, 12, 0, 0, 0);
+                                                        const vEndDate = new Date(currentYear, vM2 - 1, vD2, 12, 0, 0, 0);
 
                                                         const vStartStr = `${vM1}.${vD1}`;
                                                         const isLinked = vStartStr === passData.return;
@@ -644,22 +665,27 @@ export function useMovementSync(baseDate?: Date) {
 
         const dateObjects = Array.from(new Set(allDates)).map(d => {
             const [m, day] = d.split('.').map(Number);
-            return { str: d, date: new Date(2026, m - 1, day) };
+            return { str: d, date: new Date(2026, m - 1, day, 12, 0, 0, 0) };
         }).sort((a, b) => a.date.getTime() - b.date.getTime());
 
         if (dateObjects.length === 0) return { timeline: [], dataList: [] };
 
         const startDate = new Date(dateObjects[0].date);
+        startDate.setHours(12, 0, 0, 0);
         const currentDay = startDate.getDay();
         const diffToWed = (currentDay - 3 + 7) % 7;
         startDate.setDate(startDate.getDate() - diffToWed);
+        startDate.setHours(12, 0, 0, 0);
 
         const endDate = new Date(dateObjects[dateObjects.length - 1].date);
+        endDate.setHours(12, 0, 0, 0);
         const timeline: string[] = [];
         const curr = new Date(startDate);
+        curr.setHours(12, 0, 0, 0);
         while (curr <= endDate) {
             timeline.push(`${curr.getMonth() + 1}.${curr.getDate()}`);
             curr.setDate(curr.getDate() + 1);
+            curr.setHours(12, 0, 0, 0);
         }
 
         const dataList = Array.from(groupedMap.entries()).map(([name, items]) => {

@@ -108,23 +108,31 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
 
     // Duty classification logic from Duty Planner
     const getDutyType = (dateStr: string): 'weekday' | 'friSun' | 'sat' => {
-        const isHolidayDate = (dStr: string) => {
-            return events.some(e => e.type === 'holiday' && e.holidayType === 'duty' && dStr >= e.startDate && dStr <= e.endDate);
-        };
         const getPrevDateStr = (dStr: string) => {
             const d = new Date(dStr + 'T00:00:00');
             d.setDate(d.getDate() - 1);
             return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         };
-        const getNextDateStr = (dStr: string) => {
-            const d = new Date(dStr + 'T00:00:00');
-            d.setDate(d.getDate() + 1);
-            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        };
 
-        if (isHolidayDate(dateStr)) return 'sat';
-        if (isHolidayDate(getNextDateStr(dateStr))) return 'friSun';
-        if (isHolidayDate(getPrevDateStr(dateStr))) return 'friSun';
+        const dutyHolidays = events.filter(e => e.type === 'holiday' && e.holidayType === 'duty');
+
+        // 1. 연휴 시작 전날 -> 금일당 ('friSun')
+        const isDayBeforeHolidayStart = dutyHolidays.some(h => dateStr === getPrevDateStr(h.startDate));
+        if (isDayBeforeHolidayStart) {
+            return 'friSun';
+        }
+
+        // 2. 연휴 마지막 날 -> 금일당 ('friSun')
+        const isHolidayLastDay = dutyHolidays.some(h => dateStr === h.endDate);
+        if (isHolidayLastDay) {
+            return 'friSun';
+        }
+
+        // 3. 연휴 그 사이 -> 토당 ('sat')
+        const isHolidayBetween = dutyHolidays.some(h => dateStr >= h.startDate && dateStr < h.endDate);
+        if (isHolidayBetween) {
+            return 'sat';
+        }
 
         const d = new Date(dateStr + 'T00:00:00');
         const dayOfWeek = d.getDay();
@@ -269,9 +277,9 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
                     "text-xs font-black px-3 py-1 rounded-xl border",
                     isCompleted 
                         ? "text-green-600 bg-green-50 border-green-100/30" 
-                        : "text-yellow-600 bg-yellow-50 border-yellow-100/30"
+                        : "text-slate-600 bg-slate-50 border-slate-200/60"
                 )}>
-                    누적합: <span className={cn("text-sm font-extrabold ml-0.5", isCompleted ? "text-green-700" : "text-yellow-700")}>{total}회</span>
+                    누적합: <span className={cn("text-sm font-extrabold ml-0.5", isCompleted ? "text-green-700" : "text-slate-800")}>{total}회</span>
                 </div>
             </div>
             
@@ -383,20 +391,19 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
                         </div>
                     </div>
                 ) : (
-                    /* Cumulative Readonly Displays */
-                    <div className="flex gap-3 text-gray-500 font-bold text-xs select-none">
-                        <span>
-                            평: <span className={cn("font-extrabold", weekday >= 13 ? "text-green-600" : "text-gray-700")}>{weekday}</span>
+                    /* Cumulative Readonly Displays with enlarged, colored typography */
+                    <div className="flex gap-4 text-xs font-black select-none">
+                        <span className="text-gray-400">
+                            평당 <span className={cn("text-sm font-extrabold ml-0.5", weekday >= criteriaWeekday ? "text-green-600" : "text-amber-500")}>{weekday}회</span>
                         </span>
-                        <span className={friSun >= 9 ? "text-green-600" : "text-blue-500"}>
-                            금일: <span className={cn("font-extrabold", friSun >= 9 ? "text-green-600" : "text-blue-600")}>{friSun}</span>
+                        <span className="text-gray-400">
+                            금일당 <span className={cn("text-sm font-extrabold ml-0.5", friSun >= criteriaFriSun ? "text-green-600" : "text-blue-500")}>{friSun}회</span>
                         </span>
-                        <span className={sat >= 6 ? "text-green-600" : "text-red-500"}>
-                            토당: <span className={cn("font-extrabold", sat >= 6 ? "text-green-600" : "text-red-600")}>{sat}</span>
+                        <span className="text-gray-400">
+                            토당 <span className={cn("text-sm font-extrabold ml-0.5", sat >= criteriaSat ? "text-green-600" : "text-rose-500")}>{sat}회</span>
                         </span>
                     </div>
-                )}
-            </div>
+                )}</div>
         </div>
     );
 

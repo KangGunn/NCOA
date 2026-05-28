@@ -48,7 +48,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate }: Moveme
                         {timeline.map((dateStr, tIdx) => {
                             let status = member.dayStatuses[dateStr] || 'none';
                             const [m, d] = dateStr.split('.').map(Number);
-                            const isWeekend = new Date(2026, m - 1, d).getDay() % 6 === 0;
+                            const isWeekend = new Date(2026, m - 1, d, 12, 0, 0, 0).getDay() % 6 === 0;
 
                             // Dynamically detect if we are departing for/on a pass on the recovery day (day after duty)
                             if (status === 'pass-depart' || status === 'pass') {
@@ -87,7 +87,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate }: Moveme
                                     {(() => {
                                         const isFirst = tIdx === 0;
                                         const isLast = tIdx === timeline.length - 1;
-                                        const isSunday = new Date(2026, m - 1, d).getDay() === 0;
+                                        const isSunday = new Date(2026, m - 1, d, 12, 0, 0, 0).getDay() === 0;
                                         const isMonthStart = d === 1;
                                         const today = baseDate || new Date();
                                         const isToday = today.getMonth() === m - 1 && today.getDate() === d;

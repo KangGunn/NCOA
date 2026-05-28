@@ -26,10 +26,6 @@ export function DutyCalendarGrid({
     isMemberEligibleForDuty, handleCellClick, handleClearDate, togglePersonalRestriction,
     dutyHolidays
 }: DutyCalendarGridProps) {
-    const isHolidayDate = (dateStr: string) => {
-        return dutyHolidays.some(h => dateStr >= h.startDate && dateStr <= h.endDate);
-    };
-
     const getPrevDateStr = (dateStr: string) => {
         const d = new Date(dateStr + 'T00:00:00');
         d.setDate(d.getDate() - 1);
@@ -39,31 +35,23 @@ export function DutyCalendarGrid({
         return `${y}-${m}-${day}`;
     };
 
-    const getNextDateStr = (dateStr: string) => {
-        const d = new Date(dateStr + 'T00:00:00');
-        d.setDate(d.getDate() + 1);
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return `${y}-${m}-${day}`;
-    };
-
     const getDutyType = (dateStr: string): 'weekday' | 'friSun' | 'sat' => {
-        // 1. 등록된 휴일인 경우 -> 무조건 토당 ('sat')
-        if (isHolidayDate(dateStr)) {
+        // 1. 연휴 시작 전날 -> 금일당 ('friSun')
+        const isDayBeforeHolidayStart = dutyHolidays.some(h => dateStr === getPrevDateStr(h.startDate));
+        if (isDayBeforeHolidayStart) {
+            return 'friSun';
+        }
+
+        // 2. 연휴 마지막 날 -> 금일당 ('friSun')
+        const isHolidayLastDay = dutyHolidays.some(h => dateStr === h.endDate);
+        if (isHolidayLastDay) {
+            return 'friSun';
+        }
+
+        // 3. 연휴 그 사이 -> 토당 ('sat')
+        const isHolidayBetween = dutyHolidays.some(h => dateStr >= h.startDate && dateStr < h.endDate);
+        if (isHolidayBetween) {
             return 'sat';
-        }
-        
-        // 2. 휴일 전날인 경우 -> 무조건 금일당 ('friSun')
-        const nextDateStr = getNextDateStr(dateStr);
-        if (isHolidayDate(nextDateStr)) {
-            return 'friSun';
-        }
-        
-        // 3. 휴일 다음날인 경우 -> 무조건 금일당 ('friSun')
-        const prevDateStr = getPrevDateStr(dateStr);
-        if (isHolidayDate(prevDateStr)) {
-            return 'friSun';
         }
         
         // 4. 일반적인 주말 및 금요일 판단
@@ -184,53 +172,60 @@ export function DutyCalendarGrid({
                              }`}>
                                 {cell.dayNumber}
                             </span>
-                            <div className="flex flex-wrap justify-end gap-1 max-w-[70%]">
-                                {cell.isCurrentMonth && ktaBlcEvents.map(e => {
-                                    const isBlc = e.type === 'blc';
-                                    const isGraduation = e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓');
-                                    let label = isGraduation ? 'Grad' : (e.memo?.match(/Day \d+/)?.[0] || '');
-                                    
-                                    const isDay0OrGrad = e.memo?.includes('Day 0') || isGraduation;
-                                    let batchSuffix = (isDay0OrGrad && e.batch) ? `(${e.batch})` : '';
+                            <div className="flex flex-col items-end gap-1 max-w-[75%] min-w-0">
+                                {/* BLC / KTA Badges Row */}
+                                {(ktaBlcEvents.length > 0 || customKtaBadges.length > 0 || customBlcBadges.length > 0) && (
+                                    <div className="flex flex-wrap justify-end gap-1 w-full">
+                                        {cell.isCurrentMonth && ktaBlcEvents.map(e => {
+                                            const isBlc = e.type === 'blc';
+                                            const isGraduation = e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓');
+                                            let label = isGraduation ? 'Grad' : (e.memo?.match(/Day \d+/)?.[0] || '');
+                                            
+                                            const isDay0OrGrad = e.memo?.includes('Day 0') || isGraduation;
+                                            let batchSuffix = (isDay0OrGrad && e.batch) ? `(${e.batch})` : '';
 
-                                    if (!label) return null;
+                                            if (!label) return null;
 
-                                    const badgeBg = isBlc
-                                        ? 'bg-indigo-950/80 text-indigo-400 border border-indigo-900/35' 
-                                        : 'bg-rose-950/80 text-rose-400 border border-rose-900/35';
+                                            const badgeBg = isBlc
+                                                ? 'bg-indigo-950/80 text-indigo-400 border border-indigo-900/35' 
+                                                : 'bg-rose-950/80 text-rose-400 border border-rose-900/35';
 
-                                    return (
-                                        <span 
-                                            key={e.id}
-                                            className={`text-[8px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 ${badgeBg}`}
-                                            title={e.memo}
-                                        >
-                                            {isBlc ? 'B' : 'K'}-{label}{batchSuffix}
-                                        </span>
-                                    );
-                                })}
-                                {customKtaBadges.map(b => (
-                                    <span 
-                                        key={b.id}
-                                        className="text-[8px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 bg-rose-950/80 text-rose-400 border border-rose-900/35"
-                                    >
-                                        {b.label}
+                                            return (
+                                                <span 
+                                                    key={e.id}
+                                                    className={`text-[8.5px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 whitespace-nowrap ${badgeBg}`}
+                                                    title={e.memo}
+                                                >
+                                                    {isBlc ? 'B' : 'K'}-{label}{batchSuffix}
+                                                </span>
+                                            );
+                                        })}
+                                        {customKtaBadges.map(b => (
+                                            <span 
+                                                key={b.id}
+                                                className="text-[8.5px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 whitespace-nowrap bg-rose-950/80 text-rose-400 border border-rose-900/35"
+                                            >
+                                                {b.label}
+                                            </span>
+                                        ))}
+                                        {customBlcBadges.map(b => (
+                                            <span 
+                                                key={b.id}
+                                                className="text-[8.5px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 whitespace-nowrap bg-indigo-950/80 text-indigo-400 border border-indigo-900/35"
+                                            >
+                                                {b.label}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+                                
+                                {/* Holiday Badge Row */}
+                                {holiday && cell.isCurrentMonth && (
+                                    <span className="text-[9px] font-black bg-rose-950 text-rose-400 border border-rose-900/50 rounded-lg px-1.5 py-0.5 tracking-tight shrink-0 whitespace-nowrap max-w-full truncate">
+                                        {holiday.memo}
                                     </span>
-                                ))}
-                                {customBlcBadges.map(b => (
-                                    <span 
-                                        key={b.id}
-                                        className="text-[8px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 bg-indigo-950/80 text-indigo-400 border border-indigo-900/35"
-                                    >
-                                        {b.label}
-                                    </span>
-                                ))}
+                                )}
                             </div>
-                            {holiday && cell.isCurrentMonth && (
-                                <span className="text-[9px] font-black bg-rose-950 text-rose-400 border border-rose-900/50 rounded-lg px-1.5 py-0.5 tracking-tight shrink-0 max-w-28 truncate">
-                                    {holiday.memo}
-                                </span>
-                            )}
                         </div>
 
                         <div className="flex-1 min-h-0 mt-2 pt-1.5 border-t border-slate-800/40 flex flex-col gap-1 w-full overflow-hidden">

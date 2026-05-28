@@ -183,7 +183,24 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
 
     const isMemberEligibleForDuty = (member: CalendarMember, dateStr: string) => {
         if (member.role === 'runner') return false;
-        if (member.dutyCompleted) return false;
+
+        const stats = dutyStats[member.name] || { weekday: 0, friSun: 0, sat: 0 };
+        const criteriaWeekday = (() => {
+            const saved = localStorage.getItem('ncoa_criteria_weekday');
+            return saved ? parseInt(saved, 10) : 13;
+        })();
+        const criteriaFriSun = (() => {
+            const saved = localStorage.getItem('ncoa_criteria_frisun');
+            return saved ? parseInt(saved, 10) : 9;
+        })();
+        const criteriaSat = (() => {
+            const saved = localStorage.getItem('ncoa_criteria_sat');
+            return saved ? parseInt(saved, 10) : 6;
+        })();
+        const isSK = member.sections?.includes('SK') || false;
+        const isCompleted = isSK || !!member.dutyCompleted || (stats.weekday >= criteriaWeekday && stats.friSun >= criteriaFriSun && stats.sat >= criteriaSat);
+
+        if (isCompleted) return false;
 
         const name = member.name;
         if (personalRestrictions[dateStr]?.includes(name)) return false;

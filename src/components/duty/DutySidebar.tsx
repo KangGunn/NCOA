@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Users, RefreshCw, Check, Info, Calendar } from 'lucide-react';
+import { Users, RefreshCw, Check, Info, Calendar, ChevronDown } from 'lucide-react';
 import type { CalendarMember } from '../../types/calendar/calendar.type';
 
 interface DutySidebarProps {
@@ -35,7 +35,114 @@ export function DutySidebar({
     dutyHolidays, handleAddDutyHoliday, handleDeleteDutyHoliday
 }: DutySidebarProps) {
     const [isHolidayModalOpen, setIsHolidayModalOpen] = useState(false);
+    const [showCompleted, setShowCompleted] = useState(false);
     if (viewMode === 'actual') {
+        const criteriaWeekday = (() => {
+            const saved = localStorage.getItem('ncoa_criteria_weekday');
+            return saved ? parseInt(saved, 10) : 13;
+        })();
+        const criteriaFriSun = (() => {
+            const saved = localStorage.getItem('ncoa_criteria_frisun');
+            return saved ? parseInt(saved, 10) : 9;
+        })();
+        const criteriaSat = (() => {
+            const saved = localStorage.getItem('ncoa_criteria_sat');
+            return saved ? parseInt(saved, 10) : 6;
+        })();
+
+        const classified = members.map((member: CalendarMember) => {
+            const isChosen = selectedMember?.id === member.id;
+            const stats = dutyStats[member.name] || { total: 0, weekday: 0, friSun: 0, sat: 0 };
+            const count = stats.total;
+
+            const isSK = member.sections?.includes('SK') || false;
+            const isCompleted = member.role !== 'runner' && (isSK || !!member.dutyCompleted || (stats.weekday >= criteriaWeekday && stats.friSun >= criteriaFriSun && stats.sat >= criteriaSat));
+
+            return { member, isChosen, stats, count, isCompleted };
+        });
+
+        const activeMembers = classified.filter(c => !c.isCompleted);
+        const completedMembers = classified.filter(c => c.isCompleted);
+
+        const renderMemberCard = ({ member, isChosen, stats, count, isCompleted }: any) => {
+            const countBadgeColor = 'bg-slate-850/80 border-slate-800 text-slate-300';
+
+            return (
+                <div
+                    key={member.id}
+                    onClick={() => {
+                        if (isCompleted) {
+                            showToast("당직 완료된 대원은 배정할 수 없습니다. (먼저 상태를 해제해주세요)", "error");
+                            return;
+                        }
+                        setSelectedMember(isChosen ? null : member);
+                    }}
+                    className={`w-full flex items-center justify-between p-3.5 rounded-2xl transition-all border text-left cursor-pointer group/member ${
+                        isCompleted
+                            ? 'bg-slate-950/20 border-slate-900/40 text-slate-550 opacity-60 hover:bg-slate-900/30'
+                            : isChosen 
+                                ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-500/15 scale-[1.02]' 
+                                : 'bg-slate-900/40 border-slate-850 text-slate-350 hover:bg-slate-800/60 hover:border-slate-800'
+                    }`}
+                >
+                    <div className="flex flex-col gap-0.5 min-w-0 flex-1 pr-2">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                            <span className={`text-sm font-black tracking-tight truncate ${isCompleted ? 'line-through text-slate-500' : ''}`}>
+                                {member.name}
+                            </span>
+                            {isCompleted && (
+                                <span className="px-1.5 py-0.5 rounded bg-emerald-950/80 border border-emerald-900/45 text-emerald-400 text-[8px] font-black tracking-wide shrink-0">
+                                    ✅ 완료
+                                </span>
+                            )}
+                        </div>
+                        <span className={`text-[10px] font-bold truncate ${isChosen ? 'text-indigo-200' : 'text-slate-500'}`}>
+                            {member.rank}
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-2.5 shrink-0">
+                        <button
+                            onClick={(e) => toggleMemberDutyCompleted(e, member.id, member.name, isCompleted)}
+                            className={`p-1.5 rounded-lg transition-all border ${
+                                isCompleted
+                                    ? 'bg-emerald-950/65 hover:bg-emerald-900 border-emerald-500/40 text-emerald-300'
+                                    : isChosen 
+                                        ? 'hover:bg-indigo-750 text-indigo-200 hover:text-white border-transparent' 
+                                        : 'hover:bg-slate-800 text-slate-550 hover:text-slate-200 border-transparent hover:border-slate-700'
+                            } ${isCompleted ? 'opacity-100' : 'opacity-0 group-hover/member:opacity-100'}`}
+                            title={isCompleted ? "당직 완료 상태 해제" : "당직 완료 대원으로 설정"}
+                        >
+                            <Check className="w-3.5 h-3.5" />
+                        </button>
+                        {member.role !== 'runner' && (
+                            <div className="flex flex-col items-end gap-1.5 select-none min-w-0 pr-0.5">
+                                <div className={`px-2 py-0.5 rounded-xl text-[11px] font-black shrink-0 border ${
+                                    isCompleted
+                                        ? 'bg-slate-950/60 border-slate-900 text-slate-550'
+                                        : isChosen 
+                                            ? 'bg-indigo-750 border-indigo-500 text-indigo-100' 
+                                            : countBadgeColor
+                                }`}>
+                                    당직 {count}회
+                                </div>
+                                <div className="flex items-center gap-2 text-[10px] font-black tracking-tight shrink-0">
+                                    <span className={isCompleted ? 'text-slate-650' : stats.weekday >= criteriaWeekday ? 'text-emerald-400 font-bold' : 'text-amber-400'}>
+                                        평 {stats.weekday}
+                                    </span>
+                                    <span className={isCompleted ? 'text-slate-650' : stats.friSun >= criteriaFriSun ? 'text-emerald-400 font-bold' : 'text-sky-400'}>
+                                        금일 {stats.friSun}
+                                    </span>
+                                    <span className={isCompleted ? 'text-slate-650' : stats.sat >= criteriaSat ? 'text-emerald-400 font-bold' : 'text-rose-400'}>
+                                        토 {stats.sat}
+                                    </span>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
         return (
             <aside className="w-80 border-r border-slate-800 bg-slate-900/60 flex flex-col shrink-0 h-full overflow-hidden">
                 <div className="p-6 border-b border-slate-800 flex items-center justify-between shrink-0">
@@ -54,107 +161,25 @@ export function DutySidebar({
                     ) : members.length === 0 ? (
                         <p className="text-xs text-slate-500 text-center py-10 font-bold">등록된 부대원이 없습니다.</p>
                     ) : (
-                        members.map((member: CalendarMember) => {
-                            const isChosen = selectedMember?.id === member.id;
-                            const stats = dutyStats[member.name] || { total: 0, weekday: 0, friSun: 0, sat: 0 };
-                            const count = stats.total;
-                            const isCompleted = !!member.dutyCompleted;
-                            
-                            let countBadgeColor = 'bg-slate-800 text-slate-400';
-                            if (count >= 5) countBadgeColor = 'bg-rose-950 border border-rose-500/30 text-rose-300';
-                            else if (count >= 3) countBadgeColor = 'bg-amber-950 border border-amber-500/30 text-amber-300';
-                            else if (count > 0) countBadgeColor = 'bg-indigo-950 border border-indigo-500/30 text-indigo-300';
+                        <div className="space-y-2.5">
+                            {/* Active Members */}
+                            {activeMembers.map(item => renderMemberCard(item))}
 
-                            return (
-                                <div
-                                    key={member.id}
-                                    onClick={() => {
-                                        if (isCompleted) {
-                                            showToast("당직 완료된 대원은 배정할 수 없습니다. (먼저 상태를 해제해주세요)", "error");
-                                            return;
-                                        }
-                                        setSelectedMember(isChosen ? null : member);
-                                    }}
-                                    className={`w-full flex items-center justify-between p-3.5 rounded-2xl transition-all border text-left cursor-pointer group/member ${
-                                        isCompleted
-                                            ? 'bg-slate-950/20 border-slate-900/40 text-slate-550 opacity-60 hover:bg-slate-900/30'
-                                            : isChosen 
-                                                ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-500/15 scale-[1.02]' 
-                                                : 'bg-slate-900/40 border-slate-850 text-slate-350 hover:bg-slate-800/60 hover:border-slate-800'
-                                    }`}
-                                >
-                                    <div className="flex flex-col gap-0.5 min-w-0 flex-1 pr-2">
-                                        <div className="flex items-center gap-1.5 min-w-0">
-                                            <span className={`text-sm font-black tracking-tight truncate ${isCompleted ? 'line-through text-slate-500' : ''}`}>
-                                                {member.name}
-                                            </span>
-                                            {isCompleted && (
-                                                <span className="px-1.5 py-0.5 rounded bg-emerald-950/80 border border-emerald-900/45 text-emerald-400 text-[8px] font-black tracking-wide shrink-0">
-                                                    ✅ 완료
-                                                </span>
-                                            )}
-                                        </div>
-                                        <span className={`text-[10px] font-bold truncate ${isChosen ? 'text-indigo-200' : 'text-slate-500'}`}>
-                                            {member.rank}
-                                        </span>
-                                        
-                                        <div className="flex items-center gap-1.5 mt-1 text-[8.5px] font-black tracking-tight shrink-0 select-none">
-                                            <span className={`px-1 py-0.5 rounded ${
-                                                isCompleted
-                                                    ? 'bg-slate-950/40 text-slate-600 border border-slate-900/20'
-                                                    : isChosen 
-                                                        ? 'bg-indigo-950/40 text-indigo-200 border border-indigo-500/30' 
-                                                        : 'bg-slate-950/50 text-slate-400 border border-slate-800/40'
-                                            }`}>
-                                                평 {stats.weekday}
-                                            </span>
-                                            <span className={`px-1 py-0.5 rounded ${
-                                                isCompleted
-                                                    ? 'bg-slate-950/40 text-slate-600 border border-slate-900/20'
-                                                    : isChosen 
-                                                        ? 'bg-indigo-950/40 text-indigo-200 border border-indigo-500/30' 
-                                                        : 'bg-slate-950/50 text-slate-400 border border-slate-800/40'
-                                            }`}>
-                                                금일 {stats.friSun}
-                                            </span>
-                                            <span className={`px-1 py-0.5 rounded ${
-                                                isCompleted
-                                                    ? 'bg-slate-950/40 text-slate-600 border border-slate-900/20'
-                                                    : isChosen 
-                                                        ? 'bg-indigo-950/40 text-indigo-200 border border-indigo-500/30' 
-                                                        : 'bg-slate-950/50 text-slate-400 border border-slate-800/40'
-                                            }`}>
-                                                토 {stats.sat}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-2 shrink-0">
-                                        <div className={`px-2 py-1 rounded-lg text-[10px] font-black shrink-0 ${
-                                            isCompleted
-                                                ? 'bg-slate-950/60 text-slate-500 border border-slate-900'
-                                                : isChosen 
-                                                    ? 'bg-indigo-750 text-indigo-100 border border-indigo-500/45' 
-                                                    : countBadgeColor
-                                        }`}>
-                                            당직 {count}회
-                                        </div>
-                                        <button
-                                            onClick={(e) => toggleMemberDutyCompleted(e, member.id, member.name, isCompleted)}
-                                            className={`p-1.5 rounded-lg transition-all border ${
-                                                isCompleted
-                                                    ? 'bg-emerald-950/65 hover:bg-emerald-900 border-emerald-500/40 text-emerald-300'
-                                                    : isChosen 
-                                                        ? 'hover:bg-indigo-750 text-indigo-200 hover:text-white border-transparent' 
-                                                        : 'hover:bg-slate-800 text-slate-550 hover:text-slate-200 border-transparent hover:border-slate-700'
-                                            } ${isCompleted ? 'opacity-100' : 'opacity-0 group-hover/member:opacity-100'}`}
-                                            title={isCompleted ? "당직 완료 상태 해제" : "당직 완료 대원으로 설정"}
-                                        >
-                                            <Check className="w-3.5 h-3.5" />
-                                        </button>
-                                    </div>
+                            {/* Collapsible Completed Members */}
+                            {completedMembers.length > 0 && (
+                                <div className="space-y-2.5 pt-2">
+                                    <button 
+                                        onClick={() => setShowCompleted(!showCompleted)}
+                                        className="w-full py-2.5 bg-emerald-950/30 hover:bg-emerald-950/50 border border-emerald-900/40 rounded-2xl flex items-center justify-center gap-2 text-xs font-black text-emerald-400 transition-all active:scale-[0.99] cursor-pointer shadow-md"
+                                    >
+                                        <span>✅ 당직 완료 대원 {showCompleted ? "접기" : "보기"} ({completedMembers.length}명)</span>
+                                        <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showCompleted ? 'rotate-180' : ''}`} />
+                                    </button>
+
+                                    {showCompleted && completedMembers.map(item => renderMemberCard(item))}
                                 </div>
-                            );
-                        })
+                            )}
+                        </div>
                     )}
                 </div>
 
