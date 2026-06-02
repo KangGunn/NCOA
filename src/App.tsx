@@ -80,7 +80,7 @@ function App() {
           if (data.batch && data.startDate) kBatches.push({ batch: data.batch, startDate: data.startDate, ktaType: data.ktaType });
         } else if (data.type === 'blc') {
           if (data.batch && data.startDate) bBatches.push({ batch: data.batch, startDate: data.startDate, memo: data.memo });
-        } else if (data.type === 'holiday') {
+        } else if (data.type === 'holiday' && data.holidayType !== 'duty') {
           if (data.startDate) hDays.push({ startDate: data.startDate, endDate: data.endDate || data.startDate });
         }
       });
