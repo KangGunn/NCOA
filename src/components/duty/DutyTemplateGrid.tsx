@@ -2,15 +2,17 @@ interface DutyTemplateGridProps {
     viewMode: 'kta-template' | 'blc-template';
     ktaTemplate: any;
     blcTemplate: any;
-    restrictions: Record<number, { kta: boolean; medic: boolean; pao: boolean }>;
-    blcRestrictions: Record<number, { blc: boolean; s3: boolean; pao: boolean }>;
-    restrictionBrush: 'kta' | 'medic' | 'personal' | 'blc' | 's3' | 'pao' | null;
-    handleToggleRestriction: (day: number, type: 'kta' | 'medic' | 'pao') => void;
-    handleToggleBlcRestriction: (day: number, type: 'blc' | 's3' | 'pao') => void;
+    restrictions: Record<number, Record<string, boolean>>;
+    blcRestrictions: Record<number, Record<string, boolean>>;
+    restrictionBrush: string | null;
+    handleToggleRestriction: (day: number, section: string) => void;
+    handleToggleBlcRestriction: (day: number, section: string) => void;
     ktaDayLabels: Record<number, string>;
     setKtaDayLabels: React.Dispatch<React.SetStateAction<Record<number, string>>>;
     blcDayLabels: Record<number, string>;
     setBlcDayLabels: React.Dispatch<React.SetStateAction<Record<number, string>>>;
+    ktaSections: string[];
+    blcSections: string[];
 }
 
 export function DutyTemplateGrid({
@@ -18,7 +20,8 @@ export function DutyTemplateGrid({
     restrictions, blcRestrictions, restrictionBrush,
     handleToggleRestriction, handleToggleBlcRestriction,
     ktaDayLabels, setKtaDayLabels,
-    blcDayLabels, setBlcDayLabels
+    blcDayLabels, setBlcDayLabels,
+    ktaSections, blcSections
 }: DutyTemplateGridProps) {
     if (viewMode === 'kta-template') {
         const totalCells = 28;
@@ -30,37 +33,33 @@ export function DutyTemplateGrid({
                     const dayNum = i - 3; // 월요일(i=0) = Day -3, ...
 
                     const dayEvents = ktaTemplate?.schedules?.find((s: any) => s.day === dayNum)?.events || [];
-                    const ktaRestricted = !!restrictions[dayNum]?.kta;
-                    const medicRestricted = !!restrictions[dayNum]?.medic;
-                    const paoRestricted = !!restrictions[dayNum]?.pao;
                     const customLabel = ktaDayLabels[dayNum];
 
                     return (
-                        <div 
-                            key={i} 
+                        <div
+                            key={i}
                             onClick={() => {
-                                  if (restrictionBrush === 'kta' || restrictionBrush === 'medic' || restrictionBrush === 'pao') {
-                                      handleToggleRestriction(dayNum, restrictionBrush);
-                                  }
+                                if (restrictionBrush && ktaSections.includes(restrictionBrush)) {
+                                    handleToggleRestriction(dayNum, restrictionBrush);
+                                }
                             }}
                             className="border-r border-b border-slate-850 p-3.5 flex flex-col justify-between select-none relative transition-all h-full min-h-0 bg-slate-900/20 hover:bg-slate-900/40 cursor-crosshair"
                         >
                             <div className="flex flex-col h-full min-h-0 w-full justify-between">
                                 <div className="flex justify-between items-center shrink-0 h-6">
                                     <div className="flex items-center gap-1.5 min-w-0">
-                                        <span className={`text-[11px] font-black tracking-tight ${
-                                            dayNum === 0 || dayNum === 13 || dayNum === 14 || dayNum === 20
+                                        <span className={`text-[11px] font-black tracking-tight ${dayNum === 0 || dayNum === 13 || dayNum === 14 || dayNum === 20
                                                 ? 'text-rose-400 font-black bg-rose-950/30 px-2 py-0.5 rounded border border-rose-900/30 shadow-sm'
-                                                : isSun 
-                                                    ? 'text-rose-500 font-black' 
-                                                    : isSat 
-                                                        ? 'text-sky-500 font-black' 
+                                                : isSun
+                                                    ? 'text-rose-500 font-black'
+                                                    : isSat
+                                                        ? 'text-sky-500 font-black'
                                                         : 'text-slate-300 font-extrabold'
-                                        }`}>
+                                            }`}>
                                             Day {dayNum}
                                         </span>
                                         {customLabel && (
-                                            <span 
+                                            <span
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     const next = { ...ktaDayLabels };
@@ -80,11 +79,11 @@ export function DutyTemplateGrid({
                                         </span>
                                     )}
                                 </div>
-                                
+
                                 <div className="flex-1 min-h-0 my-1.5 flex flex-col gap-0.5 overflow-y-auto custom-scrollbar pr-0.5 w-full">
                                     {dayEvents.map((evt: string, idx: number) => (
-                                        <div 
-                                            key={idx} 
+                                        <div
+                                            key={idx}
                                             className="text-slate-100 text-[8.5px] font-extrabold tracking-tight truncate w-full shrink-0 py-0.5 flex items-center gap-1.5 hover:text-white transition-colors"
                                             title={evt}
                                         >
@@ -93,50 +92,28 @@ export function DutyTemplateGrid({
                                         </div>
                                     ))}
                                 </div>
-                                
-                                <div className="flex flex-row gap-1 w-full shrink-0 mt-auto pt-1.5 border-t border-slate-800/40 min-h-[30px]">
-                                    {ktaRestricted ? (
-                                        <button
-                                            onClick={(e) => { 
-                                                e.stopPropagation(); 
-                                                handleToggleRestriction(dayNum, 'kta'); 
-                                            }}
-                                            className="flex-1 py-1 rounded bg-rose-950/80 hover:bg-rose-900/60 border border-rose-500/35 text-rose-300 text-[8px] font-black text-center flex items-center justify-center gap-0.5 shrink-0 transition-all hover:scale-[1.02] active:scale-95 cursor-pointer shadow-md w-1/3 truncate"
-                                            title="클릭 시 KTA 제한 해제"
-                                        >
-                                            🚫 KTA
-                                        </button>
-                                    ) : (
-                                        <div className="flex-1 w-1/3" />
-                                    )}
-                                    {medicRestricted ? (
-                                        <button
-                                            onClick={(e) => { 
-                                                e.stopPropagation(); 
-                                                handleToggleRestriction(dayNum, 'medic'); 
-                                            }}
-                                            className="flex-1 py-1 rounded bg-amber-950/80 hover:bg-amber-900/60 border border-amber-500/35 text-amber-300 text-[8px] font-black text-center flex items-center justify-center gap-0.5 shrink-0 transition-all hover:scale-[1.02] active:scale-95 cursor-pointer shadow-md w-1/3 truncate"
-                                            title="클릭 시 MEDIC 제한 해제"
-                                        >
-                                            🚫 MED
-                                        </button>
-                                    ) : (
-                                        <div className="flex-1 w-1/3" />
-                                    )}
-                                    {paoRestricted ? (
-                                        <button
-                                            onClick={(e) => { 
-                                                e.stopPropagation(); 
-                                                handleToggleRestriction(dayNum, 'pao'); 
-                                            }}
-                                            className="flex-1 py-1 rounded bg-purple-950/80 hover:bg-purple-900/60 border border-purple-500/35 text-purple-300 text-[8px] font-black text-center flex items-center justify-center gap-0.5 shrink-0 transition-all hover:scale-[1.02] active:scale-95 cursor-pointer shadow-md w-1/3 truncate"
-                                            title="클릭 시 PAO 제한 해제"
-                                        >
-                                            🚫 PAO
-                                        </button>
-                                    ) : (
-                                        <div className="flex-1 w-1/3" />
-                                    )}
+
+                                <div className="flex flex-row gap-1 w-full shrink-0 mt-auto pt-1.5 border-t border-slate-800/40 min-h-[30px] flex-wrap">
+                                    {ktaSections.map((sec) => {
+                                        const isRestricted = !!restrictions[dayNum]?.[sec] ||
+                                            (sec === 'KTA' && !!restrictions[dayNum]?.['kta']) ||
+                                            (sec === 'MEDIC' && !!restrictions[dayNum]?.['medic']) ||
+                                            (sec === 'PAO' && !!restrictions[dayNum]?.['pao']);
+                                        if (!isRestricted) return null;
+                                        return (
+                                            <button
+                                                key={sec}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleToggleRestriction(dayNum, sec);
+                                                }}
+                                                className="py-1 px-1.5 rounded bg-rose-950/80 hover:bg-rose-900/60 border border-rose-500/35 text-rose-300 text-[8px] font-black text-center flex items-center justify-center gap-0.5 shrink-0 transition-all hover:scale-[1.02] active:scale-95 cursor-pointer shadow-md truncate"
+                                                title={`클릭 시 ${sec} 제한 해제`}
+                                            >
+                                                🚫 {sec}
+                                            </button>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         </div>
@@ -147,21 +124,18 @@ export function DutyTemplateGrid({
     }
 
     if (viewMode === 'blc-template') {
-        const blcDays = Array.from({ length: 25 }, (_, i) => i - 2); // Day -2 ~ Day 22
+        const blcDays = Array.from({ length: 28 }, (_, i) => i - 1); // Day -1 ~ Day 26
         return (
             <div className="flex-1 min-h-0 grid grid-cols-7 bg-slate-950/20 w-full h-full relative grid-rows-4">
                 {blcDays.map((dayNum) => {
                     const dayEvents = blcTemplate?.schedules?.find((s: any) => s.day === dayNum)?.events || [];
-                    const blcRestricted = !!blcRestrictions[dayNum]?.blc;
-                    const s3Restricted = !!blcRestrictions[dayNum]?.s3;
-                    const paoRestricted = !!blcRestrictions[dayNum]?.pao;
                     const customLabel = blcDayLabels[dayNum];
 
                     return (
-                        <div 
-                            key={dayNum} 
+                        <div
+                            key={dayNum}
                             onClick={() => {
-                                if (restrictionBrush === 'blc' || restrictionBrush === 's3' || restrictionBrush === 'pao') {
+                                if (restrictionBrush && blcSections.includes(restrictionBrush)) {
                                     handleToggleBlcRestriction(dayNum, restrictionBrush);
                                 }
                             }}
@@ -170,15 +144,14 @@ export function DutyTemplateGrid({
                             <div className="flex flex-col h-full min-h-0 w-full justify-between">
                                 <div className="flex justify-between items-center shrink-0 h-6">
                                     <div className="flex items-center gap-1.5 min-w-0">
-                                        <span className={`text-[11px] font-black tracking-tight ${
-                                            dayNum === 0 || dayNum === 22
+                                        <span className={`text-[11px] font-black tracking-tight ${dayNum === 0 || dayNum === 22
                                                 ? 'text-blue-400 font-black bg-blue-950/30 px-2 py-0.5 rounded border border-blue-900/30 shadow-sm'
                                                 : 'text-slate-300 font-extrabold'
-                                        }`}>
+                                            }`}>
                                             Day {dayNum}
                                         </span>
                                         {customLabel && (
-                                            <span 
+                                            <span
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     const next = { ...blcDayLabels };
@@ -203,11 +176,11 @@ export function DutyTemplateGrid({
                                         </span>
                                     )}
                                 </div>
-                                
+
                                 <div className="flex-1 min-h-0 my-1.5 flex flex-col gap-0.5 overflow-y-auto custom-scrollbar pr-0.5 w-full">
                                     {dayEvents.map((evt: string, idx: number) => (
-                                        <div 
-                                            key={idx} 
+                                        <div
+                                            key={idx}
                                             className="text-slate-100 text-[8.5px] font-extrabold tracking-tight truncate w-full shrink-0 py-0.5 flex items-center gap-1.5 hover:text-white transition-colors"
                                             title={evt}
                                         >
@@ -220,57 +193,32 @@ export function DutyTemplateGrid({
                                     )}
                                 </div>
 
-                                <div className="flex flex-row gap-1 w-full shrink-0 mt-auto pt-1.5 border-t border-slate-800/40 min-h-[30px]">
-                                    {blcRestricted ? (
-                                        <button
-                                            onClick={(e) => { 
-                                                e.stopPropagation(); 
-                                                handleToggleBlcRestriction(dayNum, 'blc'); 
-                                            }}
-                                            className="flex-1 py-1 rounded bg-blue-950/80 hover:bg-blue-900/60 border border-blue-500/35 text-blue-300 text-[8px] font-black text-center flex items-center justify-center gap-0.5 shrink-0 transition-all hover:scale-[1.02] active:scale-95 cursor-pointer shadow-md w-1/3 truncate"
-                                            title="클릭 시 BLC 제한 해제"
-                                        >
-                                            🚫 BLC
-                                        </button>
-                                    ) : (
-                                        <div className="flex-1 w-1/3" />
-                                    )}
-                                    {s3Restricted ? (
-                                        <button
-                                            onClick={(e) => { 
-                                                e.stopPropagation(); 
-                                                handleToggleBlcRestriction(dayNum, 's3'); 
-                                            }}
-                                            className="flex-1 py-1 rounded bg-indigo-950/80 hover:bg-indigo-900/60 border border-indigo-500/35 text-indigo-300 text-[8px] font-black text-center flex items-center justify-center gap-0.5 shrink-0 transition-all hover:scale-[1.02] active:scale-95 cursor-pointer shadow-md w-1/3 truncate"
-                                            title="클릭 시 S3 제한 해제"
-                                        >
-                                            🚫 S3
-                                        </button>
-                                    ) : (
-                                        <div className="flex-1 w-1/3" />
-                                    )}
-                                    {paoRestricted ? (
-                                        <button
-                                            onClick={(e) => { 
-                                                e.stopPropagation(); 
-                                                handleToggleBlcRestriction(dayNum, 'pao'); 
-                                            }}
-                                            className="flex-1 py-1 rounded bg-purple-950/80 hover:bg-purple-900/60 border border-purple-500/35 text-purple-300 text-[8px] font-black text-center flex items-center justify-center gap-0.5 shrink-0 transition-all hover:scale-[1.02] active:scale-95 cursor-pointer shadow-md w-1/3 truncate"
-                                            title="클릭 시 PAO 제한 해제"
-                                        >
-                                            🚫 PAO
-                                        </button>
-                                    ) : (
-                                        <div className="flex-1 w-1/3" />
-                                    )}
+                                <div className="flex flex-row gap-1 w-full shrink-0 mt-auto pt-1.5 border-t border-slate-800/40 min-h-[30px] flex-wrap">
+                                    {blcSections.map((sec) => {
+                                        const isRestricted = !!blcRestrictions[dayNum]?.[sec] ||
+                                            (sec === 'BLC' && !!blcRestrictions[dayNum]?.['blc']) ||
+                                            (sec === 'S3' && !!blcRestrictions[dayNum]?.['s3']) ||
+                                            (sec === 'PAO' && !!blcRestrictions[dayNum]?.['pao']);
+                                        if (!isRestricted) return null;
+                                        return (
+                                            <button
+                                                key={sec}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleToggleBlcRestriction(dayNum, sec);
+                                                }}
+                                                className="py-1 px-1.5 rounded bg-blue-950/80 hover:bg-blue-900/60 border border-blue-500/35 text-blue-300 text-[8px] font-black text-center flex items-center justify-center gap-0.5 shrink-0 transition-all hover:scale-[1.02] active:scale-95 cursor-pointer shadow-md truncate"
+                                                title={`클릭 시 ${sec} 제한 해제`}
+                                            >
+                                                🚫 {sec}
+                                            </button>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         </div>
                     );
                 })}
-                {Array.from({ length: 3 }).map((_, i) => (
-                    <div key={`empty-blc-${i}`} className="border-r border-b border-slate-850 bg-slate-900/5 select-none" />
-                ))}
             </div>
         );
     }

@@ -241,8 +241,8 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-50 flex justify-center items-center relative overflow-x-hidden">
       {/* 데스크톱 전용 모바일 프레임 외곽 플로팅 위젯 카드 */}
-      <div className="hidden lg:flex flex-col gap-4 fixed left-[calc(50%+240px)] top-1/2 -translate-y-1/2 p-6 bg-white rounded-3xl border border-gray-100 shadow-xl max-w-xs transition-all hover:scale-105 hover:shadow-2xl z-10 animate-in slide-in-from-right-12 duration-500">
-        <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-650">
+      <div className="hidden lg:flex flex-col gap-4 fixed left-[calc(50%+240px)] top-1/2 -translate-y-1/2 p-6 bg-white rounded-xl border border-gray-100 shadow-lg max-w-xs z-10">
+        <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-650">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-calendar"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg>
         </div>
         <div>
@@ -255,7 +255,7 @@ function App() {
         </div>
         <button
           onClick={() => setShowDutyScheduler(true)}
-          className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-2xl transition-all shadow-md shadow-indigo-100 flex items-center justify-center gap-1.5 active:scale-95"
+          className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl transition-all shadow-md shadow-indigo-100 flex items-center justify-center gap-1.5 active:scale-95"
         >
           당직표 짜기 시작
         </button>

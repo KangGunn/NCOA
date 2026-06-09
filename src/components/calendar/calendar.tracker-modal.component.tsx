@@ -5,6 +5,7 @@ import { db } from '../../lib/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import { cn } from '../../lib/utils';
 import type { CalendarEvent, CalendarMember } from '../../types/calendar/calendar.type';
+import { calculateRank } from '../../lib/rankUtils';
 
 interface DutyTrackerModalProps {
     isOpen: boolean;
@@ -208,10 +209,19 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
         // Completion logic: 평 criteriaWeekday, 금일 criteriaFriSun, 토 criteriaSat, or SK section
         const isCompleted = isSK || (weekday >= criteriaWeekday && friSun >= criteriaFriSun && sat >= criteriaSat);
 
+        const targetYear = MONTH_LABELS[selectedMonthIndex].year;
+        const targetMonth = MONTH_LABELS[selectedMonthIndex].month;
+        const targetDate = new Date(targetYear, targetMonth - 1, 1);
+        const calculatedRank = member.role === 'runner' 
+            ? (member.rank || '러너') 
+            : (member.enlistmentDate 
+                ? calculateRank(new Date(member.enlistmentDate), member.earlyPromotion || 0, targetDate) 
+                : (member.rank || '대원'));
+
         return {
             member,
             name: member.name,
-            rank: member.rank || '대원',
+            rank: calculatedRank,
             weekday,
             friSun,
             sat,
@@ -228,18 +238,17 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
     // Apply sorting
     const sortedStats = [...filteredStats].sort((a, b) => {
         if (sortField === 'seniority') {
-            const dateA = a.member.enlistmentDate || '';
-            const dateB = b.member.enlistmentDate || '';
-            if (dateA && dateB) {
-                if (dateA !== dateB) {
-                    return sortOrder === 'asc' ? dateA.localeCompare(dateB) : dateB.localeCompare(dateA);
-                }
-            } else if (dateA) {
-                return sortOrder === 'asc' ? -1 : 1;
-            } else if (dateB) {
-                return sortOrder === 'asc' ? 1 : -1;
+            const dateA = typeof a.member.enlistmentDate === 'string' ? a.member.enlistmentDate.trim() : '';
+            const dateB = typeof b.member.enlistmentDate === 'string' ? b.member.enlistmentDate.trim() : '';
+            if (dateA !== dateB) {
+                return dateA < dateB ? -1 : 1;
             }
-            return a.name.localeCompare(b.name);
+            const nameA = typeof a.name === 'string' ? a.name.trim() : '';
+            const nameB = typeof b.name === 'string' ? b.name.trim() : '';
+            if (nameA !== nameB) {
+                return nameA < nameB ? -1 : 1;
+            }
+            return 0;
         } else {
             let valA: number = a.total;
             let valB: number = b.total;

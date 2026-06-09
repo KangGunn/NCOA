@@ -3,19 +3,21 @@ import { Calendar as CalendarIcon, Trash2, LogOut } from 'lucide-react';
 interface DutyHeaderProps {
     viewMode: 'actual' | 'kta-template' | 'blc-template';
     setViewMode: (mode: 'actual' | 'kta-template' | 'blc-template') => void;
-    setRestrictionBrush: (brush: 'kta' | 'medic' | 'personal' | 'blc' | 's3' | 'pao' | null) => void;
-    restrictionBrush: 'kta' | 'medic' | 'personal' | 'blc' | 's3' | 'pao' | null;
+    setRestrictionBrush: (brush: string | null) => void;
+    restrictionBrush: string | null;
     year: number;
     month: number;
     prevMonth: () => void;
     nextMonth: () => void;
     handleClearMonth: () => void;
     onClose: () => void;
+    onOpenMonthlyLabelsModal: () => void;
 }
 
 export function DutyHeader({
     viewMode, setViewMode, setRestrictionBrush, restrictionBrush,
-    year, month, prevMonth, nextMonth, handleClearMonth, onClose
+    year, month, prevMonth, nextMonth, handleClearMonth, onClose,
+    onOpenMonthlyLabelsModal
 }: DutyHeaderProps) {
     return (
         <header className="h-20 border-b border-slate-850 px-8 flex items-center justify-between shrink-0">
@@ -123,14 +125,22 @@ export function DutyHeader({
                     BLC 표준 일정 편집
                 </button>
 
+                <button
+                    onClick={onOpenMonthlyLabelsModal}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-2xl text-xs font-black transition-all shadow-md active:scale-95 border bg-slate-900 border-slate-850 text-slate-350 hover:bg-slate-800 hover:text-slate-200"
+                >
+                    <CalendarIcon className="w-3.5 h-3.5 text-emerald-450" />
+                    날짜 레이블 편집
+                </button>
+
                 <div className="h-6 w-px bg-slate-850" />
 
                 <button
                     onClick={onClose}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-2xl text-xs font-black transition-all shadow-md active:scale-95"
+                    className="flex items-center justify-center w-10 h-10 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-2xl transition-all shadow-md active:scale-95 shrink-0"
+                    title="모바일 화면으로"
                 >
-                    <LogOut className="w-3.5 h-3.5" />
-                    모바일 화면으로
+                    <LogOut className="w-4 h-4" />
                 </button>
             </div>
         </header>

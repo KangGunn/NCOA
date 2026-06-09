@@ -425,11 +425,44 @@ export function useMovementSync(baseDate?: Date) {
                                     const rank = nameMatch[1];
                                     const name = nameMatch[2];
                                     const passPart = cleanLine.split('+')[0];
+                                    const vacationRaw = cleanLine.split('+')[1];
                                     const rangeRegex = /(\d{1,2})[./](\d{1,2})\s*~\s*(\d{1,2})[./](\d{1,2})/;
                                     const singleRegex = /(\d{1,2})[./](\d{1,2})/;
                                     const rangeMatch = passPart.match(rangeRegex);
 
+                                    // 연가 파싱 헬퍼: vacationPart에서 날짜 추출 후 vacation 객체 생성
+                                    const parseVacation = (vacationPart: string, passReturn?: string) => {
+                                        const vRangeMatch = vacationPart.match(rangeRegex);
+                                        const vSingleMatch = vacationPart.match(singleRegex);
+                                        if (!vRangeMatch && !vSingleMatch) return null;
+                                        const vM1 = parseInt((vRangeMatch || vSingleMatch)![1]);
+                                        const vD1 = parseInt((vRangeMatch || vSingleMatch)![2]);
+                                        const vM2 = vRangeMatch ? parseInt(vRangeMatch[3]) : vM1;
+                                        const vD2 = vRangeMatch ? parseInt(vRangeMatch[4]) : vD1;
+                                        const vStartDate = new Date(currentYear, vM1 - 1, vD1, 12, 0, 0, 0);
+                                        const vEndDate = new Date(currentYear, vM2 - 1, vD2, 12, 0, 0, 0);
+                                        const vStartStr = `${vM1}.${vD1}`;
+                                        const vEndStr = `${vM2}.${vD2}`;
+                                        // 외휴연계 O이면 true, X이면 false, 없으면 주소 비교 fallback
+                                        let isLinked: boolean;
+                                        if (/외휴연계\s*O/i.test(vacationPart)) {
+                                            isLinked = true;
+                                        } else if (/외휴연계\s*X/i.test(vacationPart)) {
+                                            isLinked = false;
+                                        } else {
+                                            isLinked = passReturn ? vStartStr === passReturn : false;
+                                        }
+                                        return {
+                                            period: vRangeMatch ? `${vM1}.${vD1}~${vM2}.${vD2}` : `${vM1}.${vD1}`,
+                                            depart: vStartStr,
+                                            isLinked,
+                                            return: vEndStr,
+                                            stayDays: getDatesBetween(vStartDate, vEndDate, false)
+                                        };
+                                    };
+
                                     if (rangeMatch) {
+                                        // '+' 앞에 날짜 범위 있음 → 외박 처리
                                         const startM = parseInt(rangeMatch[1]);
                                         const startD = parseInt(rangeMatch[2]);
                                         const endM = parseInt(rangeMatch[3]);
@@ -450,33 +483,10 @@ export function useMovementSync(baseDate?: Date) {
                                             stayDays: getDatesBetween(startDate, endDate, true)
                                         };
 
-                                        const vacationPart = cleanLine.split('+')[1];
-                                        if (vacationPart) {
-                                            const vRangeMatch = vacationPart.match(rangeRegex);
-                                            const vSingleMatch = vacationPart.match(singleRegex);
-
-                                            if (vRangeMatch || vSingleMatch) {
-                                                const vM1 = parseInt((vRangeMatch || vSingleMatch)![1]);
-                                                const vD1 = parseInt((vRangeMatch || vSingleMatch)![2]);
-                                                const vM2 = vRangeMatch ? parseInt(vRangeMatch[3]) : vM1;
-                                                const vD2 = vRangeMatch ? parseInt(vRangeMatch[4]) : vD1;
-
-                                                const vStartDate = new Date(currentYear, vM1 - 1, vD1, 12, 0, 0, 0);
-                                                const vEndDate = new Date(currentYear, vM2 - 1, vD2, 12, 0, 0, 0);
-
-                                                const vStartStr = `${vM1}.${vD1}`;
-                                                const isLinked = vStartStr === passData.return;
-
-                                                extractedData.push({
-                                                    ...passData,
-                                                    vacation: {
-                                                        period: vRangeMatch ? `${vM1}.${vD1}~${vM2}.${vD2}` : `${vM1}.${vD1}`,
-                                                        depart: vStartStr,
-                                                        isLinked,
-                                                        return: `${vM2}.${vD2}`,
-                                                        stayDays: getDatesBetween(vStartDate, vEndDate, false)
-                                                    }
-                                                });
+                                        if (vacationRaw) {
+                                            const vacation = parseVacation(vacationRaw, passData.return);
+                                            if (vacation) {
+                                                extractedData.push({ ...passData, vacation });
                                             } else {
                                                 extractedData.push(passData);
                                             }
@@ -486,6 +496,7 @@ export function useMovementSync(baseDate?: Date) {
                                     } else {
                                         const singleMatch = passPart.match(singleRegex);
                                         if (singleMatch) {
+                                            // '+' 앞에 단일 날짜 있음 → 외박(원데이) 처리
                                             const m = parseInt(singleMatch[1]);
                                             const d = parseInt(singleMatch[2]);
                                             const endDate = new Date(currentYear, m - 1, d, 12, 0, 0, 0);
@@ -505,42 +516,36 @@ export function useMovementSync(baseDate?: Date) {
                                                     period: `${m}.${d} (원데이)`,
                                                     depart: `${departDate.getMonth() + 1}.${departDate.getDate()}`,
                                                     return: `${m}.${d}`,
-                                                    stayDays: []
+                                                    stayDays: [] as string[]
                                                 };
 
-                                                const vacationPart = cleanLine.split('+')[1];
-                                                if (vacationPart) {
-                                                    const vRangeMatch = vacationPart.match(rangeRegex);
-                                                    const vSingleMatch = vacationPart.match(singleRegex);
-
-                                                    if (vRangeMatch || vSingleMatch) {
-                                                        const vM1 = parseInt((vRangeMatch || vSingleMatch)![1]);
-                                                        const vD1 = parseInt((vRangeMatch || vSingleMatch)![2]);
-                                                        const vM2 = vRangeMatch ? parseInt(vRangeMatch[3]) : vM1;
-                                                        const vD2 = vRangeMatch ? parseInt(vRangeMatch[4]) : vD1;
-
-                                                        const vStartDate = new Date(currentYear, vM1 - 1, vD1, 12, 0, 0, 0);
-                                                        const vEndDate = new Date(currentYear, vM2 - 1, vD2, 12, 0, 0, 0);
-
-                                                        const vStartStr = `${vM1}.${vD1}`;
-                                                        const isLinked = vStartStr === passData.return;
-
-                                                        extractedData.push({
-                                                            ...passData,
-                                                            vacation: {
-                                                                period: vRangeMatch ? `${vM1}.${vD1}~${vM2}.${vD2}` : `${vM1}.${vD1}`,
-                                                                depart: vStartStr,
-                                                                isLinked,
-                                                                return: `${vM2}.${vD2}`,
-                                                                stayDays: getDatesBetween(vStartDate, vEndDate, false)
-                                                            }
-                                                        });
+                                                if (vacationRaw) {
+                                                    const vacation = parseVacation(vacationRaw, passData.return);
+                                                    if (vacation) {
+                                                        extractedData.push({ ...passData, vacation });
                                                     } else {
                                                         extractedData.push(passData);
                                                     }
                                                 } else {
                                                     extractedData.push(passData);
                                                 }
+                                            }
+                                        } else if (vacationRaw) {
+                                            // '+' 앞에 날짜 없음 (잔류 등) → 외박 없이 연가만 처리
+                                            const vacation = parseVacation(vacationRaw);
+                                            if (vacation) {
+                                                extractedData.push({
+                                                    name: `${rank} ${name}`,
+                                                    type: '외박',
+                                                    period: '',
+                                                    depart: '',
+                                                    return: vacation.return,
+                                                    stayDays: [] as string[],
+                                                    vacation
+                                                });
+                                            } else {
+                                                // 연가 날짜도 없으면 잔류 처리
+                                                extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: '잔류' });
                                             }
                                         } else if (passPart.includes('잔류')) {
                                             extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: '잔류' });

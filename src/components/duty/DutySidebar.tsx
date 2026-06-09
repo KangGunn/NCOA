@@ -1,17 +1,26 @@
 import { useState } from 'react';
 import { Users, RefreshCw, Check, Info, Calendar, ChevronDown } from 'lucide-react';
 import type { CalendarMember } from '../../types/calendar/calendar.type';
+import { calculateRank } from '../../lib/rankUtils';
 
 interface DutySidebarProps {
     viewMode: 'actual' | 'kta-template' | 'blc-template';
     loading: boolean;
     members: CalendarMember[];
-    dutyStats: Record<string, { total: number; weekday: number; friSun: number; sat: number }>;
+    dutyStats: Record<string, { 
+        total: number; 
+        weekday: number; 
+        friSun: number; 
+        sat: number;
+        currentMonthWeekday?: number;
+        currentMonthFriSun?: number;
+        currentMonthSat?: number;
+    }>;
     selectedMember: CalendarMember | null;
     setSelectedMember: (member: CalendarMember | null) => void;
     toggleMemberDutyCompleted: (e: React.MouseEvent, id: string, name: string, status: boolean) => void;
-    restrictionBrush: 'kta' | 'medic' | 'personal' | 'blc' | 's3' | 'pao' | null;
-    setRestrictionBrush: React.Dispatch<React.SetStateAction<'kta' | 'medic' | 'personal' | 'blc' | 's3' | 'pao' | null>>;
+    restrictionBrush: string | null;
+    setRestrictionBrush: React.Dispatch<React.SetStateAction<string | null>>;
     ktaDayLabels: Record<number, string>;
     setKtaDayLabels: React.Dispatch<React.SetStateAction<Record<number, string>>>;
     blcDayLabels: Record<number, string>;
@@ -22,6 +31,10 @@ interface DutySidebarProps {
     dutyHolidays: any[];
     handleAddDutyHoliday: (name: string, startDate: string, endDate: string) => Promise<void>;
     handleDeleteDutyHoliday: (id: string) => Promise<void>;
+    ktaSections: string[];
+    blcSections: string[];
+    handleToggleSectionMapping: (mode: 'kta' | 'blc', section: string) => void;
+    currentDate: Date;
 }
 
 export function DutySidebar({
@@ -32,10 +45,14 @@ export function DutySidebar({
     blcDayLabels, setBlcDayLabels,
     handleSaveTemplateSettings, handleSaveBlcTemplateSettings,
     showToast,
-    dutyHolidays, handleAddDutyHoliday, handleDeleteDutyHoliday
+    dutyHolidays, handleAddDutyHoliday, handleDeleteDutyHoliday,
+    ktaSections, blcSections, handleToggleSectionMapping,
+    currentDate
 }: DutySidebarProps) {
     const [isHolidayModalOpen, setIsHolidayModalOpen] = useState(false);
     const [showCompleted, setShowCompleted] = useState(false);
+    const [showKtaBrushEditor, setShowKtaBrushEditor] = useState(false);
+    const [showBlcBrushEditor, setShowBlcBrushEditor] = useState(false);
     if (viewMode === 'actual') {
         const criteriaWeekday = (() => {
             const saved = localStorage.getItem('ncoa_criteria_weekday');
@@ -52,7 +69,7 @@ export function DutySidebar({
 
         const classified = members.map((member: CalendarMember) => {
             const isChosen = selectedMember?.id === member.id;
-            const stats = dutyStats[member.name] || { total: 0, weekday: 0, friSun: 0, sat: 0 };
+            const stats = dutyStats[member.name] || { total: 0, weekday: 0, friSun: 0, sat: 0, currentMonthWeekday: 0, currentMonthFriSun: 0, currentMonthSat: 0 };
             const count = stats.total;
 
             const isSK = member.sections?.includes('SK') || false;
@@ -61,11 +78,41 @@ export function DutySidebar({
             return { member, isChosen, stats, count, isCompleted };
         });
 
-        const activeMembers = classified.filter(c => !c.isCompleted);
-        const completedMembers = classified.filter(c => c.isCompleted);
+        const sortMembers = (arr: typeof classified) => {
+            return [...arr].sort((a, b) => {
+                const roleA = a.member.role || 'member';
+                const roleB = b.member.role || 'member';
+                
+                // 1. Regular members first, runners second
+                if (roleA === 'runner' && roleB !== 'runner') return 1;
+                if (roleA !== 'runner' && roleB === 'runner') return -1;
+                
+                // 2. Sort by enlistmentDate (asc)
+                const dateA = typeof a.member.enlistmentDate === 'string' ? a.member.enlistmentDate.trim() : '';
+                const dateB = typeof b.member.enlistmentDate === 'string' ? b.member.enlistmentDate.trim() : '';
+                if (dateA !== dateB) {
+                    return dateA < dateB ? -1 : 1;
+                }
+                
+                // 3. Sort by name (asc)
+                const nameA = typeof a.member.name === 'string' ? a.member.name.trim() : '';
+                const nameB = typeof b.member.name === 'string' ? b.member.name.trim() : '';
+                return nameA.localeCompare(nameB);
+            });
+        };
+
+        const activeMembers = sortMembers(classified.filter(c => !c.isCompleted));
+        const completedMembers = sortMembers(classified.filter(c => c.isCompleted));
 
         const renderMemberCard = ({ member, isChosen, stats, count, isCompleted }: any) => {
             const countBadgeColor = 'bg-slate-850/80 border-slate-800 text-slate-300';
+            const dynamicRank = member.role === 'runner'
+                ? (member.rank || '러너')
+                : (member.enlistmentDate
+                    ? calculateRank(new Date(member.enlistmentDate), member.earlyPromotion || 0, currentDate)
+                    : (member.rank || '대원'));
+
+            const currentMonthTotal = (stats.currentMonthWeekday || 0) + (stats.currentMonthFriSun || 0) + (stats.currentMonthSat || 0);
 
             return (
                 <div
@@ -77,13 +124,12 @@ export function DutySidebar({
                         }
                         setSelectedMember(isChosen ? null : member);
                     }}
-                    className={`w-full flex items-center justify-between p-3.5 rounded-2xl transition-all border text-left cursor-pointer group/member ${
-                        isCompleted
+                    className={`w-full flex items-center justify-between p-3.5 rounded-2xl transition-all border text-left cursor-pointer group/member ${isCompleted
                             ? 'bg-slate-950/20 border-slate-900/40 text-slate-550 opacity-60 hover:bg-slate-900/30'
-                            : isChosen 
-                                ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-500/15 scale-[1.02]' 
+                            : isChosen
+                                ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-500/15 scale-[1.02]'
                                 : 'bg-slate-900/40 border-slate-850 text-slate-350 hover:bg-slate-800/60 hover:border-slate-800'
-                    }`}
+                        }`}
                 >
                     <div className="flex flex-col gap-0.5 min-w-0 flex-1 pr-2">
                         <div className="flex items-center gap-1.5 min-w-0">
@@ -97,43 +143,53 @@ export function DutySidebar({
                             )}
                         </div>
                         <span className={`text-[10px] font-bold truncate ${isChosen ? 'text-indigo-200' : 'text-slate-500'}`}>
-                            {member.rank}
+                            {dynamicRank}
                         </span>
                     </div>
                     <div className="flex items-center gap-2.5 shrink-0">
                         <button
                             onClick={(e) => toggleMemberDutyCompleted(e, member.id, member.name, isCompleted)}
-                            className={`p-1.5 rounded-lg transition-all border ${
-                                isCompleted
+                            className={`p-1.5 rounded-lg transition-all border ${isCompleted
                                     ? 'bg-emerald-950/65 hover:bg-emerald-900 border-emerald-500/40 text-emerald-300'
-                                    : isChosen 
-                                        ? 'hover:bg-indigo-750 text-indigo-200 hover:text-white border-transparent' 
+                                    : isChosen
+                                        ? 'hover:bg-indigo-750 text-indigo-200 hover:text-white border-transparent'
                                         : 'hover:bg-slate-800 text-slate-550 hover:text-slate-200 border-transparent hover:border-slate-700'
-                            } ${isCompleted ? 'opacity-100' : 'opacity-0 group-hover/member:opacity-100'}`}
+                                } ${isCompleted ? 'opacity-100' : 'opacity-0 group-hover/member:opacity-100'}`}
                             title={isCompleted ? "당직 완료 상태 해제" : "당직 완료 대원으로 설정"}
                         >
                             <Check className="w-3.5 h-3.5" />
                         </button>
                         {member.role !== 'runner' && (
                             <div className="flex flex-col items-end gap-1.5 select-none min-w-0 pr-0.5">
-                                <div className={`px-2 py-0.5 rounded-xl text-[11px] font-black shrink-0 border ${
-                                    isCompleted
+                                <div className={`px-2 py-0.5 rounded-xl text-[11px] font-black shrink-0 border flex items-center gap-1 ${isCompleted
                                         ? 'bg-slate-950/60 border-slate-900 text-slate-550'
-                                        : isChosen 
-                                            ? 'bg-indigo-750 border-indigo-500 text-indigo-100' 
+                                        : isChosen
+                                            ? 'bg-indigo-750 border-indigo-500 text-indigo-100'
                                             : countBadgeColor
-                                }`}>
-                                    당직 {count}회
+                                    }`}>
+                                    <span>당직 {count}회</span>
+                                    {currentMonthTotal > 0 && (
+                                        <span className="text-emerald-400 font-extrabold text-[10.5px]">+{currentMonthTotal}</span>
+                                    )}
                                 </div>
                                 <div className="flex items-center gap-2 text-[10px] font-black tracking-tight shrink-0">
                                     <span className={isCompleted ? 'text-slate-650' : stats.weekday >= criteriaWeekday ? 'text-emerald-400 font-bold' : 'text-amber-400'}>
                                         평 {stats.weekday}
+                                        {stats.currentMonthWeekday > 0 && (
+                                            <span className="text-emerald-400 font-extrabold ml-0.5">+{stats.currentMonthWeekday}</span>
+                                        )}
                                     </span>
                                     <span className={isCompleted ? 'text-slate-650' : stats.friSun >= criteriaFriSun ? 'text-emerald-400 font-bold' : 'text-sky-400'}>
                                         금일 {stats.friSun}
+                                        {stats.currentMonthFriSun > 0 && (
+                                            <span className="text-emerald-400 font-extrabold ml-0.5">+{stats.currentMonthFriSun}</span>
+                                        )}
                                     </span>
                                     <span className={isCompleted ? 'text-slate-650' : stats.sat >= criteriaSat ? 'text-emerald-400 font-bold' : 'text-rose-400'}>
                                         토 {stats.sat}
+                                        {stats.currentMonthSat > 0 && (
+                                            <span className="text-emerald-400 font-extrabold ml-0.5">+{stats.currentMonthSat}</span>
+                                        )}
                                     </span>
                                 </div>
                             </div>
@@ -168,7 +224,7 @@ export function DutySidebar({
                             {/* Collapsible Completed Members */}
                             {completedMembers.length > 0 && (
                                 <div className="space-y-2.5 pt-2">
-                                    <button 
+                                    <button
                                         onClick={() => setShowCompleted(!showCompleted)}
                                         className="w-full py-2.5 bg-emerald-950/30 hover:bg-emerald-950/50 border border-emerald-900/40 rounded-2xl flex items-center justify-center gap-2 text-xs font-black text-emerald-400 transition-all active:scale-[0.99] cursor-pointer shadow-md"
                                     >
@@ -203,20 +259,20 @@ export function DutySidebar({
                                         당직 휴일 추가 / 관리
                                     </h3>
                                 </div>
-                                <button 
+                                <button
                                     onClick={() => setIsHolidayModalOpen(false)}
                                     className="text-slate-500 hover:text-slate-350 text-xs font-black transition-colors px-2 py-1 hover:bg-slate-800 rounded-lg cursor-pointer"
                                 >
                                     닫기
                                 </button>
                             </div>
-                            
+
                             <div className="space-y-4">
                                 <div className="space-y-2">
                                     <label className="text-xs font-black text-slate-400 tracking-wider block">🎉 새 휴일 등록</label>
                                     <div className="flex flex-col gap-2.5">
-                                        <input 
-                                            type="text" 
+                                        <input
+                                            type="text"
                                             placeholder="휴일명 (예: 추석 연휴)"
                                             id="duty-holiday-name-modal"
                                             className="w-full py-2.5 px-3 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500"
@@ -224,16 +280,16 @@ export function DutySidebar({
                                         <div className="flex gap-2 w-full">
                                             <div className="flex-1 min-w-0">
                                                 <span className="text-[10px] font-black text-slate-500 block mb-1">시작일</span>
-                                                <input 
-                                                    type="date" 
+                                                <input
+                                                    type="date"
                                                     id="duty-holiday-start-modal"
                                                     className="w-full py-2 px-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold text-slate-100 focus:outline-none focus:border-indigo-500"
                                                 />
                                             </div>
                                             <div className="flex-1 min-w-0">
                                                 <span className="text-[10px] font-black text-slate-500 block mb-1">종료일</span>
-                                                <input 
-                                                    type="date" 
+                                                <input
+                                                    type="date"
                                                     id="duty-holiday-end-modal"
                                                     className="w-full py-2 px-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold text-slate-100 focus:outline-none focus:border-indigo-500"
                                                 />
@@ -244,11 +300,11 @@ export function DutySidebar({
                                                 const nameInput = document.getElementById('duty-holiday-name-modal') as HTMLInputElement;
                                                 const startInput = document.getElementById('duty-holiday-start-modal') as HTMLInputElement;
                                                 const endInput = document.getElementById('duty-holiday-end-modal') as HTMLInputElement;
-                                                
+
                                                 const name = nameInput.value.trim();
                                                 const start = startInput.value;
                                                 const end = endInput.value;
-                                                
+
                                                 if (!name || !start || !end) {
                                                     showToast("휴일 이름과 기간을 빠짐없이 입력해주세요.", "error");
                                                     return;
@@ -257,7 +313,7 @@ export function DutySidebar({
                                                     showToast("종료일은 시작일보다 빠를 수 없습니다.", "error");
                                                     return;
                                                 }
-                                                
+
                                                 await handleAddDutyHoliday(name, start, end);
                                                 nameInput.value = '';
                                                 startInput.value = '';
@@ -272,7 +328,7 @@ export function DutySidebar({
 
                                 <div className="space-y-2 pt-2 border-t border-slate-800/60">
                                     <label className="text-xs font-black text-slate-400 tracking-wider block">📋 등록된 당직 휴일 목록 ({dutyHolidays.length})</label>
-                                    
+
                                     {dutyHolidays.length === 0 ? (
                                         <p className="text-[11px] text-slate-600 text-center py-6 font-bold">등록된 전용 휴일이 없습니다.</p>
                                     ) : (
@@ -306,17 +362,13 @@ export function DutySidebar({
                             <span className="text-xs font-black text-indigo-300">브러시 활성화 중</span>
                             <span className="text-[11px] font-extrabold text-slate-400">{selectedMember.rank} {selectedMember.name}</span>
                         </div>
-                        <button
-                            onClick={() => setSelectedMember(null)}
-                            className="px-3 py-1.5 bg-slate-850 hover:bg-slate-800 text-slate-300 rounded-xl text-[10px] font-black transition-all"
-                        >
-                            선택 해제
-                        </button>
                     </div>
                 )}
             </aside>
         );
     }
+
+    const availableSections = ['KTA', 'MEDIC', 'BLC', 'S1', 'S3', 'S4', 'S6', 'RSO', 'PAO', 'SK'];
 
     if (viewMode === 'kta-template') {
         return (
@@ -329,62 +381,69 @@ export function DutySidebar({
                         </div>
 
                         <div className="space-y-3.5">
-                            <label className="text-xs font-black text-slate-400 tracking-wider block">🚫 당직 불가 배정 브러시</label>
+                            <div className="flex items-center justify-between">
+                                <label className="text-xs font-black text-slate-400 tracking-wider block">🚫 당직 불가 배정 브러시</label>
+                                <button
+                                    onClick={() => setShowKtaBrushEditor(!showKtaBrushEditor)}
+                                    className="text-[10px] font-black px-2.5 py-1 bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-350 hover:text-slate-200 rounded-lg cursor-pointer transition-colors"
+                                >
+                                    ⚙️ 브러시 편집
+                                </button>
+                            </div>
+
+                            {showKtaBrushEditor && (
+                                <div className="p-3 bg-slate-950/80 border border-slate-850 rounded-2xl space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                                    <span className="text-[10px] font-black text-slate-500 block mb-1">💡 브러시로 추가할 섹션 선택 (KTA)</span>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {availableSections.map(sec => {
+                                            const isChecked = ktaSections.includes(sec);
+                                            return (
+                                                <button
+                                                    key={sec}
+                                                    type="button"
+                                                    onClick={() => handleToggleSectionMapping('kta', sec)}
+                                                    className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all border ${
+                                                        isChecked
+                                                            ? 'bg-rose-950/60 border-rose-500/50 text-rose-300'
+                                                            : 'bg-slate-900 border-slate-800 text-slate-500 hover:bg-slate-850'
+                                                    }`}
+                                                >
+                                                    {sec}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="flex flex-col gap-2.5">
-                                <button
-                                    onClick={() => setRestrictionBrush(prev => prev === 'kta' ? null : 'kta')}
-                                    className={`w-full py-3.5 px-4 border rounded-2xl text-xs font-black transition-all flex items-center justify-between shadow-md active:scale-[0.98] ${
-                                        restrictionBrush === 'kta' 
-                                            ? 'bg-rose-900/50 border-rose-500 text-rose-200 ring-2 ring-rose-500/50 shadow-rose-950/40' 
-                                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                                    }`}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <span className="w-2.5 h-2.5 rounded-full bg-rose-550 border border-rose-400 animate-pulse" />
-                                        <span>🚫 KTA 불가</span>
-                                    </div>
-                                    {restrictionBrush === 'kta' ? (
-                                        <span className="text-[9px] px-2 py-0.5 rounded bg-rose-500 text-white font-black animate-bounce">활성 중</span>
-                                    ) : (
-                                        <span className="text-[9px] text-slate-600">OFF</span>
-                                    )}
-                                </button>
-                                <button
-                                    onClick={() => setRestrictionBrush(prev => prev === 'medic' ? null : 'medic')}
-                                    className={`w-full py-3.5 px-4 border rounded-2xl text-xs font-black transition-all flex items-center justify-between shadow-md active:scale-[0.98] ${
-                                        restrictionBrush === 'medic' 
-                                            ? 'bg-amber-900/50 border-amber-500 text-amber-200 ring-2 ring-amber-500/50 shadow-amber-950/40' 
-                                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                                    }`}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <span className="w-2.5 h-2.5 rounded-full bg-amber-550 border border-amber-400 animate-pulse" />
-                                        <span>🚫 MEDIC 불가</span>
-                                    </div>
-                                    {restrictionBrush === 'medic' ? (
-                                        <span className="text-[9px] px-2 py-0.5 rounded bg-amber-500 text-white font-black animate-bounce">활성 중</span>
-                                    ) : (
-                                        <span className="text-[9px] text-slate-600">OFF</span>
-                                    )}
-                                </button>
-                                <button
-                                    onClick={() => setRestrictionBrush(prev => prev === 'pao' ? null : 'pao')}
-                                    className={`w-full py-3.5 px-4 border rounded-2xl text-xs font-black transition-all flex items-center justify-between shadow-md active:scale-[0.98] ${
-                                        restrictionBrush === 'pao' 
-                                            ? 'bg-purple-900/50 border-purple-500 text-purple-200 ring-2 ring-purple-500/50 shadow-purple-950/40' 
-                                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                                    }`}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <span className="w-2.5 h-2.5 rounded-full bg-purple-555 border border-purple-400 animate-pulse" />
-                                        <span>🚫 PAO 불가</span>
-                                    </div>
-                                    {restrictionBrush === 'pao' ? (
-                                        <span className="text-[9px] px-2 py-0.5 rounded bg-purple-500 text-white font-black animate-bounce">활성 중</span>
-                                    ) : (
-                                        <span className="text-[9px] text-slate-600">OFF</span>
-                                    )}
-                                </button>
+                                {ktaSections.map((sec) => {
+                                    const isActive = restrictionBrush === sec;
+                                    return (
+                                        <button
+                                            key={sec}
+                                            onClick={() => setRestrictionBrush(prev => prev === sec ? null : sec)}
+                                            className={`w-full py-3.5 px-4 border rounded-2xl text-xs font-black transition-all flex items-center justify-between shadow-md active:scale-[0.98] ${
+                                                isActive
+                                                    ? 'bg-rose-900/50 border-rose-500 text-rose-200 ring-2 ring-rose-500/50 shadow-rose-950/40'
+                                                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <span className="w-2.5 h-2.5 rounded-full bg-rose-550 border border-rose-400 animate-pulse" />
+                                                <span>🚫 {sec} 불가</span>
+                                            </div>
+                                            {isActive ? (
+                                                <span className="text-[9px] px-2 py-0.5 rounded bg-rose-500 text-white font-black animate-bounce">활성 중</span>
+                                            ) : (
+                                                <span className="text-[9px] text-slate-600">OFF</span>
+                                            )}
+                                        </button>
+                                    );
+                                })}
+                                {ktaSections.length === 0 && (
+                                    <p className="text-[11px] text-slate-600 italic text-center py-4">활성화된 섹션 브러시가 없습니다.<br />우측 상단 '브러시 편집'에서 섹션을 추가하세요.</p>
+                                )}
                             </div>
                         </div>
 
@@ -392,14 +451,14 @@ export function DutySidebar({
                             <h4 className="text-[11px] font-black text-rose-450 tracking-wider flex items-center gap-1">🏷️ Day 커스텀 배지 라벨 설정</h4>
                             <div className="flex flex-col gap-2 w-full">
                                 <div className="flex gap-1.5 w-full">
-                                    <input 
-                                        type="number" 
+                                    <input
+                                        type="number"
                                         placeholder="Day"
                                         id="kta-label-day"
                                         className="w-16 shrink-0 py-1.5 px-2 bg-slate-900 border border-slate-800 rounded-lg text-xs text-center font-bold text-slate-100 placeholder-slate-600 focus:outline-none focus:border-rose-500"
                                     />
-                                    <input 
-                                        type="text" 
+                                    <input
+                                        type="text"
                                         placeholder="예: 면담선발"
                                         id="kta-label-text"
                                         className="flex-1 min-w-0 py-1.5 px-2.5 bg-slate-900 border border-slate-800 rounded-lg text-xs font-bold text-slate-100 placeholder-slate-600 focus:outline-none focus:border-rose-500"
@@ -425,12 +484,12 @@ export function DutySidebar({
                                     추가
                                 </button>
                             </div>
-                            
+
                             {Object.keys(ktaDayLabels).length > 0 && (
                                 <div className="space-y-1.5 max-h-[500px] overflow-y-auto custom-scrollbar pt-2 border-t border-slate-800/40">
                                     {Object.entries(ktaDayLabels).map(([d, label]) => (
                                         <div key={d} className="flex items-center justify-between bg-slate-950/60 py-1 px-2 rounded-lg border border-slate-900">
-                                            <span className="text-[10px] font-black text-slate-350 truncate pr-1">Day {d}: <span className="text-rose-400 font-bold">{label}</span></span>
+                                            <span className="text-[10px] font-black text-slate-350 truncate pr-1">Day {d}: <span className="text-rose-450 font-bold">{label}</span></span>
                                             <button
                                                 onClick={() => {
                                                     const next = { ...ktaDayLabels };
@@ -473,62 +532,69 @@ export function DutySidebar({
                         </div>
 
                         <div className="space-y-3.5">
-                            <label className="text-xs font-black text-slate-400 tracking-wider block">🚫 당직 불가 배정 브러시</label>
+                            <div className="flex items-center justify-between">
+                                <label className="text-xs font-black text-slate-400 tracking-wider block">🚫 당직 불가 배정 브러시</label>
+                                <button
+                                    onClick={() => setShowBlcBrushEditor(!showBlcBrushEditor)}
+                                    className="text-[10px] font-black px-2.5 py-1 bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-350 hover:text-slate-200 rounded-lg cursor-pointer transition-colors"
+                                >
+                                    ⚙️ 브러시 편집
+                                </button>
+                            </div>
+
+                            {showBlcBrushEditor && (
+                                <div className="p-3 bg-slate-950/80 border border-slate-850 rounded-2xl space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                                    <span className="text-[10px] font-black text-slate-500 block mb-1">💡 브러시로 추가할 섹션 선택 (BLC)</span>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {availableSections.map(sec => {
+                                            const isChecked = blcSections.includes(sec);
+                                            return (
+                                                <button
+                                                    key={sec}
+                                                    type="button"
+                                                    onClick={() => handleToggleSectionMapping('blc', sec)}
+                                                    className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all border ${
+                                                        isChecked
+                                                            ? 'bg-blue-950/60 border-blue-500/50 text-blue-300'
+                                                            : 'bg-slate-900 border-slate-800 text-slate-500 hover:bg-slate-850'
+                                                    }`}
+                                                >
+                                                    {sec}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="flex flex-col gap-2.5">
-                                <button
-                                    onClick={() => setRestrictionBrush(prev => prev === 'blc' ? null : 'blc')}
-                                    className={`w-full py-3.5 px-4 border rounded-2xl text-xs font-black transition-all flex items-center justify-between shadow-md active:scale-[0.98] ${
-                                        restrictionBrush === 'blc' 
-                                            ? 'bg-blue-900/50 border-blue-500 text-blue-200 ring-2 ring-blue-500/50 shadow-blue-950/40' 
-                                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                                    }`}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <span className="w-2.5 h-2.5 rounded-full bg-blue-550 border border-blue-400 animate-pulse" />
-                                        <span>🚫 BLC 불가</span>
-                                    </div>
-                                    {restrictionBrush === 'blc' ? (
-                                        <span className="text-[9px] px-2 py-0.5 rounded bg-blue-500 text-white font-black animate-bounce">활성 중</span>
-                                    ) : (
-                                        <span className="text-[9px] text-slate-600">OFF</span>
-                                    )}
-                                </button>
-                                <button
-                                    onClick={() => setRestrictionBrush(prev => prev === 's3' ? null : 's3')}
-                                    className={`w-full py-3.5 px-4 border rounded-2xl text-xs font-black transition-all flex items-center justify-between shadow-md active:scale-[0.98] ${
-                                        restrictionBrush === 's3' 
-                                            ? 'bg-indigo-900/50 border-indigo-500 text-indigo-200 ring-2 ring-indigo-500/50 shadow-indigo-950/40' 
-                                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                                    }`}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <span className="w-2.5 h-2.5 rounded-full bg-indigo-550 border border-indigo-400 animate-pulse" />
-                                        <span>🚫 S3 불가</span>
-                                    </div>
-                                    {restrictionBrush === 's3' ? (
-                                        <span className="text-[9px] px-2 py-0.5 rounded bg-indigo-500 text-white font-black animate-bounce">활성 중</span>
-                                    ) : (
-                                        <span className="text-[9px] text-slate-600">OFF</span>
-                                    )}
-                                </button>
-                                <button
-                                    onClick={() => setRestrictionBrush(prev => prev === 'pao' ? null : 'pao')}
-                                    className={`w-full py-3.5 px-4 border rounded-2xl text-xs font-black transition-all flex items-center justify-between shadow-md active:scale-[0.98] ${
-                                        restrictionBrush === 'pao' 
-                                            ? 'bg-purple-900/50 border-purple-500 text-purple-200 ring-2 ring-purple-500/50 shadow-purple-950/40' 
-                                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                                    }`}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <span className="w-2.5 h-2.5 rounded-full bg-purple-555 border border-purple-400 animate-pulse" />
-                                        <span>🚫 PAO 불가</span>
-                                    </div>
-                                    {restrictionBrush === 'pao' ? (
-                                        <span className="text-[9px] px-2 py-0.5 rounded bg-purple-500 text-white font-black animate-bounce">활성 중</span>
-                                    ) : (
-                                        <span className="text-[9px] text-slate-600">OFF</span>
-                                    )}
-                                </button>
+                                {blcSections.map((sec) => {
+                                    const isActive = restrictionBrush === sec;
+                                    return (
+                                        <button
+                                            key={sec}
+                                            onClick={() => setRestrictionBrush(prev => prev === sec ? null : sec)}
+                                            className={`w-full py-3.5 px-4 border rounded-2xl text-xs font-black transition-all flex items-center justify-between shadow-md active:scale-[0.98] ${
+                                                isActive
+                                                    ? 'bg-blue-900/50 border-blue-500 text-blue-200 ring-2 ring-blue-500/50 shadow-blue-950/40'
+                                                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <span className="w-2.5 h-2.5 rounded-full bg-blue-550 border border-blue-400 animate-pulse" />
+                                                <span>🚫 {sec} 불가</span>
+                                            </div>
+                                            {isActive ? (
+                                                <span className="text-[9px] px-2 py-0.5 rounded bg-blue-500 text-white font-black animate-bounce">활성 중</span>
+                                            ) : (
+                                                <span className="text-[9px] text-slate-600">OFF</span>
+                                            )}
+                                        </button>
+                                    );
+                                })}
+                                {blcSections.length === 0 && (
+                                    <p className="text-[11px] text-slate-600 italic text-center py-4">활성화된 섹션 브러시가 없습니다.<br />우측 상단 '브러시 편집'에서 섹션을 추가하세요.</p>
+                                )}
                             </div>
                         </div>
 
@@ -536,14 +602,14 @@ export function DutySidebar({
                             <h4 className="text-[11px] font-black text-blue-400 tracking-wider flex items-center gap-1">🏷️ Day 커스텀 배지 라벨 설정</h4>
                             <div className="flex flex-col gap-2 w-full">
                                 <div className="flex gap-1.5 w-full">
-                                    <input 
-                                        type="number" 
+                                    <input
+                                        type="number"
                                         placeholder="Day"
                                         id="blc-label-day"
                                         className="w-16 shrink-0 py-1.5 px-2 bg-slate-900 border border-slate-800 rounded-lg text-xs text-center font-bold text-slate-100 placeholder-slate-600 focus:outline-none focus:border-blue-500"
                                     />
-                                    <input 
-                                        type="text" 
+                                    <input
+                                        type="text"
                                         placeholder="예: 포데이"
                                         id="blc-label-text"
                                         className="flex-1 min-w-0 py-1.5 px-2.5 bg-slate-900 border border-slate-800 rounded-lg text-xs font-bold text-slate-100 placeholder-slate-600 focus:outline-none focus:border-blue-500"
@@ -569,7 +635,7 @@ export function DutySidebar({
                                     추가
                                 </button>
                             </div>
-                            
+
                             {Object.keys(blcDayLabels).length > 0 && (
                                 <div className="space-y-1.5 max-h-[500px] overflow-y-auto custom-scrollbar pt-2 border-t border-slate-800/40">
                                     {Object.entries(blcDayLabels).map(([d, label]) => (
@@ -608,3 +674,4 @@ export function DutySidebar({
 
     return null;
 }
+

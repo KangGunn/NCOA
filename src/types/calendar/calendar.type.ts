@@ -20,6 +20,7 @@ export interface CalendarMember {
     baselineWeekday?: number;
     baselineFriSun?: number;
     baselineSat?: number;
+    earlyPromotion?: number;
 }
 
 export interface ScheduleTemplateDay {

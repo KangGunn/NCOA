@@ -9,6 +9,7 @@ interface DutyCalendarGridProps {
     personalRestrictions: Record<string, string[]>;
     ktaDayLabels: Record<number, string>;
     blcDayLabels: Record<number, string>;
+    monthlyDayLabels?: Record<string, string>;
     getHolidayForDate: (dateStr: string) => any;
     getKtaBlcEventsForDate: (dateStr: string) => CalendarEvent[];
     getDutyForDate: (dateStr: string) => CalendarEvent | undefined;
@@ -21,7 +22,7 @@ interface DutyCalendarGridProps {
 
 export function DutyCalendarGrid({
     calendarDays, members, events,
-    personalRestrictions, ktaDayLabels, blcDayLabels,
+    personalRestrictions, ktaDayLabels, blcDayLabels, monthlyDayLabels,
     getHolidayForDate, getKtaBlcEventsForDate, getDutyForDate,
     isMemberEligibleForDuty, handleCellClick, handleClearDate, togglePersonalRestriction,
     dutyHolidays
@@ -101,10 +102,16 @@ export function DutyCalendarGrid({
                         let current = new Date(start);
                         while (current < target) {
                             current.setDate(current.getDate() + 1);
-                            const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
-                            const isSunday = current.getDay() === 0;
-                            const isHoliday = events.some((e: CalendarEvent) => e.type === 'holiday' && currentStr >= e.startDate && currentStr <= e.endDate);
-                            if (!isSunday && !isHoliday) dayCount++;
+                            if (dayCount < 22) {
+                                const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
+                                const isSunday = current.getDay() === 0;
+                                const isHoliday = events.some((e: CalendarEvent) => e.type === 'holiday' && currentStr >= e.startDate && currentStr <= e.endDate);
+                                if (!isSunday && !isHoliday) {
+                                    dayCount++;
+                                }
+                            } else {
+                                dayCount++;
+                            }
                         }
                         return dayCount;
                     } else {
@@ -112,10 +119,16 @@ export function DutyCalendarGrid({
                         let current = new Date(start);
                         while (current > target) {
                             current.setDate(current.getDate() - 1);
-                            const nextStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
-                            const nextSunday = current.getDay() === 0;
-                            const isHoliday = events.some((e: CalendarEvent) => e.type === 'holiday' && nextStr >= e.startDate && nextStr <= e.endDate);
-                            if (!nextSunday && !isHoliday) dayCount--;
+                            if (dayCount <= 22) {
+                                const nextStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
+                                const nextSunday = current.getDay() === 0;
+                                const isHoliday = events.some((e: CalendarEvent) => e.type === 'holiday' && nextStr >= e.startDate && nextStr <= e.endDate);
+                                if (!nextSunday && !isHoliday) {
+                                    dayCount--;
+                                }
+                            } else {
+                                dayCount--;
+                            }
                         }
                         return dayCount;
                     }
@@ -154,83 +167,80 @@ export function DutyCalendarGrid({
                     <div 
                         key={cell.dateStr} 
                         onClick={() => handleCellClick(cell.dateStr)}
-                        className={`border-r border-b border-slate-850 p-2 flex flex-col justify-between select-none relative transition-all group overflow-hidden ${
+                        className={`border-r border-b border-slate-850 p-1.5 flex flex-col justify-between select-none relative transition-all group overflow-hidden ${
                             cell.isCurrentMonth 
                                 ? 'bg-slate-900/10 hover:bg-slate-800/40 cursor-crosshair' 
                                 : 'bg-slate-950/40 text-slate-700 pointer-events-none'
                         }`}
                     >
-                        <div className="flex justify-between items-start shrink-0">
-                            <span className={`text-[11px] font-black tracking-tight ${
-                                cell.isCurrentMonth
-                                    ? dutyType === 'sat'
-                                        ? 'text-rose-500 font-black' 
-                                        : dutyType === 'friSun'
-                                            ? 'text-sky-500 font-black' 
-                                            : 'text-slate-100 font-extrabold'
-                                    : 'text-slate-700'
-                             }`}>
-                                {cell.dayNumber}
-                            </span>
-                            <div className="flex flex-col items-end gap-1 max-w-[75%] min-w-0">
-                                {/* BLC / KTA Badges Row */}
-                                {(ktaBlcEvents.length > 0 || customKtaBadges.length > 0 || customBlcBadges.length > 0) && (
-                                    <div className="flex flex-wrap justify-end gap-1 w-full">
-                                        {cell.isCurrentMonth && ktaBlcEvents.map(e => {
-                                            const isBlc = e.type === 'blc';
-                                            const isGraduation = e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓');
-                                            let label = isGraduation ? 'Grad' : (e.memo?.match(/Day \d+/)?.[0] || '');
-                                            
-                                            const isDay0OrGrad = e.memo?.includes('Day 0') || isGraduation;
-                                            let batchSuffix = (isDay0OrGrad && e.batch) ? `(${e.batch})` : '';
-
-                                            if (!label) return null;
-
-                                            const badgeBg = isBlc
-                                                ? 'bg-indigo-950/80 text-indigo-400 border border-indigo-900/35' 
-                                                : 'bg-rose-950/80 text-rose-400 border border-rose-900/35';
-
-                                            return (
-                                                <span 
-                                                    key={e.id}
-                                                    className={`text-[8.5px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 whitespace-nowrap ${badgeBg}`}
-                                                    title={e.memo}
-                                                >
-                                                    {isBlc ? 'B' : 'K'}-{label}{batchSuffix}
-                                                </span>
-                                            );
-                                        })}
-                                        {customKtaBadges.map(b => (
-                                            <span 
-                                                key={b.id}
-                                                className="text-[8.5px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 whitespace-nowrap bg-rose-950/80 text-rose-400 border border-rose-900/35"
-                                            >
-                                                {b.label}
-                                            </span>
-                                        ))}
-                                        {customBlcBadges.map(b => (
-                                            <span 
-                                                key={b.id}
-                                                className="text-[8.5px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 whitespace-nowrap bg-indigo-950/80 text-indigo-400 border border-indigo-900/35"
-                                            >
-                                                {b.label}
-                                            </span>
-                                        ))}
-                                    </div>
-                                )}
-                                
-                                {/* Holiday Badge Row */}
-                                {holiday && cell.isCurrentMonth && (
-                                    <span className="text-[9px] font-black bg-rose-950 text-rose-400 border border-rose-900/50 rounded-lg px-1.5 py-0.5 tracking-tight shrink-0 whitespace-nowrap max-w-full truncate">
-                                        {holiday.memo}
+                        <div className="flex justify-between items-center shrink-0 w-full gap-1">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                                <span className={`text-[11px] font-black tracking-tight shrink-0 ${
+                                    cell.isCurrentMonth
+                                        ? dutyType === 'sat'
+                                            ? 'text-rose-500 font-black' 
+                                            : dutyType === 'friSun'
+                                                ? 'text-sky-500 font-black' 
+                                                : 'text-slate-100 font-extrabold'
+                                        : 'text-slate-700'
+                                 }`}>
+                                    {cell.dayNumber}
+                                </span>
+                                {/* Monthly Custom Day Label (Green Badge) immediately to the right of the date */}
+                                {monthlyDayLabels?.[cell.dateStr] && cell.isCurrentMonth && (
+                                    <span className="text-[8.5px] font-black bg-emerald-950 text-emerald-400 border border-emerald-900/50 rounded px-1.5 py-0.5 leading-none shrink-0 whitespace-nowrap truncate max-w-[120px]" title={monthlyDayLabels[cell.dateStr]}>
+                                        {monthlyDayLabels[cell.dateStr]}
                                     </span>
                                 )}
                             </div>
+                            <div className="flex items-center justify-end gap-1 min-w-0 overflow-hidden select-none">
+                                {/* BLC / KTA Badges */}
+                                {ktaBlcEvents.map(e => {
+                                    const isBlc = e.type === 'blc';
+                                    const isGraduation = e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓');
+                                    let label = isGraduation ? 'Grad' : (e.memo?.match(/Day \d+/)?.[0] || '');
+                                    
+                                    const isDay0OrGrad = e.memo?.includes('Day 0') || isGraduation;
+                                    let batchSuffix = (isDay0OrGrad && e.batch) ? `(${e.batch})` : '';
+
+                                    if (!label) return null;
+
+                                    const badgeBg = isBlc
+                                        ? 'bg-indigo-950/80 text-indigo-400 border border-indigo-900/35' 
+                                        : 'bg-rose-950/80 text-rose-400 border border-rose-900/35';
+
+                                    return (
+                                        <span 
+                                            key={e.id}
+                                            className={`text-[8.5px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 whitespace-nowrap ${badgeBg}`}
+                                            title={e.memo}
+                                        >
+                                            {isBlc ? 'B' : 'K'}-{label}{batchSuffix}
+                                        </span>
+                                    );
+                                })}
+                                {customKtaBadges.map(b => (
+                                    <span 
+                                        key={b.id}
+                                        className="text-[8.5px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 whitespace-nowrap bg-rose-950/80 text-rose-400 border border-rose-900/35"
+                                    >
+                                        {b.label}
+                                    </span>
+                                ))}
+                                {customBlcBadges.map(b => (
+                                    <span 
+                                        key={b.id}
+                                        className="text-[8.5px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 whitespace-nowrap bg-indigo-950/80 text-indigo-400 border border-indigo-900/35"
+                                    >
+                                        {b.label}
+                                    </span>
+                                ))}
+                            </div>
                         </div>
 
-                        <div className="flex-1 min-h-0 mt-2 pt-1.5 border-t border-slate-800/40 flex flex-col gap-1 w-full overflow-hidden">
+                        <div className="flex-1 min-h-0 mt-1 pt-1 border-t border-slate-800/40 flex flex-col gap-0.5 w-full overflow-hidden">
                             {duty ? (
-                                <div className="w-full flex items-center justify-between p-1.5 bg-slate-900 border border-slate-800 rounded-lg hover:border-slate-700 transition-all shadow-md shrink-0">
+                                <div className="w-full flex items-center justify-between p-1 bg-slate-900 border border-slate-800 rounded-lg hover:border-slate-700 transition-all shadow-md shrink-0">
                                     <div className="flex flex-col gap-0.5 min-w-0">
                                         <span className="text-[10px] font-black text-slate-200 truncate pr-1">
                                             {duty.memo}
@@ -249,7 +259,15 @@ export function DutyCalendarGrid({
                                 </div>
                             ) : (
                                 cell.isCurrentMonth && (
-                                    <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-wrap gap-1 content-start w-full pt-0.5">
+                                    <div 
+                                        className="flex-1 overflow-y-auto no-scrollbar flex flex-wrap gap-0.5 content-start w-full pt-0.5"
+                                        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                                    >
+                                        <style>{`
+                                            .no-scrollbar::-webkit-scrollbar {
+                                                display: none;
+                                            }
+                                        `}</style>
                                         {eligibleMembers.length === 0 ? (
                                             <span className="text-[8px] font-bold text-rose-500/70 py-0.5">🚫 가능 인원 없음</span>
                                         ) : (
@@ -267,7 +285,6 @@ export function DutyCalendarGrid({
                                                                 ? 'bg-red-950/20 border-red-900/30 text-red-450 line-through opacity-55 hover:bg-red-900/20'
                                                                 : 'bg-slate-900/60 border-slate-800/80 text-slate-350 hover:bg-indigo-650 hover:border-indigo-500 hover:text-white'
                                                         }`}
-                                                        title={`${member.rank} ${member.name} (클릭 시 당직 즉시 배정)`}
                                                     >
                                                         {member.name}
                                                     </button>

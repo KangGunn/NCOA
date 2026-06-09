@@ -18,7 +18,7 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
     });
 
     const [viewMode, setViewMode] = useState<'actual' | 'kta-template' | 'blc-template'>('actual');
-    const [restrictionBrush, setRestrictionBrush] = useState<'kta' | 'medic' | 'personal' | 'blc' | 's3' | 'pao' | null>(null);
+    const [restrictionBrush, setRestrictionBrush] = useState<string | null>(null);
     const [selectedMember, setSelectedMember] = useState<CalendarMember | null>(null);
     
     // 로컬 당직 샌드박스 상태
@@ -88,9 +88,17 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
     };
 
     // 각 대원별 누적 당직 근무 횟수 통계 (평당/금일당/토당 세분화)
-    const dutyStats = members.reduce((acc: Record<string, { total: number; weekday: number; friSun: number; sat: number }>, member: CalendarMember) => {
+    const dutyStats = members.reduce((acc: Record<string, { 
+        total: number; 
+        weekday: number; 
+        friSun: number; 
+        sat: number;
+        currentMonthWeekday?: number;
+        currentMonthFriSun?: number;
+        currentMonthSat?: number;
+    }>, member: CalendarMember) => {
         if (member.role === 'runner') {
-            acc[member.name] = { total: 0, weekday: 0, friSun: 0, sat: 0 };
+            acc[member.name] = { total: 0, weekday: 0, friSun: 0, sat: 0, currentMonthWeekday: 0, currentMonthFriSun: 0, currentMonthSat: 0 };
             return acc;
         }
 
@@ -102,6 +110,10 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
         let extraFriSun = 0;
         let extraSat = 0;
 
+        let currentMonthWeekday = 0;
+        let currentMonthFriSun = 0;
+        let currentMonthSat = 0;
+
         const targetMonth = currentDate.getMonth() + 1; // 1-indexed selected month in planner
         const memberDuties = duties.filter((d: CalendarEvent) => d.memo === member.name && d.startDate.startsWith('2026-'));
 
@@ -112,9 +124,16 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
 
             if (eventYear === 2026 && eventMonth >= 4 && eventMonth <= targetMonth) {
                 const dutyType = getDutyType(d.startDate);
-                if (dutyType === 'weekday') extraWeekday++;
-                else if (dutyType === 'friSun') extraFriSun++;
-                else if (dutyType === 'sat') extraSat++;
+                if (dutyType === 'weekday') {
+                    extraWeekday++;
+                    if (eventMonth === targetMonth) currentMonthWeekday++;
+                } else if (dutyType === 'friSun') {
+                    extraFriSun++;
+                    if (eventMonth === targetMonth) currentMonthFriSun++;
+                } else if (dutyType === 'sat') {
+                    extraSat++;
+                    if (eventMonth === targetMonth) currentMonthSat++;
+                }
             }
         });
 
@@ -127,10 +146,21 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
             total,
             weekday,
             friSun,
-            sat
+            sat,
+            currentMonthWeekday,
+            currentMonthFriSun,
+            currentMonthSat
         };
         return acc;
-    }, {} as Record<string, { total: number; weekday: number; friSun: number; sat: number }>);
+    }, {} as Record<string, { 
+        total: number; 
+        weekday: number; 
+        friSun: number; 
+        sat: number;
+        currentMonthWeekday?: number;
+        currentMonthFriSun?: number;
+        currentMonthSat?: number;
+    }>);
 
     // 개인 제한 토글
     const togglePersonalRestriction = async (dateStr: string, memberName: string) => {

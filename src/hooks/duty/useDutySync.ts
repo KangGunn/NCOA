@@ -17,7 +17,7 @@ export function useDutySync(showToast: (message: string, type?: 'success' | 'err
     const [ktaTemplate, setKtaTemplate] = useState<any>(null);
     const [blcTemplate, setBlcTemplate] = useState<any>(null);
     const [personalRestrictions, setPersonalRestrictions] = useState<Record<string, string[]>>({});
-    
+
     // Derived dutyHolidays from events
     const dutyHolidays = events
         .filter(e => e.type === 'holiday' && e.holidayType === 'duty')
@@ -27,17 +27,32 @@ export function useDutySync(showToast: (message: string, type?: 'success' | 'err
             startDate: e.startDate,
             endDate: e.endDate
         }));
-    
+
     // KTA Template 연관 상태
     const [extraBefore, setExtraBefore] = useState<number>(0);
     const [extraAfter, setExtraAfter] = useState<number>(0);
     const [ktaDayLabels, setKtaDayLabels] = useState<Record<number, string>>({});
-    const [restrictions, setRestrictions] = useState<Record<number, { kta: boolean; medic: boolean; pao: boolean }>>({});
-    
+    const [restrictions, setRestrictions] = useState<Record<number, Record<string, boolean>>>({});
+    const [ktaSections, setKtaSections] = useState<string[]>([]);
+
     // BLC Template 연관 상태
     const [blcDayLabels, setBlcDayLabels] = useState<Record<number, string>>({});
-    const [blcRestrictions, setBlcRestrictions] = useState<Record<number, { blc: boolean; s3: boolean; pao: boolean }>>({});
-    
+    const [blcRestrictions, setBlcRestrictions] = useState<Record<number, Record<string, boolean>>>({});
+    const [blcSections, setBlcSections] = useState<string[]>([]);
+
+    // 월간 날짜별 커스텀 레이블 상태
+    const [monthlyDayLabels, setMonthlyDayLabels] = useState<Record<string, string>>({});
+
+    // 브러시 적용 섹션 매핑 설정 상태
+    const [dutyBrushSections, setDutyBrushSections] = useState<Record<string, string>>({
+        kta: 'KTA',
+        medic: 'MEDIC',
+        paoKta: 'PAO',
+        blc: 'BLC',
+        s3: 'S3',
+        paoBlc: 'PAO'
+    });
+
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -61,7 +76,7 @@ export function useDutySync(showToast: (message: string, type?: 'success' | 'err
                 id: d.id,
                 ...d.data()
             })) as CalendarMember[];
-            
+
             // 1차 정렬: 당직 완료 여부 (완료된 사람은 맨 아래로)
             data.sort((a, b) => {
                 const compA = !!a.dutyCompleted;
@@ -69,11 +84,11 @@ export function useDutySync(showToast: (message: string, type?: 'success' | 'err
                 if (compA !== compB) {
                     return compA ? 1 : -1;
                 }
-                
+
                 // 2차 정렬: 러너는 기수정렬 아래로
                 if (a.role === 'runner' && b.role !== 'runner') return 1;
                 if (a.role !== 'runner' && b.role === 'runner') return -1;
-                
+
                 // 3차 정렬: 기수(입대일) 및 이름순
                 const dateA = typeof a.enlistmentDate === 'string' ? a.enlistmentDate.trim() : '';
                 const dateB = typeof b.enlistmentDate === 'string' ? b.enlistmentDate.trim() : '';
@@ -94,15 +109,29 @@ export function useDutySync(showToast: (message: string, type?: 'success' | 'err
                 if (typeof data.extraBefore === 'number') setExtraBefore(data.extraBefore);
                 if (typeof data.extraAfter === 'number') setExtraAfter(data.extraAfter);
                 if (data.dayLabels) setKtaDayLabels(data.dayLabels);
+                
+                if (Array.isArray(data.sections)) {
+                    setKtaSections(data.sections);
+                } else {
+                    setKtaSections(['KTA', 'MEDIC', 'PAO']);
+                }
 
                 if (Array.isArray(data.restrictions)) {
-                    const loadedRestrictions: Record<number, { kta: boolean; medic: boolean; pao: boolean }> = {};
+                    const loadedRestrictions: Record<number, Record<string, boolean>> = {};
                     data.restrictions.forEach((r: any) => {
-                        loadedRestrictions[r.day] = {
-                            kta: !!r.ktaRestricted,
-                            medic: !!r.medicRestricted,
-                            pao: !!r.paoRestricted
-                        };
+                        const dayRest: Record<string, boolean> = {};
+                        if (r.restMap) {
+                            Object.assign(dayRest, r.restMap);
+                        } else {
+                            // 하위 호환 (대소문자 둘 다 지원)
+                            dayRest['KTA'] = !!r.ktaRestricted;
+                            dayRest['kta'] = !!r.ktaRestricted;
+                            dayRest['MEDIC'] = !!r.medicRestricted;
+                            dayRest['medic'] = !!r.medicRestricted;
+                            dayRest['PAO'] = !!r.paoRestricted;
+                            dayRest['pao'] = !!r.paoRestricted;
+                        }
+                        loadedRestrictions[r.day] = dayRest;
                     });
                     setRestrictions(loadedRestrictions);
                 }
@@ -118,14 +147,28 @@ export function useDutySync(showToast: (message: string, type?: 'success' | 'err
                 setBlcTemplate(data);
                 if (data.dayLabels) setBlcDayLabels(data.dayLabels);
                 
+                if (Array.isArray(data.sections)) {
+                    setBlcSections(data.sections);
+                } else {
+                    setBlcSections(['BLC', 'S3', 'PAO']);
+                }
+
                 if (Array.isArray(data.restrictions)) {
-                    const loadedRestrictions: Record<number, { blc: boolean; s3: boolean; pao: boolean }> = {};
+                    const loadedRestrictions: Record<number, Record<string, boolean>> = {};
                     data.restrictions.forEach((r: any) => {
-                        loadedRestrictions[r.day] = {
-                            blc: !!r.blcRestricted,
-                            s3: !!r.s3Restricted,
-                            pao: !!r.paoRestricted
-                        };
+                        const dayRest: Record<string, boolean> = {};
+                        if (r.restMap) {
+                            Object.assign(dayRest, r.restMap);
+                        } else {
+                            // 하위 호환 (대소문자 둘 다 지원)
+                            dayRest['BLC'] = !!r.blcRestricted;
+                            dayRest['blc'] = !!r.blcRestricted;
+                            dayRest['S3'] = !!r.s3Restricted;
+                            dayRest['s3'] = !!r.s3Restricted;
+                            dayRest['PAO'] = !!r.paoRestricted;
+                            dayRest['pao'] = !!r.paoRestricted;
+                        }
+                        loadedRestrictions[r.day] = dayRest;
                     });
                     setBlcRestrictions(loadedRestrictions);
                 }
@@ -143,12 +186,37 @@ export function useDutySync(showToast: (message: string, type?: 'success' | 'err
             console.error("Personal restrictions fetch error:", error);
         });
 
+        // 월간 날짜 레이블 실시간 구독 추가
+        const unsubMonthlyDayLabels = onSnapshot(doc(db, 'settings', 'monthlyDayLabels'), (snapshot) => {
+            if (snapshot.exists()) {
+                setMonthlyDayLabels(snapshot.data() as Record<string, string>);
+            } else {
+                setMonthlyDayLabels({});
+            }
+        }, (error) => {
+            console.error("Monthly day labels fetch error:", error);
+        });
+
+        // 브러시 적용 섹션 설정 실시간 구독 추가
+        const unsubDutyBrushSections = onSnapshot(doc(db, 'settings', 'dutyBrushSections'), (snapshot) => {
+            if (snapshot.exists()) {
+                setDutyBrushSections(prev => ({
+                    ...prev,
+                    ...snapshot.data()
+                }));
+            }
+        }, (error) => {
+            console.error("Duty brush sections fetch error:", error);
+        });
+
         return () => {
             unsubSchedules();
             unsubMembers();
             unsubKtaTemplate();
             unsubBlcTemplate();
             unsubPersonalRestrictions();
+            unsubMonthlyDayLabels();
+            unsubDutyBrushSections();
         };
     }, [showToast]);
 
@@ -186,6 +254,9 @@ export function useDutySync(showToast: (message: string, type?: 'success' | 'err
         extraBefore, setExtraBefore, extraAfter, setExtraAfter,
         ktaDayLabels, setKtaDayLabels, restrictions, setRestrictions,
         blcDayLabels, setBlcDayLabels, blcRestrictions, setBlcRestrictions,
-        dutyHolidays, handleAddDutyHoliday, handleDeleteDutyHoliday
+        monthlyDayLabels, setMonthlyDayLabels,
+        dutyBrushSections, setDutyBrushSections,
+        dutyHolidays, handleAddDutyHoliday, handleDeleteDutyHoliday,
+        ktaSections, setKtaSections, blcSections, setBlcSections
     };
 }
