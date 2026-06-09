@@ -154,7 +154,6 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
     };
 
     const getDutyForDate = (dateStr: string) => duties.find((d: CalendarEvent) => d.startDate === dateStr);
-    const getHolidayForDate = (dateStr: string) => dutyHolidays.find((h: any) => dateStr >= h.startDate && dateStr <= h.endDate);
     const isHolidayDate = (dateStr: string) => events.some((e: CalendarEvent) => e.type === 'holiday' && dateStr >= e.startDate && dateStr <= e.endDate);
 
     const parseLocalDate = (dateStr: string) => {
@@ -393,7 +392,6 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                         ktaDayLabels={ktaDayLabels}
                         blcDayLabels={blcDayLabels}
                         monthlyDayLabels={monthlyDayLabels}
-                        getHolidayForDate={getHolidayForDate}
                         getKtaBlcEventsForDate={getKtaBlcEventsForDate}
                         getDutyForDate={getDutyForDate}
                         isMemberEligibleForDuty={isMemberEligibleForDuty}

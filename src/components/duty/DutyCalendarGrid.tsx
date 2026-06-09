@@ -10,7 +10,7 @@ interface DutyCalendarGridProps {
     ktaDayLabels: Record<number, string>;
     blcDayLabels: Record<number, string>;
     monthlyDayLabels?: Record<string, string>;
-    getHolidayForDate: (dateStr: string) => any;
+
     getKtaBlcEventsForDate: (dateStr: string) => CalendarEvent[];
     getDutyForDate: (dateStr: string) => CalendarEvent | undefined;
     isMemberEligibleForDuty: (member: CalendarMember, dateStr: string) => boolean;
@@ -23,7 +23,7 @@ interface DutyCalendarGridProps {
 export function DutyCalendarGrid({
     calendarDays, members, events,
     personalRestrictions, ktaDayLabels, blcDayLabels, monthlyDayLabels,
-    getHolidayForDate, getKtaBlcEventsForDate, getDutyForDate,
+    getKtaBlcEventsForDate, getDutyForDate,
     isMemberEligibleForDuty, handleCellClick, handleClearDate, togglePersonalRestriction,
     dutyHolidays
 }: DutyCalendarGridProps) {
@@ -74,7 +74,6 @@ export function DutyCalendarGrid({
         <div className="flex-1 min-h-0 grid grid-cols-7 bg-slate-950/20 w-full h-full relative auto-rows-fr">
             {calendarDays.map((cell) => {
                 const duty = getDutyForDate(cell.dateStr);
-                const holiday = getHolidayForDate(cell.dateStr);
                 const ktaBlcEvents = getKtaBlcEventsForDate(cell.dateStr);
                 const dutyType = getDutyType(cell.dateStr);
                 
