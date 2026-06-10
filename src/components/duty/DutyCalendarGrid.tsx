@@ -282,7 +282,7 @@ export function DutyCalendarGrid({
                                                 if (isDisabled) {
                                                     if (reason === '개인 사정 불가') {
                                                         btnClassName = "bg-red-950/20 border-red-900/30 text-red-450 line-through opacity-55 hover:bg-red-900/20 cursor-not-allowed";
-                                                    } else if (reason === '3일 내 당직 근무' || reason === '동일 섹션 근무') {
+                                                    } else if (reason === '개인: 앞뒤 이틀 내 당직 있음' || reason === '같은 섹션: 연달아 당직 불가') {
                                                         btnClassName = "bg-amber-950/20 border-amber-900/30 text-amber-500 line-through opacity-55 cursor-not-allowed";
                                                     } else {
                                                         btnClassName = "bg-slate-900/20 border-slate-850 text-slate-600 line-through opacity-50 cursor-not-allowed";
