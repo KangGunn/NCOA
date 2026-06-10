@@ -24,12 +24,12 @@ export function DutyHeader({
                 {viewMode === 'kta-template' ? (
                     <span className="text-sm font-black tracking-widest px-2 text-rose-400 flex items-center gap-2.5">
                         <CalendarIcon className="w-5 h-5 text-rose-450" />
-                        KTA 표준 일정 및 당직 제한 템플릿 편집 모드
+                        KTA 일정 및 당직 제한 템플릿 편집 모드
                     </span>
                 ) : viewMode === 'blc-template' ? (
                     <span className="text-sm font-black tracking-widest px-2 text-blue-400 flex items-center gap-2.5">
                         <CalendarIcon className="w-5 h-5 text-blue-450" />
-                        BLC 표준 일정 템플릿 편집 모드
+                        BLC 일정 템플릿 편집 모드
                     </span>
                 ) : (
                     <div className="flex items-center gap-3.5 bg-slate-900 border border-slate-850 p-1.5 rounded-2xl">
@@ -56,11 +56,10 @@ export function DutyHeader({
                     <div className="flex items-center gap-2 animate-in fade-in duration-200">
                         <button
                             onClick={onOpenInfoModal}
-                            className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 border border-slate-850 hover:bg-slate-800 text-slate-350 hover:text-slate-200 rounded-2xl text-xs font-black transition-all shadow-md active:scale-95 cursor-pointer"
-                            title="당직 작성 규칙 정보 확인"
+                            className="flex items-center justify-center w-10 h-10 bg-slate-900 border border-slate-850 hover:bg-slate-800 text-slate-350 hover:text-slate-200 rounded-2xl transition-all shadow-md active:scale-95 cursor-pointer shrink-0"
+                            title="자동 적용 규칙 안내"
                         >
                             <Info className="w-4 h-4 text-indigo-400 animate-pulse" />
-                            <span>자동 적용 규칙 안내</span>
                         </button>
                     </div>
                 )}
@@ -102,7 +101,7 @@ export function DutyHeader({
                         }`}
                 >
                     <CalendarIcon className="w-3.5 h-3.5" />
-                    KTA 표준 일정 편집
+                    KTA 일정 편집
                 </button>
 
                 <button
@@ -115,7 +114,7 @@ export function DutyHeader({
                         }`}
                 >
                     <CalendarIcon className="w-3.5 h-3.5" />
-                    BLC 표준 일정 편집
+                    BLC 일정 편집
                 </button>
 
                 <button

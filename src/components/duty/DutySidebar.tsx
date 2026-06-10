@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Users, RefreshCw, Check, Info, Calendar, ChevronDown } from 'lucide-react';
+import { RefreshCw, Check, Info, Calendar, ChevronDown } from 'lucide-react';
 import type { CalendarMember } from '../../types/calendar/calendar.type';
 import { calculateRank } from '../../lib/rankUtils';
 
@@ -16,8 +16,6 @@ interface DutySidebarProps {
         currentMonthFriSun?: number;
         currentMonthSat?: number;
     }>;
-    selectedMember: CalendarMember | null;
-    setSelectedMember: (member: CalendarMember | null) => void;
     toggleMemberDutyCompleted: (e: React.MouseEvent, id: string, name: string, status: boolean) => void;
     restrictionBrush: string | null;
     setRestrictionBrush: React.Dispatch<React.SetStateAction<string | null>>;
@@ -39,7 +37,7 @@ interface DutySidebarProps {
 
 export function DutySidebar({
     viewMode, loading, members, dutyStats,
-    selectedMember, setSelectedMember, toggleMemberDutyCompleted,
+    toggleMemberDutyCompleted,
     restrictionBrush, setRestrictionBrush,
     ktaDayLabels, setKtaDayLabels,
     blcDayLabels, setBlcDayLabels,
@@ -72,14 +70,13 @@ export function DutySidebar({
         const filteredMembers = members.filter(m => !m.joinDate || lastDayStr >= m.joinDate);
 
         const classified = filteredMembers.map((member: CalendarMember) => {
-            const isChosen = selectedMember?.id === member.id;
             const stats = dutyStats[member.name] || { total: 0, weekday: 0, friSun: 0, sat: 0, currentMonthWeekday: 0, currentMonthFriSun: 0, currentMonthSat: 0 };
             const count = stats.total;
 
             const isSK = member.sections?.includes('SK') || false;
             const isCompleted = member.role !== 'runner' && (isSK || !!member.dutyCompleted || (stats.weekday >= criteriaWeekday && stats.friSun >= criteriaFriSun && stats.sat >= criteriaSat));
 
-            return { member, isChosen, stats, count, isCompleted };
+            return { member, stats, count, isCompleted };
         });
 
         const sortMembers = (arr: typeof classified) => {
@@ -108,7 +105,7 @@ export function DutySidebar({
         const activeMembers = sortMembers(classified.filter(c => !c.isCompleted));
         const completedMembers = sortMembers(classified.filter(c => c.isCompleted));
 
-        const renderMemberCard = ({ member, isChosen, stats, count, isCompleted }: any) => {
+        const renderMemberCard = ({ member, stats, count, isCompleted }: any) => {
             const countBadgeColor = 'bg-slate-850/80 border-slate-800 text-slate-300';
             const dynamicRank = member.role === 'runner'
                 ? (member.rank || '러너')
@@ -121,18 +118,9 @@ export function DutySidebar({
             return (
                 <div
                     key={member.id}
-                    onClick={() => {
-                        if (isCompleted) {
-                            showToast("당직 완료된 대원은 배정할 수 없습니다. (먼저 상태를 해제해주세요)", "error");
-                            return;
-                        }
-                        setSelectedMember(isChosen ? null : member);
-                    }}
-                    className={`w-full flex items-center justify-between p-3.5 rounded-2xl transition-all border text-left cursor-pointer group/member ${isCompleted
+                    className={`w-full flex items-center justify-between p-3.5 rounded-2xl transition-all border text-left group/member ${isCompleted
                             ? 'bg-slate-950/20 border-slate-900/40 text-slate-550 opacity-60 hover:bg-slate-900/30'
-                            : isChosen
-                                ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-500/15 scale-[1.02]'
-                                : 'bg-slate-900/40 border-slate-850 text-slate-350 hover:bg-slate-800/60 hover:border-slate-800'
+                            : 'bg-slate-900/40 border-slate-850 text-slate-350 hover:bg-slate-800/60 hover:border-slate-800'
                         }`}
                 >
                     <div className="flex flex-col gap-0.5 min-w-0 flex-1 pr-2">
@@ -146,7 +134,7 @@ export function DutySidebar({
                                 </span>
                             )}
                         </div>
-                        <span className={`text-[10px] font-bold truncate ${isChosen ? 'text-indigo-200' : 'text-slate-500'}`}>
+                        <span className={`text-[10px] font-bold truncate text-slate-500`}>
                             {dynamicRank}
                         </span>
                     </div>
@@ -155,9 +143,7 @@ export function DutySidebar({
                             onClick={(e) => toggleMemberDutyCompleted(e, member.id, member.name, isCompleted)}
                             className={`p-1.5 rounded-lg transition-all border ${isCompleted
                                     ? 'bg-emerald-950/65 hover:bg-emerald-900 border-emerald-500/40 text-emerald-300'
-                                    : isChosen
-                                        ? 'hover:bg-indigo-750 text-indigo-200 hover:text-white border-transparent'
-                                        : 'hover:bg-slate-800 text-slate-550 hover:text-slate-200 border-transparent hover:border-slate-700'
+                                    : 'hover:bg-slate-800 text-slate-550 hover:text-slate-200 border-transparent hover:border-slate-700'
                                 } ${isCompleted ? 'opacity-100' : 'opacity-0 group-hover/member:opacity-100'}`}
                             title={isCompleted ? "당직 완료 상태 해제" : "당직 완료 대원으로 설정"}
                         >
@@ -167,9 +153,7 @@ export function DutySidebar({
                             <div className="flex flex-col items-end gap-1.5 select-none min-w-0 pr-0.5">
                                 <div className={`px-2 py-0.5 rounded-xl text-[11px] font-black shrink-0 border flex items-center gap-1 ${isCompleted
                                         ? 'bg-slate-950/60 border-slate-900 text-slate-550'
-                                        : isChosen
-                                            ? 'bg-indigo-750 border-indigo-500 text-indigo-100'
-                                            : countBadgeColor
+                                        : countBadgeColor
                                     }`}>
                                     <span>당직 {count}회</span>
                                     {currentMonthTotal > 0 && (
@@ -207,8 +191,7 @@ export function DutySidebar({
             <aside className="w-80 border-r border-slate-800 bg-slate-900/60 flex flex-col shrink-0 h-full overflow-hidden">
                 <div className="p-6 border-b border-slate-800 flex items-center justify-between shrink-0">
                     <div className="flex items-center gap-2">
-                        <Users className="w-5 h-5 text-indigo-400" />
-                        <h2 className="text-base font-black tracking-wider text-slate-200">대원 명단 & 당직 통계</h2>
+                        <h2 className="text-base font-black tracking-wider text-slate-200">당직 플래너</h2>
                     </div>
                 </div>
 
@@ -360,14 +343,7 @@ export function DutySidebar({
                     </div>
                 )}
 
-                {selectedMember && (
-                    <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between gap-2 shrink-0 animate-in slide-in-from-bottom-6 duration-350">
-                        <div className="flex flex-col gap-0.5">
-                            <span className="text-xs font-black text-indigo-300">브러시 활성화 중</span>
-                            <span className="text-[11px] font-extrabold text-slate-400">{selectedMember.rank} {selectedMember.name}</span>
-                        </div>
-                    </div>
-                )}
+
             </aside>
         );
     }

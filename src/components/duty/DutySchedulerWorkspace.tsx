@@ -41,7 +41,7 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
         currentDate, setCurrentDate,
         viewMode, setViewMode,
         restrictionBrush, setRestrictionBrush,
-        selectedMember, setSelectedMember,
+        selectedMember,
         duties,
         currentMonthDuties, dutyStats,
         dutiesInitialized,
@@ -437,8 +437,6 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                 loading={loading || !dutiesInitialized}
                 members={members}
                 dutyStats={dutyStats}
-                selectedMember={selectedMember}
-                setSelectedMember={setSelectedMember}
                 toggleMemberDutyCompleted={toggleMemberDutyCompleted}
                 restrictionBrush={restrictionBrush}
                 setRestrictionBrush={setRestrictionBrush}
