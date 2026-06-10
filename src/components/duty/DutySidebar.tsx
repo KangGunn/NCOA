@@ -67,7 +67,11 @@ export function DutySidebar({
             return saved ? parseInt(saved, 10) : 6;
         })();
 
-        const classified = members.map((member: CalendarMember) => {
+        const lastDayOfCurrentMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+        const lastDayStr = `${lastDayOfCurrentMonth.getFullYear()}-${String(lastDayOfCurrentMonth.getMonth() + 1).padStart(2, '0')}-${String(lastDayOfCurrentMonth.getDate()).padStart(2, '0')}`;
+        const filteredMembers = members.filter(m => !m.joinDate || lastDayStr >= m.joinDate);
+
+        const classified = filteredMembers.map((member: CalendarMember) => {
             const isChosen = selectedMember?.id === member.id;
             const stats = dutyStats[member.name] || { total: 0, weekday: 0, friSun: 0, sat: 0, currentMonthWeekday: 0, currentMonthFriSun: 0, currentMonthSat: 0 };
             const count = stats.total;

@@ -25,15 +25,35 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
     const [duties, setDuties] = useState<CalendarEvent[]>([]);
     const [dutiesInitialized, setDutiesInitialized] = useState(false);
 
-    // 원본 데이터가 최초 로드될 때 샌드박스 초기화
+    // 원본 데이터가 최초 로드될 때 샌드박스 초기화 (로컬스토리지 백업 지원)
     useEffect(() => {
         if (events.length > 0 && !dutiesInitialized) {
+            const saved = localStorage.getItem('ncoa_duty_planner_duties');
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved) as CalendarEvent[];
+                    setDuties(parsed);
+                    setDutiesInitialized(true);
+                    showToast("이전에 편집 중이던 임시 당직 데이터를 로컬 저장소에서 불러왔습니다!");
+                    return;
+                } catch (e) {
+                    console.error("Failed to parse saved duties:", e);
+                }
+            }
+
             const initialDuties = events.filter((e: CalendarEvent) => e.type === 'duty');
             setDuties(initialDuties);
             setDutiesInitialized(true);
             showToast("실제 당직 데이터를 로컬 샌드박스에 연동했습니다! (실제 DB는 수정되지 않습니다)");
         }
     }, [events, dutiesInitialized, showToast]);
+
+    // 샌드박스 상태가 변경될 때마다 로컬스토리지에 동기화
+    useEffect(() => {
+        if (dutiesInitialized) {
+            localStorage.setItem('ncoa_duty_planner_duties', JSON.stringify(duties));
+        }
+    }, [duties, dutiesInitialized]);
 
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
@@ -87,6 +107,27 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
         return 'weekday';
     };
 
+    const isDateDuringKtaPeriod = (dateStr: string, eventsList: CalendarEvent[]) => {
+        const ktaDay0s = eventsList.filter(e => e.type === 'kta' && e.memo?.includes('Day 0'));
+        const ktaGrads = eventsList.filter(e => e.type === 'kta' && (e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓')));
+        
+        return ktaDay0s.some(day0 => {
+            const grad = ktaGrads.find(g => {
+                if (day0.batch && g.batch) {
+                    return g.batch === day0.batch && g.startDate >= day0.startDate;
+                }
+                const d0Time = new Date(day0.startDate + 'T00:00:00').getTime();
+                const gTime = new Date(g.startDate + 'T00:00:00').getTime();
+                return gTime >= d0Time && (gTime - d0Time) <= 30 * 24 * 60 * 60 * 1000;
+            });
+            
+            if (grad) {
+                return dateStr >= day0.startDate && dateStr <= grad.startDate;
+            }
+            return false;
+        });
+    };
+
     // 각 대원별 누적 당직 근무 횟수 통계 (평당/금일당/토당 세분화)
     const dutyStats = members.reduce((acc: Record<string, { 
         total: number; 
@@ -123,7 +164,21 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
             const eventYear = parseInt(parts[0], 10);
 
             if (eventYear === 2026 && eventMonth >= 4 && eventMonth <= targetMonth) {
-                const dutyType = getDutyType(d.startDate);
+                const isKtaOrMedicMember = member.sections?.includes('KTA') || member.sections?.includes('MEDIC');
+                let dutyType = getDutyType(d.startDate);
+                if (isKtaOrMedicMember && isDateDuringKtaPeriod(d.startDate, events)) {
+                    // KTA 기수 중에는 공휴일이 없었던 것처럼 요일 기준으로만 계산합니다.
+                    const dObj = new Date(d.startDate + 'T00:00:00');
+                    const dayOfWeek = dObj.getDay();
+                    if (dayOfWeek === 6) {
+                        dutyType = 'sat';
+                    } else if (dayOfWeek === 0 || dayOfWeek === 5) {
+                        dutyType = 'friSun';
+                    } else {
+                        dutyType = 'weekday';
+                    }
+                }
+
                 if (dutyType === 'weekday') {
                     extraWeekday++;
                     if (eventMonth === targetMonth) currentMonthWeekday++;
@@ -256,6 +311,7 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
         selectedMember, setSelectedMember,
         duties, setDuties,
         currentMonthDuties, dutyStats,
+        dutiesInitialized,
         togglePersonalRestriction,
         toggleMemberDutyCompleted,
         handleCellClick, handleClearDate, handleClearMonth

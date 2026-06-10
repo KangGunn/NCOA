@@ -1,19 +1,21 @@
 import { Trash2 } from 'lucide-react';
 import type { CalendarEvent, CalendarMember } from '../../types/calendar/calendar.type';
+import { calculateRank } from '../../lib/rankUtils';
 
 interface DutyCalendarGridProps {
     calendarDays: { dayNumber: number; dateStr: string; isCurrentMonth: boolean }[];
     members: CalendarMember[];
     events: CalendarEvent[];
     currentMonthDuties: CalendarEvent[];
-    personalRestrictions: Record<string, string[]>;
     ktaDayLabels: Record<number, string>;
     blcDayLabels: Record<number, string>;
     monthlyDayLabels?: Record<string, string>;
+    currentDate: Date;
 
     getKtaBlcEventsForDate: (dateStr: string) => CalendarEvent[];
     getDutyForDate: (dateStr: string) => CalendarEvent | undefined;
-    isMemberEligibleForDuty: (member: CalendarMember, dateStr: string) => boolean;
+    isMemberEligibleForDuty: (member: CalendarMember) => boolean;
+    getMemberDutyRestrictionReason: (member: CalendarMember, dateStr: string) => string | null;
     handleCellClick: (dateStr: string, directMemberName?: string) => void;
     handleClearDate: (e: React.MouseEvent, id: string) => void;
     togglePersonalRestriction: (dateStr: string, memberName: string) => void;
@@ -22,19 +24,23 @@ interface DutyCalendarGridProps {
 
 export function DutyCalendarGrid({
     calendarDays, members, events,
-    personalRestrictions, ktaDayLabels, blcDayLabels, monthlyDayLabels,
+    ktaDayLabels, blcDayLabels, monthlyDayLabels, currentDate,
     getKtaBlcEventsForDate, getDutyForDate,
-    isMemberEligibleForDuty, handleCellClick, handleClearDate, togglePersonalRestriction,
+    isMemberEligibleForDuty, getMemberDutyRestrictionReason, handleCellClick, handleClearDate, togglePersonalRestriction,
     dutyHolidays
 }: DutyCalendarGridProps) {
-    const getPrevDateStr = (dateStr: string) => {
+    const getOffsetDateStr = (dateStr: string, offset: number) => {
         const d = new Date(dateStr + 'T00:00:00');
-        d.setDate(d.getDate() - 1);
+        d.setDate(d.getDate() + offset);
         const y = d.getFullYear();
         const m = String(d.getMonth() + 1).padStart(2, '0');
         const day = String(d.getDate()).padStart(2, '0');
         return `${y}-${m}-${day}`;
     };
+
+    const getPrevDateStr = (dateStr: string) => getOffsetDateStr(dateStr, -1);
+
+
 
     const getDutyType = (dateStr: string): 'weekday' | 'friSun' | 'sat' => {
         // 1. 연휴 시작 전날 -> 금일당 ('friSun')
@@ -78,11 +84,12 @@ export function DutyCalendarGrid({
                 const dutyType = getDutyType(cell.dateStr);
                 
                 let eligibleMembers: CalendarMember[] = [];
-                let personalRestrictedNames: string[] = [];
                 
                 if (cell.isCurrentMonth) {
-                    eligibleMembers = members.filter(m => isMemberEligibleForDuty(m, cell.dateStr));
-                    personalRestrictedNames = personalRestrictions[cell.dateStr] || [];
+                    eligibleMembers = members.filter(m => {
+                        if (m.joinDate && cell.dateStr < m.joinDate) return false;
+                        return isMemberEligibleForDuty(m);
+                    });
                 }
 
                 const parseLocalDate = (dateStr: string) => {
@@ -114,22 +121,10 @@ export function DutyCalendarGrid({
                         }
                         return dayCount;
                     } else {
-                        let dayCount = 0;
-                        let current = new Date(start);
-                        while (current > target) {
-                            current.setDate(current.getDate() - 1);
-                            if (dayCount <= 22) {
-                                const nextStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
-                                const nextSunday = current.getDay() === 0;
-                                const isHoliday = events.some((e: CalendarEvent) => e.type === 'holiday' && nextStr >= e.startDate && nextStr <= e.endDate);
-                                if (!nextSunday && !isHoliday) {
-                                    dayCount--;
-                                }
-                            } else {
-                                dayCount--;
-                            }
-                        }
-                        return dayCount;
+                        // 입소일(Day 0) 이전의 날짜는 단순 달력 일수 차이(음수)로 계산합니다.
+                        // 입소 전이기 때문에 주말/공휴일 제외 규칙을 적용하지 않습니다.
+                        const diffTime = target.getTime() - start.getTime();
+                        return Math.round(diffTime / (1000 * 60 * 60 * 24));
                     }
                 };
 
@@ -245,7 +240,15 @@ export function DutyCalendarGrid({
                                             {duty.memo}
                                         </span>
                                         <span className="text-[8px] font-bold text-slate-500">
-                                            {members.find((m: CalendarMember) => m.name === duty.memo)?.rank || '대원'}
+                                            {(() => {
+                                                const m = members.find((member: CalendarMember) => member.name === duty.memo);
+                                                if (!m) return '대원';
+                                                return m.role === 'runner'
+                                                    ? (m.rank || '러너')
+                                                    : (m.enlistmentDate
+                                                        ? calculateRank(new Date(m.enlistmentDate), m.earlyPromotion || 0, currentDate)
+                                                        : (m.rank || '대원'));
+                                            })()}
                                         </span>
                                     </div>
                                     <button
@@ -271,19 +274,46 @@ export function DutyCalendarGrid({
                                             <span className="text-[8px] font-bold text-rose-500/70 py-0.5">🚫 가능 인원 없음</span>
                                         ) : (
                                             eligibleMembers.map(member => {
-                                                const isRestricted = personalRestrictedNames.includes(member.name);
+                                                const reason = getMemberDutyRestrictionReason(member, cell.dateStr);
+                                                const isDisabled = !!reason;
+                                                
+                                                let btnClassName = "";
+                                                let titleText = "";
+                                                if (isDisabled) {
+                                                    if (reason === '개인 사정 불가') {
+                                                        btnClassName = "bg-red-950/20 border-red-900/30 text-red-450 line-through opacity-55 hover:bg-red-900/20 cursor-not-allowed";
+                                                    } else if (reason === '개인: 앞뒤 이틀 내 당직 있음' || reason === '같은 섹션: 연달아 당직 불가') {
+                                                        btnClassName = "bg-amber-950/20 border-amber-900/30 text-amber-500 line-through opacity-55 cursor-not-allowed";
+                                                    } else {
+                                                        btnClassName = "bg-slate-900/20 border-slate-850 text-slate-600 line-through opacity-50 cursor-not-allowed";
+                                                    }
+                                                    
+                                                    if (reason === '신병보호기간') {
+                                                        titleText = reason;
+                                                    } else {
+                                                        titleText = `${reason} (우클릭 시 개인 제한 토글)`;
+                                                    }
+                                                } else {
+                                                    btnClassName = "bg-slate-900/60 border-slate-800/80 text-slate-350 hover:bg-indigo-650 hover:border-indigo-500 hover:text-white cursor-pointer";
+                                                    titleText = "배정하기 (우클릭 시 개인 제한 토글)";
+                                                }
+
                                                 return (
                                                     <button
                                                         key={member.id}
                                                         onClick={(e) => {
                                                             e.stopPropagation();
+                                                            if (isDisabled) return;
                                                             handleCellClick(cell.dateStr, member.name);
                                                         }}
-                                                        className={`px-1.5 py-0.5 rounded text-[8.5px] font-black transition-all text-center shrink-0 cursor-pointer border ${
-                                                            isRestricted 
-                                                                ? 'bg-red-950/20 border-red-900/30 text-red-450 line-through opacity-55 hover:bg-red-900/20'
-                                                                : 'bg-slate-900/60 border-slate-800/80 text-slate-350 hover:bg-indigo-650 hover:border-indigo-500 hover:text-white'
-                                                        }`}
+                                                        onContextMenu={(e) => {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            if (reason === '신병보호기간') return;
+                                                            togglePersonalRestriction(cell.dateStr, member.name);
+                                                        }}
+                                                        className={`px-1.5 py-0.5 rounded text-[8.5px] font-black transition-all text-center shrink-0 border ${btnClassName}`}
+                                                        title={titleText}
                                                     >
                                                         {member.name}
                                                     </button>
@@ -292,25 +322,7 @@ export function DutyCalendarGrid({
                                         )}
                                     </div>
                                 )
-                            )}
-
-                            {cell.isCurrentMonth && personalRestrictedNames.length > 0 && (
-                                <div className="flex flex-wrap gap-1 pt-0.5 shrink-0">
-                                    {personalRestrictedNames.map(name => (
-                                        <button
-                                            key={name}
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                togglePersonalRestriction(cell.dateStr, name);
-                                            }}
-                                            className="px-1 py-0.5 bg-red-950/40 hover:bg-red-900/30 border border-red-500/20 text-red-300 text-[7.5px] rounded font-black flex items-center gap-0.5 shrink-0 transition-all hover:scale-[1.02] cursor-pointer"
-                                            title="클릭 시 제한 해제"
-                                        >
-                                            🚫 {name}
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
+                             )}
                         </div>
                     </div>
                 );

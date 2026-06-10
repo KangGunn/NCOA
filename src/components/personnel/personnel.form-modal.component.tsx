@@ -35,7 +35,8 @@ export function PersonnelFormModal({
     onSaved,
 }: PersonnelFormModalProps) {
     const [name, setName] = useState(initial?.name ?? '');
-    const [enlistmentDate, setEnlistmentDate] = useState(initial?.enlistmentDate ?? '');
+    const [enlistmentDate, setEnlistDate] = useState(initial?.enlistmentDate ?? '');
+    const [joinDate, setJoinDate] = useState(initial?.joinDate ?? '');
     const [rank, setRank] = useState(initial?.rank ?? '');
     const [sections, setSections] = useState<string[]>(initial?.sections ?? []);
     const [earlyPromotion, setEarlyPromotion] = useState<number>(initial?.earlyPromotion ?? 0);
@@ -43,10 +44,15 @@ export function PersonnelFormModal({
     const [saving, setSaving] = useState(false);
 
     const handleSave = async () => {
-        const n = name.trim();
+        let n = name.trim();
         if (!n) {
-            alert('이름을 입력해 주세요.');
-            return;
+            if (!isRunner && joinDate) {
+                const secStr = sections.join('/');
+                n = secStr ? `${secStr} 신병` : '신병';
+            } else {
+                alert('이름을 입력해 주세요.');
+                return;
+            }
         }
         if (!isRunner && !enlistmentDate) {
             alert('군 입대일을 입력해 주세요.');
@@ -63,6 +69,7 @@ export function PersonnelFormModal({
             const dataToSave = {
                 name: n,
                 enlistmentDate: isRunner ? '' : enlistmentDate,
+                joinDate: isRunner ? '' : joinDate,
                 rank: calculatedRank,
                 role: isRunner ? 'runner' : 'member',
                 sections: sections,
@@ -135,25 +142,39 @@ export function PersonnelFormModal({
                             />
                         </div>
                     ) : (
-                        <div className="space-y-2">
-                            <label className="text-sm font-bold text-gray-700 ml-1">군 입대일</label>
-                            <input
-                                type="date"
-                                value={enlistmentDate}
-                                onChange={(e) => setEnlistmentDate(e.target.value)}
-                                className="w-full px-4 py-3 sm:px-5 sm:py-4 rounded-2xl bg-gray-50 border border-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-base sm:text-lg font-bold"
-                            />
-                            <p className="text-xs text-blue-500 font-bold ml-1">
-                                입대일 기준으로 계급이 자동 반영됩니다.
-                            </p>
-                            {enlistmentDate && formatExpectedDischargeFromEnlistmentStr(enlistmentDate) && (
-                                <p className="text-xs text-gray-600 font-bold ml-1 mt-2">
-                                    전역 예정일:{' '}
-                                    <span className="text-gray-900">
-                                        {formatExpectedDischargeFromEnlistmentStr(enlistmentDate)}
-                                    </span>
+                        <div className="space-y-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-bold text-gray-700 ml-1">군 입대일</label>
+                                <input
+                                    type="date"
+                                    value={enlistmentDate}
+                                    onChange={(e) => setEnlistDate(e.target.value)}
+                                    className="w-full px-4 py-3 sm:px-5 sm:py-4 rounded-2xl bg-gray-50 border border-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-base sm:text-lg font-bold"
+                                />
+                                <p className="text-xs text-blue-500 font-bold ml-1">
+                                    입대일 기준으로 계급이 자동 반영됩니다.
                                 </p>
-                            )}
+                                {enlistmentDate && formatExpectedDischargeFromEnlistmentStr(enlistmentDate) && (
+                                    <p className="text-xs text-gray-600 font-bold ml-1 mt-2">
+                                        전역 예정일:{' '}
+                                        <span className="text-gray-900">
+                                            {formatExpectedDischargeFromEnlistmentStr(enlistmentDate)}
+                                        </span>
+                                    </p>
+                                )}
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-bold text-gray-700 ml-1">전입일 (선택)</label>
+                                <input
+                                    type="date"
+                                    value={joinDate}
+                                    onChange={(e) => setJoinDate(e.target.value)}
+                                    className="w-full px-4 py-3 sm:px-5 sm:py-4 rounded-2xl bg-gray-50 border border-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-base sm:text-lg font-bold"
+                                />
+                                <p className="text-xs text-blue-500 font-bold ml-1">
+                                    전입일 전까지는 모든 탭에서 없는 사람 취급됩니다. (당직표 작성 시 신병 고려용)
+                                </p>
+                            </div>
                         </div>
                     )}
 

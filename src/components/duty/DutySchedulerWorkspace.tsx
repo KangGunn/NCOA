@@ -35,6 +35,7 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
     } = useDutySync(showToast);
 
     const [isMonthlyLabelsModalOpen, setIsMonthlyLabelsModalOpen] = useState(false);
+    const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
 
     const {
         currentDate, setCurrentDate,
@@ -43,10 +44,17 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
         selectedMember, setSelectedMember,
         duties,
         currentMonthDuties, dutyStats,
+        dutiesInitialized,
         togglePersonalRestriction,
         toggleMemberDutyCompleted,
-        handleCellClick, handleClearDate, handleClearMonth
+        handleCellClick: baseHandleCellClick, handleClearDate, handleClearMonth
     } = useDutyState({ events, members, personalRestrictions, dutyHolidays, showToast });
+
+
+
+
+
+
 
     const {
         handleToggleRestriction,
@@ -227,25 +235,14 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
             }
             return dayCount;
         } else {
-            let dayCount = 0;
-            let current = new Date(start);
-            while (current > target) {
-                current.setDate(current.getDate() - 1);
-                if (dayCount <= 22) {
-                    const nextStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
-                    const nextSunday = current.getDay() === 0;
-                    if (!nextSunday && !isHolidayDate(nextStr)) {
-                        dayCount--;
-                    }
-                } else {
-                    dayCount--;
-                }
-            }
-            return dayCount;
+            // 입소일(Day 0) 이전의 날짜는 단순 달력 일수 차이(음수)로 계산합니다.
+            // 입소 전이기 때문에 주말/공휴일 제외 규칙을 적용하지 않습니다.
+            const diffTime = target.getTime() - start.getTime();
+            return Math.round(diffTime / (1000 * 60 * 60 * 24));
         }
     };
 
-    const isMemberEligibleForDuty = (member: CalendarMember, dateStr: string) => {
+    const isMemberEligibleForDuty = (member: CalendarMember) => {
         if (member.role === 'runner') return false;
 
         const stats = dutyStats[member.name] || { weekday: 0, friSun: 0, sat: 0 };
@@ -265,30 +262,108 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
         const isCompleted = isSK || !!member.dutyCompleted || (stats.weekday >= criteriaWeekday && stats.friSun >= criteriaFriSun && stats.sat >= criteriaSat);
 
         if (isCompleted) return false;
+        return true;
+    };
 
-        const name = member.name;
-        if (personalRestrictions[dateStr]?.includes(name)) return false;
+    const getConsecutiveRestrictionReason = (memberName: string, dateStr: string, allDuties: CalendarEvent[]) => {
+        const targetMember = members.find(m => m.name === memberName);
+        if (!targetMember) return null;
 
-        // BLC 관련 섹션 검사
+        let reason: string | null = null;
+
+        allDuties.some((d: CalendarEvent) => {
+            if (d.type !== 'duty' || !d.memo) return false;
+
+            const dutyMember = members.find(m => m.name === d.memo);
+            if (!dutyMember) return false;
+
+            const date1 = new Date(dateStr + 'T00:00:00');
+            const date2 = new Date(d.startDate + 'T00:00:00');
+            const diffTime = date2.getTime() - date1.getTime();
+            const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+            if (dutyMember.name === targetMember.name) {
+                if (diffDays === -2 || diffDays === -1 || diffDays === 1 || diffDays === 2) {
+                    reason = '개인: 앞뒤 이틀 내 당직 있음';
+                    return true;
+                }
+            }
+
+            if (dutyMember.sections && targetMember.sections) {
+                if (diffDays === -1 || diffDays === 1) {
+                    const hasSharedSection = dutyMember.sections.some(sec => targetMember.sections?.includes(sec));
+                    if (hasSharedSection) {
+                        reason = '같은 섹션: 연달아 당직 불가';
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        });
+
+        return reason;
+    };
+
+    const getMemberDutyRestrictionReason = (member: CalendarMember, dateStr: string) => {
+        if (member.role === 'runner') return 'runner';
+        
+        // 신병보호기간 체크 (전입일 포함 15일 동안은 배정 차단)
+        if (member.joinDate) {
+            const join = parseLocalDate(member.joinDate);
+            const current = parseLocalDate(dateStr);
+            const diffTime = current.getTime() - join.getTime();
+            const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+            if (diffDays >= 0 && diffDays < 15) {
+                return '신병보호기간';
+            }
+        }
+        
+        const stats = dutyStats[member.name] || { weekday: 0, friSun: 0, sat: 0 };
+        const criteriaWeekday = (() => {
+            const saved = localStorage.getItem('ncoa_criteria_weekday');
+            return saved ? parseInt(saved, 10) : 13;
+        })();
+        const criteriaFriSun = (() => {
+            const saved = localStorage.getItem('ncoa_criteria_frisun');
+            return saved ? parseInt(saved, 10) : 9;
+        })();
+        const criteriaSat = (() => {
+            const saved = localStorage.getItem('ncoa_criteria_sat');
+            return saved ? parseInt(saved, 10) : 6;
+        })();
+        const isSK = member.sections?.includes('SK') || false;
+        const isCompleted = isSK || !!member.dutyCompleted || (stats.weekday >= criteriaWeekday && stats.friSun >= criteriaFriSun && stats.sat >= criteriaSat);
+
+        if (isCompleted) return 'completed';
+
+        if (personalRestrictions[dateStr]?.includes(member.name)) {
+            return '개인 사정 불가';
+        }
+
+        const consecutiveReason = getConsecutiveRestrictionReason(member.name, dateStr, duties);
+        if (consecutiveReason) return consecutiveReason;
+
         const memberBlcSections = member.sections?.filter(sec => blcSections.includes(sec)) || [];
         if (memberBlcSections.length > 0) {
             const blcDay0s = events.filter((e: CalendarEvent) => e.type === 'blc' && e.memo?.includes('Day 0'));
             for (const day0 of blcDay0s) {
                 const diffDays = getBlcActiveDay(day0.startDate, dateStr);
-                const dayRestriction = blcRestrictions[diffDays];
-                if (dayRestriction) {
-                    for (const sec of memberBlcSections) {
-                        if (dayRestriction[sec]) return false;
+                // BLC 템플릿 유효 범위 (Day -1 ~ Day 26) 내에서만 판단
+                if (diffDays >= -1 && diffDays <= 26) {
+                    const dayRestriction = blcRestrictions[diffDays];
+                    if (dayRestriction) {
+                        for (const sec of memberBlcSections) {
+                            if (dayRestriction[sec]) return `BLC 일정으로 제한 (Day ${diffDays})`;
+                        }
+                        if (memberBlcSections.includes('BLC') && dayRestriction['blc']) return `BLC 일정으로 제한 (Day ${diffDays})`;
+                        if (memberBlcSections.includes('S3') && dayRestriction['s3']) return `BLC 일정으로 제한 (Day ${diffDays})`;
+                        if (memberBlcSections.includes('PAO') && dayRestriction['pao']) return `BLC 일정으로 제한 (Day ${diffDays})`;
                     }
-                    // 하위 호환
-                    if (memberBlcSections.includes('BLC') && dayRestriction['blc']) return false;
-                    if (memberBlcSections.includes('S3') && dayRestriction['s3']) return false;
-                    if (memberBlcSections.includes('PAO') && dayRestriction['pao']) return false;
                 }
             }
         }
 
-        // KTA 관련 섹션 검사
         const memberKtaSections = member.sections?.filter(sec => ktaSections.includes(sec)) || [];
         if (memberKtaSections.length > 0) {
             const ktaEvents = events.filter((e: CalendarEvent) => e.type === 'kta' && e.memo?.includes('Day 0'));
@@ -297,19 +372,52 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                 const currentDay = parseLocalDate(dateStr);
                 const diffTime = currentDay.getTime() - startKta.getTime();
                 const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-                const restriction = restrictions[diffDays];
-                if (restriction) {
-                    for (const sec of memberKtaSections) {
-                        if (restriction[sec]) return false;
+                // KTA 템플릿 유효 범위 (Day -3 ~ Day 24) 내에서만 판단
+                if (diffDays >= -3 && diffDays <= 24) {
+                    const restriction = restrictions[diffDays];
+                    if (restriction) {
+                        for (const sec of memberKtaSections) {
+                            if (restriction[sec]) return `KTA 일정으로 제한 (Day ${diffDays})`;
+                        }
+                        if (memberKtaSections.includes('KTA') && restriction['kta']) return `KTA 일정으로 제한 (Day ${diffDays})`;
+                        if (memberKtaSections.includes('MEDIC') && restriction['medic']) return `KTA 일정으로 제한 (Day ${diffDays})`;
+                        if (memberKtaSections.includes('PAO') && restriction['pao']) return `KTA 일정으로 제한 (Day ${diffDays})`;
                     }
-                    // 하위 호환
-                    if (memberKtaSections.includes('KTA') && restriction['kta']) return false;
-                    if (memberKtaSections.includes('MEDIC') && restriction['medic']) return false;
-                    if (memberKtaSections.includes('PAO') && restriction['pao']) return false;
                 }
             }
         }
-        return true;
+
+        return null;
+    };
+
+    const handleCellClick = (dateStr: string, directMemberName?: string) => {
+        const targetMemberName = directMemberName || selectedMember?.name;
+        
+        if (viewMode === 'actual' && restrictionBrush === 'personal') {
+            baseHandleCellClick(dateStr, directMemberName);
+            return;
+        }
+
+        if (targetMemberName) {
+            const memberObj = members.find(m => m.name === targetMemberName);
+            if (memberObj) {
+                const reason = getMemberDutyRestrictionReason(memberObj, dateStr);
+                if (reason) {
+                    if (reason === 'completed') {
+                        showToast(`${targetMemberName} 대원은 이미 당직 요건을 채웠거나 완료된 상태입니다.`, "error");
+                        return;
+                    }
+                    if (reason === 'runner') {
+                        showToast(`${targetMemberName} 대원은 러너이므로 당직 배정이 불가능합니다.`, "error");
+                        return;
+                    }
+                    showToast(`${targetMemberName} 대원은 당직 배정이 제한되어 있습니다 (${reason}).`, "error");
+                    return;
+                }
+            }
+        }
+        
+        baseHandleCellClick(dateStr, directMemberName);
     };
 
     return (
@@ -326,7 +434,7 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
 
             <DutySidebar
                 viewMode={viewMode}
-                loading={loading}
+                loading={loading || !dutiesInitialized}
                 members={members}
                 dutyStats={dutyStats}
                 selectedMember={selectedMember}
@@ -354,8 +462,6 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                 <DutyHeader
                     viewMode={viewMode}
                     setViewMode={setViewMode}
-                    setRestrictionBrush={setRestrictionBrush}
-                    restrictionBrush={restrictionBrush}
                     year={year}
                     month={month}
                     prevMonth={prevMonth}
@@ -363,6 +469,7 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                     handleClearMonth={handleClearMonth}
                     onClose={onClose}
                     onOpenMonthlyLabelsModal={() => setIsMonthlyLabelsModalOpen(true)}
+                    onOpenInfoModal={() => setIsInfoModalOpen(true)}
                 />
 
                 {viewMode !== 'blc-template' && (
@@ -388,13 +495,14 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                         members={members}
                         events={events}
                         currentMonthDuties={currentMonthDuties}
-                        personalRestrictions={personalRestrictions}
                         ktaDayLabels={ktaDayLabels}
                         blcDayLabels={blcDayLabels}
                         monthlyDayLabels={monthlyDayLabels}
+                        currentDate={currentDate}
                         getKtaBlcEventsForDate={getKtaBlcEventsForDate}
                         getDutyForDate={getDutyForDate}
                         isMemberEligibleForDuty={isMemberEligibleForDuty}
+                        getMemberDutyRestrictionReason={getMemberDutyRestrictionReason}
                         handleCellClick={handleCellClick}
                         handleClearDate={handleClearDate}
                         togglePersonalRestriction={togglePersonalRestriction}
@@ -428,6 +536,11 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                 monthlyDayLabels={monthlyDayLabels}
                 onAddLabel={handleAddMonthlyLabel}
                 onDeleteLabel={handleDeleteMonthlyLabel}
+            />
+
+            <DutyInfoModal
+                isOpen={isInfoModalOpen}
+                onClose={() => setIsInfoModalOpen(false)}
             />
         </div>
     );
@@ -548,6 +661,64 @@ function MonthlyLabelsModal({
                             })}
                         </div>
                     )}
+                </div>
+            </div>
+        </div>,
+        document.body
+    );
+}
+
+interface DutyInfoModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+}
+
+function DutyInfoModal({ isOpen, onClose }: DutyInfoModalProps) {
+    if (!isOpen) return null;
+
+    const rules = [
+        "이틀 텀(3일 간격) 근무 제한: 동일한 대원은 당직을 선 후 최소 이틀의 텀을 두어야 합니다. (예: 1일 근무 시 2, 3일 제한, 4일부터 가능)",
+        "동일 섹션 연속 제한: 당직 배정자의 부서/섹션을 공유하는 인원은 그 전날과 다음날에 자동으로 당직 대상에서 제외됩니다.",
+        "수동 개인 제한 (우클릭): 개별 대원의 버튼을 우클릭하여 특정 날짜에 근무 불가 상태를 임시 지정할 수 있습니다. (가운데 붉은 취소선 표시)",
+        "KTA/BLC 교육생 제한: KTA 또는 BLC 파견 훈련 기간에는 설정된 템플릿의 일자별 섹션 제한 규칙에 의해 배정이 자동으로 제한됩니다."
+    ];
+
+    return createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="w-[480px] bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200 relative text-left">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-850">
+                    <div className="flex items-center gap-2">
+                        <span className="text-xl">ℹ️</span>
+                        <h3 className="text-sm font-black text-slate-200 tracking-wider">
+                            당직 작성 자동 적용 규칙 안내
+                        </h3>
+                    </div>
+                    <button
+                        onClick={onClose}
+                        className="text-slate-500 hover:text-slate-350 text-xs font-black transition-colors px-2 py-1 hover:bg-slate-850 rounded-lg cursor-pointer"
+                    >
+                        닫기
+                    </button>
+                </div>
+
+                <div className="space-y-4 pt-2">
+                    <p className="text-xs text-slate-400 font-bold leading-relaxed mb-2">
+                        NCOA 당직 작성을 원활하게 진행할 수 있도록 아래 규칙들이 백그라운드에서 자동으로 계산 및 적용되고 있습니다:
+                    </p>
+                    <ul className="space-y-3.5">
+                        {rules.map((rule, idx) => {
+                            const [title, desc] = rule.split(": ");
+                            return (
+                                <li key={idx} className="flex items-start gap-2 text-xs font-bold leading-relaxed text-slate-300">
+                                    <span className="text-indigo-400 mt-0.5 shrink-0">•</span>
+                                    <div>
+                                        <strong className="text-indigo-300 font-black block mb-0.5">{title}</strong>
+                                        <span className="text-[11px] text-slate-450">{desc}</span>
+                                    </div>
+                                </li>
+                            );
+                        })}
+                    </ul>
                 </div>
             </div>
         </div>,
