@@ -10,10 +10,11 @@ export interface MemberDoc {
     role?: 'member' | 'runner';
     sections?: string[];
     earlyPromotion?: number;
+    joinDate?: string;
     updatedAt?: unknown;
 }
 
-export function usePersonnel() {
+export function usePersonnel(baseDate: Date) {
     const [members, setMembers] = useState<MemberDoc[]>([]);
     const [addOpen, setAddOpen] = useState(false);
     const [addingRunner, setAddingRunner] = useState(false);
@@ -30,6 +31,8 @@ export function usePersonnel() {
         return () => unsub();
     }, []);
 
+    const dateStr = `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, '0')}-${String(baseDate.getDate()).padStart(2, '0')}`;
+    
     const sortedMembers = [...members].sort((a, b) => {
         const dateA = typeof a.enlistmentDate === 'string' ? a.enlistmentDate.trim() : '';
         const dateB = typeof b.enlistmentDate === 'string' ? b.enlistmentDate.trim() : '';
@@ -47,6 +50,7 @@ export function usePersonnel() {
 
     const regularMembers = sortedMembers.filter(m => m.role !== 'runner');
     const runners = sortedMembers.filter(m => m.role === 'runner');
+    const activeRegularCount = regularMembers.filter(m => !m.joinDate || dateStr >= m.joinDate).length;
 
     const detailMember = selectedId
         ? members.find((m) => m.id === selectedId) ?? null
@@ -63,5 +67,6 @@ export function usePersonnel() {
         detailMember,
         regularMembers,
         runners,
+        activeRegularCount,
     };
 }

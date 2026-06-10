@@ -93,6 +93,12 @@ export function PersonnelDetailModal({
                                 <div className="text-xs font-black text-gray-400 uppercase tracking-wide mb-1">군 입대일</div>
                                 <div className="text-lg font-bold text-gray-800">{member.enlistmentDate}</div>
                             </div>
+                            {member.joinDate && (
+                                <div>
+                                    <div className="text-xs font-black text-gray-400 uppercase tracking-wide mb-1">전입일</div>
+                                    <div className="text-lg font-bold text-gray-800">{member.joinDate}</div>
+                                </div>
+                            )}
                             <div>
                                 <div className="text-xs font-black text-gray-400 uppercase tracking-wide mb-1">
                                     전역 예정일

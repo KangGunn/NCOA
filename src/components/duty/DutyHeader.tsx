@@ -1,10 +1,8 @@
-import { Calendar as CalendarIcon, Trash2, LogOut } from 'lucide-react';
+import { Calendar as CalendarIcon, Trash2, LogOut, Info } from 'lucide-react';
 
 interface DutyHeaderProps {
     viewMode: 'actual' | 'kta-template' | 'blc-template';
     setViewMode: (mode: 'actual' | 'kta-template' | 'blc-template') => void;
-    setRestrictionBrush: (brush: string | null) => void;
-    restrictionBrush: string | null;
     year: number;
     month: number;
     prevMonth: () => void;
@@ -12,12 +10,13 @@ interface DutyHeaderProps {
     handleClearMonth: () => void;
     onClose: () => void;
     onOpenMonthlyLabelsModal: () => void;
+    onOpenInfoModal: () => void;
 }
 
 export function DutyHeader({
-    viewMode, setViewMode, setRestrictionBrush, restrictionBrush,
+    viewMode, setViewMode,
     year, month, prevMonth, nextMonth, handleClearMonth, onClose,
-    onOpenMonthlyLabelsModal
+    onOpenMonthlyLabelsModal, onOpenInfoModal
 }: DutyHeaderProps) {
     return (
         <header className="h-20 border-b border-slate-850 px-8 flex items-center justify-between shrink-0">
@@ -56,15 +55,12 @@ export function DutyHeader({
                 {viewMode === 'actual' && (
                     <div className="flex items-center gap-2 animate-in fade-in duration-200">
                         <button
-                            onClick={() => setRestrictionBrush(restrictionBrush === 'personal' ? null : 'personal')}
-                            className={`flex items-center gap-2 px-4 py-2.5 border rounded-2xl text-xs font-black transition-all shadow-md active:scale-95 ${restrictionBrush === 'personal'
-                                    ? 'bg-rose-600 border-rose-500 text-white ring-2 ring-rose-500/40 ring-offset-2 ring-offset-slate-900'
-                                    : 'bg-slate-900 border-slate-850 text-slate-350 hover:bg-slate-800'
-                                }`}
-                            title="대원 선택 후 달력 셀을 누르면 개별 불가 지정/해제"
+                            onClick={onOpenInfoModal}
+                            className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 border border-slate-850 hover:bg-slate-800 text-slate-350 hover:text-slate-200 rounded-2xl text-xs font-black transition-all shadow-md active:scale-95 cursor-pointer"
+                            title="당직 작성 규칙 정보 확인"
                         >
-                            <span>🚫 개인 제한 브러시</span>
-                            {restrictionBrush === 'personal' && <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />}
+                            <Info className="w-4 h-4 text-indigo-400 animate-pulse" />
+                            <span>자동 적용 규칙 안내</span>
                         </button>
                     </div>
                 )}
@@ -86,7 +82,6 @@ export function DutyHeader({
                 <button
                     onClick={() => {
                         setViewMode('actual');
-                        setRestrictionBrush(null);
                     }}
                     className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl text-xs font-black transition-all shadow-md active:scale-95 border ${viewMode === 'actual'
                             ? 'bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-500/25 scale-[1.02]'
@@ -100,7 +95,6 @@ export function DutyHeader({
                 <button
                     onClick={() => {
                         setViewMode('kta-template');
-                        setRestrictionBrush(null);
                     }}
                     className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl text-xs font-black transition-all shadow-md active:scale-95 border ${viewMode === 'kta-template'
                             ? 'bg-rose-600 border-rose-500 text-white shadow-lg shadow-rose-500/25 scale-[1.02]'
@@ -114,7 +108,6 @@ export function DutyHeader({
                 <button
                     onClick={() => {
                         setViewMode('blc-template');
-                        setRestrictionBrush(null);
                     }}
                     className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl text-xs font-black transition-all shadow-md active:scale-95 border ${viewMode === 'blc-template'
                             ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-500/25 scale-[1.02]'

@@ -164,6 +164,27 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
 
     const isBaselineMode = selectedMonthIndex === 0;
 
+    const isDateDuringKtaPeriod = (dateStr: string, eventsList: CalendarEvent[]) => {
+        const ktaDay0s = eventsList.filter(e => e.type === 'kta' && e.memo?.includes('Day 0'));
+        const ktaGrads = eventsList.filter(e => e.type === 'kta' && (e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓')));
+        
+        return ktaDay0s.some(day0 => {
+            const grad = ktaGrads.find(g => {
+                if (day0.batch && g.batch) {
+                    return g.batch === day0.batch && g.startDate >= day0.startDate;
+                }
+                const d0Time = new Date(day0.startDate + 'T00:00:00').getTime();
+                const gTime = new Date(g.startDate + 'T00:00:00').getTime();
+                return gTime >= d0Time && (gTime - d0Time) <= 30 * 24 * 60 * 60 * 1000;
+            });
+            
+            if (grad) {
+                return dateStr >= day0.startDate && dateStr <= grad.startDate;
+            }
+            return false;
+        });
+    };
+
     // Calculate cumulative stats for each member
     const memberStats = activeMembers.map(member => {
         const localBaseline = baselines[member.id] || {
@@ -187,7 +208,21 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
                 const eventYear = parseInt(parts[0], 10);
 
                 if (eventYear === 2026 && eventMonth >= 4 && eventMonth <= targetMonth) {
-                    const type = getDutyType(d.startDate);
+                    const isKtaOrMedicMember = member.sections?.includes('KTA') || member.sections?.includes('MEDIC');
+                    let type = getDutyType(d.startDate);
+                    if (isKtaOrMedicMember && isDateDuringKtaPeriod(d.startDate, events)) {
+                        // KTA 기수 중에는 공휴일이 없었던 것처럼 요일 기준으로만 계산합니다.
+                        const dObj = new Date(d.startDate + 'T00:00:00');
+                        const dayOfWeek = dObj.getDay();
+                        if (dayOfWeek === 6) {
+                            type = 'sat';
+                        } else if (dayOfWeek === 0 || dayOfWeek === 5) {
+                            type = 'friSun';
+                        } else {
+                            type = 'weekday';
+                        }
+                    }
+
                     if (type === 'weekday') extraWeekday++;
                     else if (type === 'friSun') extraFriSun++;
                     else if (type === 'sat') extraSat++;

@@ -5,4 +5,5 @@ export interface Member {
     enlistmentDate?: string;
     sections?: string[];
     earlyPromotion?: number;
+    joinDate?: string;
 }

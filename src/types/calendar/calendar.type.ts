@@ -21,6 +21,7 @@ export interface CalendarMember {
     baselineFriSun?: number;
     baselineSat?: number;
     earlyPromotion?: number;
+    joinDate?: string;
 }
 
 export interface ScheduleTemplateDay {
