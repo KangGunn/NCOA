@@ -8,9 +8,11 @@ import { DutySidebar } from './DutySidebar';
 import { DutyHeader } from './DutyHeader';
 import { DutyCalendarGrid } from './DutyCalendarGrid';
 import { DutyTemplateGrid } from './DutyTemplateGrid';
+import { DutyAutoDistributeModal } from './DutyAutoDistributeModal';
 import { db } from '../../lib/firebase';
 import { doc, setDoc, updateDoc, deleteField } from 'firebase/firestore';
 import type { CalendarEvent, CalendarMember } from '../../types/calendar/calendar.type';
+import type { AssignedDuty } from '../../utils/duty/dutyAutoDistribute';
 
 interface DutySchedulerWorkspaceProps {
     onClose: () => void;
@@ -36,13 +38,14 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
 
     const [isMonthlyLabelsModalOpen, setIsMonthlyLabelsModalOpen] = useState(false);
     const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
+    const [isAutoDistributeModalOpen, setIsAutoDistributeModalOpen] = useState(false);
 
     const {
         currentDate, setCurrentDate,
         viewMode, setViewMode,
         restrictionBrush, setRestrictionBrush,
         selectedMember,
-        duties,
+        duties, setDuties,
         currentMonthDuties, dutyStats,
         dutiesInitialized,
         togglePersonalRestriction,
@@ -454,6 +457,7 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                 blcSections={blcSections}
                 handleToggleSectionMapping={handleToggleSectionMapping}
                 currentDate={currentDate}
+                onOpenAutoDistributeModal={() => setIsAutoDistributeModalOpen(true)}
             />
 
             <main className="flex-1 bg-slate-950 flex flex-col min-w-0 h-full overflow-hidden">
@@ -540,6 +544,37 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                 isOpen={isInfoModalOpen}
                 onClose={() => setIsInfoModalOpen(false)}
             />
+
+            {isAutoDistributeModalOpen && (
+                <DutyAutoDistributeModal
+                    isOpen={isAutoDistributeModalOpen}
+                    onClose={() => setIsAutoDistributeModalOpen(false)}
+                    year={year}
+                    month={month}
+                    members={members}
+                    dutyStats={dutyStats}
+                    allDuties={duties}
+                    allEvents={events}
+                    personalRestrictions={personalRestrictions}
+                    dutyHolidays={dutyHolidays}
+                    restrictions={restrictions}
+                    blcRestrictions={blcRestrictions}
+                    ktaSections={ktaSections}
+                    blcSections={blcSections}
+                    currentDate={currentDate}
+                    onApply={(assignments: AssignedDuty[]) => {
+                        const newDuties = assignments.map(a => ({
+                            id: `auto-${a.dateStr}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+                            type: 'duty' as const,
+                            startDate: a.dateStr,
+                            endDate: a.dateStr,
+                            memo: a.memberName
+                        }));
+                        setDuties(prev => [...prev, ...newDuties]);
+                        showToast(`자동 분배 완료! ${assignments.length}개 날짜에 당직이 배정되었습니다. 💫`);
+                    }}
+                />
+            )}
         </div>
     );
 }

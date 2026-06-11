@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { RefreshCw, Check, Info, Calendar, ChevronDown } from 'lucide-react';
+import { RefreshCw, Check, Info, Calendar, ChevronDown, Wand2 } from 'lucide-react';
 import type { CalendarMember } from '../../types/calendar/calendar.type';
 import { calculateRank } from '../../lib/rankUtils';
 
@@ -33,6 +33,7 @@ interface DutySidebarProps {
     blcSections: string[];
     handleToggleSectionMapping: (mode: 'kta' | 'blc', section: string) => void;
     currentDate: Date;
+    onOpenAutoDistributeModal: () => void;
 }
 
 export function DutySidebar({
@@ -45,7 +46,8 @@ export function DutySidebar({
     showToast,
     dutyHolidays, handleAddDutyHoliday, handleDeleteDutyHoliday,
     ktaSections, blcSections, handleToggleSectionMapping,
-    currentDate
+    currentDate,
+    onOpenAutoDistributeModal
 }: DutySidebarProps) {
     const [isHolidayModalOpen, setIsHolidayModalOpen] = useState(false);
     const [showCompleted, setShowCompleted] = useState(false);
@@ -189,10 +191,18 @@ export function DutySidebar({
 
         return (
             <aside className="w-80 border-r border-slate-800 bg-slate-900/60 flex flex-col shrink-0 h-full overflow-hidden">
-                <div className="p-6 border-b border-slate-800 flex items-center justify-between shrink-0">
+                <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between shrink-0">
                     <div className="flex items-center gap-2">
                         <h2 className="text-base font-black tracking-wider text-slate-200">당직 플래너</h2>
                     </div>
+                    <button
+                        onClick={onOpenAutoDistributeModal}
+                        title="자동 분배"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 hover:border-indigo-500/60 text-indigo-300 hover:text-indigo-200 rounded-xl text-[11px] font-black transition-all active:scale-[0.97] cursor-pointer shadow-sm"
+                    >
+                        <Wand2 className="w-3.5 h-3.5" />
+                        <span>자동 분배</span>
+                    </button>
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-4 space-y-2.5 custom-scrollbar bg-slate-900/20 min-h-0">

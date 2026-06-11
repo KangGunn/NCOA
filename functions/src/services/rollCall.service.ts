@@ -21,7 +21,10 @@ export async function processRollCallData(dateStr: string) {
     const sheetData = await getSheetData();
     const sheetEvents = parseSheetEvents(sheetData, sheetData, sheetData, todayStr, tomorrowStr);
 
-    const nonRunnerMembers = members.filter((m) => m.role !== "runner");
+    // 기준일(todayStr) 기준으로 전입일(joinDate)이 미래인 신병들을 백엔드 레벨에서 제외
+    const activeMembers = members.filter((m) => !m.joinDate || todayStr >= m.joinDate);
+
+    const nonRunnerMembers = activeMembers.filter((m) => m.role !== "runner");
     const totalCount = nonRunnerMembers.length;
 
     const todayDuties = schedules.filter((e) => e.type === "duty" && e.startDate === todayStr);
@@ -30,14 +33,14 @@ export async function processRollCallData(dateStr: string) {
     const todayVacations = [
         ...schedules.filter((e) => e.type === "vacation" && e.startDate <= todayStr && e.endDate >= todayStr),
         ...sheetEvents.filter((e) => e.type === "vacation" && e.startDate === todayStr && !e.isReturnDay),
-    ].filter((e) => members.find((m) => m.name === e.memo)?.role !== "runner");
+    ].filter((e) => activeMembers.find((m) => m.name === e.memo)?.role !== "runner");
 
     const todayPasses = [
         ...schedules.filter((e) => e.type === "pass" && e.startDate <= todayStr && e.endDate >= todayStr),
         ...sheetEvents.filter((e) => e.type === "pass" && e.startDate === todayStr && !e.isReturnDay),
-    ].filter((e) => members.find((m) => m.name === e.memo)?.role !== "runner");
+    ].filter((e) => activeMembers.find((m) => m.name === e.memo)?.role !== "runner");
 
-    const todayDutiesFilteredForStats = todayDuties.filter((d) => members.find((m) => m.name === d.memo)?.role !== "runner");
+    const todayDutiesFilteredForStats = todayDuties.filter((d) => activeMembers.find((m) => m.name === d.memo)?.role !== "runner");
 
     const dutyCount = todayDutiesFilteredForStats.length;
     const vacationCount = todayVacations.length;
@@ -50,7 +53,7 @@ export async function processRollCallData(dateStr: string) {
     );
 
     const getDisplayName = (memoName: string) => {
-        const member = members.find((m) => m.name === memoName);
+        const member = activeMembers.find((m) => m.name === memoName);
         return member ? getMemberDisplayName(member) : memoName;
     };
 
@@ -85,12 +88,12 @@ export async function processRollCallData(dateStr: string) {
             vacations: [
                 ...schedules.filter((e: any) => e.type === "vacation" && e.startDate <= tomorrowStr && e.endDate >= tomorrowStr),
                 ...sheetEvents.filter((e: any) => e.type === "vacation" && e.startDate === tomorrowStr && !e.isDepartDay),
-            ].filter((e: any) => members.find((m) => m.name === e.memo)?.role !== "runner").map((e: any) => getDisplayName(e.memo)),
+            ].filter((e: any) => activeMembers.find((m) => m.name === e.memo)?.role !== "runner").map((e: any) => getDisplayName(e.memo)),
             passes: [
                 ...schedules.filter((e: any) => e.type === "pass" && e.startDate <= tomorrowStr && e.endDate >= tomorrowStr),
                 ...sheetEvents.filter((e: any) => e.type === "pass" && e.startDate === tomorrowStr && !e.isDepartDay),
                 ...sheetEvents.filter((e: any) => e.type === "vacation" && e.startDate === tomorrowStr && e.isDepartDay && e.isConsecutive),
-            ].filter((e: any) => members.find((m) => m.name === e.memo)?.role !== "runner").map((e: any) => getDisplayName(e.memo)),
+            ].filter((e: any) => activeMembers.find((m) => m.name === e.memo)?.role !== "runner").map((e: any) => getDisplayName(e.memo)),
             presentMembers: nonRunnerMembers
                 .filter((m) => {
                     const name = m.name;
