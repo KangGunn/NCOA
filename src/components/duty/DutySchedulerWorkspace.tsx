@@ -8,9 +8,11 @@ import { DutySidebar } from './DutySidebar';
 import { DutyHeader } from './DutyHeader';
 import { DutyCalendarGrid } from './DutyCalendarGrid';
 import { DutyTemplateGrid } from './DutyTemplateGrid';
+import { DutyAutoDistributeModal } from './DutyAutoDistributeModal';
 import { db } from '../../lib/firebase';
 import { doc, setDoc, updateDoc, deleteField } from 'firebase/firestore';
 import type { CalendarEvent, CalendarMember } from '../../types/calendar/calendar.type';
+import type { AssignedDuty } from '../../utils/duty/dutyAutoDistribute';
 
 interface DutySchedulerWorkspaceProps {
     onClose: () => void;
@@ -36,13 +38,14 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
 
     const [isMonthlyLabelsModalOpen, setIsMonthlyLabelsModalOpen] = useState(false);
     const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
+    const [isAutoDistributeModalOpen, setIsAutoDistributeModalOpen] = useState(false);
 
     const {
         currentDate, setCurrentDate,
         viewMode, setViewMode,
         restrictionBrush, setRestrictionBrush,
-        selectedMember, setSelectedMember,
-        duties,
+        selectedMember,
+        duties, setDuties,
         currentMonthDuties, dutyStats,
         dutiesInitialized,
         togglePersonalRestriction,
@@ -437,8 +440,6 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                 loading={loading || !dutiesInitialized}
                 members={members}
                 dutyStats={dutyStats}
-                selectedMember={selectedMember}
-                setSelectedMember={setSelectedMember}
                 toggleMemberDutyCompleted={toggleMemberDutyCompleted}
                 restrictionBrush={restrictionBrush}
                 setRestrictionBrush={setRestrictionBrush}
@@ -456,6 +457,7 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                 blcSections={blcSections}
                 handleToggleSectionMapping={handleToggleSectionMapping}
                 currentDate={currentDate}
+                onOpenAutoDistributeModal={() => setIsAutoDistributeModalOpen(true)}
             />
 
             <main className="flex-1 bg-slate-950 flex flex-col min-w-0 h-full overflow-hidden">
@@ -542,6 +544,37 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                 isOpen={isInfoModalOpen}
                 onClose={() => setIsInfoModalOpen(false)}
             />
+
+            {isAutoDistributeModalOpen && (
+                <DutyAutoDistributeModal
+                    isOpen={isAutoDistributeModalOpen}
+                    onClose={() => setIsAutoDistributeModalOpen(false)}
+                    year={year}
+                    month={month}
+                    members={members}
+                    dutyStats={dutyStats}
+                    allDuties={duties}
+                    allEvents={events}
+                    personalRestrictions={personalRestrictions}
+                    dutyHolidays={dutyHolidays}
+                    restrictions={restrictions}
+                    blcRestrictions={blcRestrictions}
+                    ktaSections={ktaSections}
+                    blcSections={blcSections}
+                    currentDate={currentDate}
+                    onApply={(assignments: AssignedDuty[]) => {
+                        const newDuties = assignments.map(a => ({
+                            id: `auto-${a.dateStr}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+                            type: 'duty' as const,
+                            startDate: a.dateStr,
+                            endDate: a.dateStr,
+                            memo: a.memberName
+                        }));
+                        setDuties(prev => [...prev, ...newDuties]);
+                        showToast(`자동 분배 완료! ${assignments.length}개 날짜에 당직이 배정되었습니다. 💫`);
+                    }}
+                />
+            )}
         </div>
     );
 }
@@ -676,16 +709,26 @@ interface DutyInfoModalProps {
 function DutyInfoModal({ isOpen, onClose }: DutyInfoModalProps) {
     if (!isOpen) return null;
 
-    const rules = [
-        "이틀 텀(3일 간격) 근무 제한: 동일한 대원은 당직을 선 후 최소 이틀의 텀을 두어야 합니다. (예: 1일 근무 시 2, 3일 제한, 4일부터 가능)",
-        "동일 섹션 연속 제한: 당직 배정자의 부서/섹션을 공유하는 인원은 그 전날과 다음날에 자동으로 당직 대상에서 제외됩니다.",
-        "수동 개인 제한 (우클릭): 개별 대원의 버튼을 우클릭하여 특정 날짜에 근무 불가 상태를 임시 지정할 수 있습니다. (가운데 붉은 취소선 표시)",
-        "KTA/BLC 교육생 제한: KTA 또는 BLC 파견 훈련 기간에는 설정된 템플릿의 일자별 섹션 제한 규칙에 의해 배정이 자동으로 제한됩니다."
+    const hardRules = [
+        "이틀 텀(2-day gap) 근무 제한: 동일한 대원은 당직을 선 후 최소 이틀의 텀을 두어야 합니다. (예: 1일 근무 시 2, 3일 제한, 4일부터 가능) [필수 - 절대 준수]",
+        "월 최소 1회 / 최대 3회: 당직을 덜 선 인원들에게 당직을 우선 분배하고 월 3회를 초과하거나 0회가 되지 않도록 강제합니다. [필수 - 절대 준수]",
+        "목표치(고정): 배분 모달에서 자물쇠로 잠근(고정) 목표치는 반드시 준수합니다. [필수 - 절대 준수]",
+        "동일 섹션 3연속 금지: 동일한 부서/섹션의 인원들이 3일 연속으로 당직을 서는 것은 무조건 차단됩니다. [필수 - 절대 준수]",
+        "KTA/BLC 교육 및 개인 제한: 개인 휴가, KTA/BLC 파견 훈련 등 지정된 제한 기간에는 배정되지 않습니다. [필수 - 절대 준수]",
+        "당직 완료 기준: 특정 당직(예: 토당) 누적 횟수가 완료 기준을 충족하면, 해당 당직은 더 이상 배정되지 않습니다. [필수 - 절대 준수]"
+    ];
+
+    const softRules = [
+        "빈 자리 방지 (미배정 최소화): 달력에 빈 자리가 생기지 않도록 하는 것을 최우선 목표로 작동합니다. [선호 가중치: 1,000,000점 (최우선)]",
+        "누적 페이스(Pace) 조율: 입대일 및 동기들 간 누적 횟수의 균등성을 유지하고, 페이스에 맞춰 고르게 분배합니다. [선호 가중치: 요일 편차당 80,000점 / 전체 편차당 40,000점]",
+        "목표치 준수 (미고정): 자물쇠를 잠그지 않은 목표치 수치를 최대한 맞춰 배정합니다. [선호 가중치: 요일 불일치당 30,000점 / 전체 횟수 불일치당 15,000점]",
+        "기본 2회 균등 배정: 특별히 설정하거나 고정하지 않은 대상자들은 한 달에 모두 2회씩 당직을 서도록 적극적으로 유도합니다. [선호 가중치: 2회 이탈 시 8,000점]",
+        "동일 섹션 2연속 제한: 같은 부서/섹션 인원이 이틀 연속으로 당직을 서는 상황을 가급적 피합니다. [선호 가중치: 2,000점]"
     ];
 
     return createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="w-[480px] bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200 relative text-left">
+            <div className="w-[540px] max-h-[80vh] overflow-y-auto bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200 relative text-left">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-850">
                     <div className="flex items-center gap-2">
                         <span className="text-xl">ℹ️</span>
@@ -701,24 +744,50 @@ function DutyInfoModal({ isOpen, onClose }: DutyInfoModalProps) {
                     </button>
                 </div>
 
-                <div className="space-y-4 pt-2">
+                <div className="space-y-6 pt-2">
                     <p className="text-xs text-slate-400 font-bold leading-relaxed mb-2">
                         NCOA 당직 작성을 원활하게 진행할 수 있도록 아래 규칙들이 백그라운드에서 자동으로 계산 및 적용되고 있습니다:
                     </p>
-                    <ul className="space-y-3.5">
-                        {rules.map((rule, idx) => {
-                            const [title, desc] = rule.split(": ");
-                            return (
-                                <li key={idx} className="flex items-start gap-2 text-xs font-bold leading-relaxed text-slate-300">
-                                    <span className="text-indigo-400 mt-0.5 shrink-0">•</span>
-                                    <div>
-                                        <strong className="text-indigo-300 font-black block mb-0.5">{title}</strong>
-                                        <span className="text-[11px] text-slate-450">{desc}</span>
-                                    </div>
-                                </li>
-                            );
-                        })}
-                    </ul>
+                    
+                    <div className="space-y-3">
+                        <h4 className="text-sm font-black text-rose-400 border-b border-rose-500/20 pb-1">A. 필수 규칙 (절대 위반 불가)</h4>
+                        <ul className="space-y-3.5 pl-1">
+                            {hardRules.map((rule, idx) => {
+                                const parts = rule.split(": ");
+                                const title = parts[0];
+                                const desc = parts.slice(1).join(": ");
+                                return (
+                                    <li key={idx} className="flex items-start gap-2 text-xs font-bold leading-relaxed text-slate-300">
+                                        <span className="text-rose-400 mt-0.5 shrink-0">•</span>
+                                        <div>
+                                            <strong className="text-rose-300 font-black block mb-0.5">{title}</strong>
+                                            <span className="text-[11px] text-slate-450">{desc}</span>
+                                        </div>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    </div>
+
+                    <div className="space-y-3">
+                        <h4 className="text-sm font-black text-sky-400 border-b border-sky-500/20 pb-1">B. 선호 사항 (최적화 목표)</h4>
+                        <ul className="space-y-3.5 pl-1">
+                            {softRules.map((rule, idx) => {
+                                const parts = rule.split(": ");
+                                const title = parts[0];
+                                const desc = parts.slice(1).join(": ");
+                                return (
+                                    <li key={idx} className="flex items-start gap-2 text-xs font-bold leading-relaxed text-slate-300">
+                                        <span className="text-sky-400 mt-0.5 shrink-0">•</span>
+                                        <div>
+                                            <strong className="text-sky-300 font-black block mb-0.5">{title}</strong>
+                                            <span className="text-[11px] text-slate-450">{desc}</span>
+                                        </div>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    </div>
                 </div>
             </div>
         </div>,
