@@ -7,16 +7,15 @@ interface DutySidebarProps {
     viewMode: 'actual' | 'kta-template' | 'blc-template';
     loading: boolean;
     members: CalendarMember[];
-    dutyStats: Record<string, { 
-        total: number; 
-        weekday: number; 
-        friSun: number; 
+    dutyStats: Record<string, {
+        total: number;
+        weekday: number;
+        friSun: number;
         sat: number;
         currentMonthWeekday?: number;
         currentMonthFriSun?: number;
         currentMonthSat?: number;
     }>;
-    toggleMemberDutyCompleted: (e: React.MouseEvent, id: string, name: string, status: boolean) => void;
     restrictionBrush: string | null;
     setRestrictionBrush: React.Dispatch<React.SetStateAction<string | null>>;
     ktaDayLabels: Record<number, string>;
@@ -34,11 +33,12 @@ interface DutySidebarProps {
     handleToggleSectionMapping: (mode: 'kta' | 'blc', section: string) => void;
     currentDate: Date;
     onOpenAutoDistributeModal: () => void;
+    selectedMember: CalendarMember | null;
+    setSelectedMember: (member: CalendarMember | null) => void;
 }
 
 export function DutySidebar({
     viewMode, loading, members, dutyStats,
-    toggleMemberDutyCompleted,
     restrictionBrush, setRestrictionBrush,
     ktaDayLabels, setKtaDayLabels,
     blcDayLabels, setBlcDayLabels,
@@ -47,7 +47,9 @@ export function DutySidebar({
     dutyHolidays, handleAddDutyHoliday, handleDeleteDutyHoliday,
     ktaSections, blcSections, handleToggleSectionMapping,
     currentDate,
-    onOpenAutoDistributeModal
+    onOpenAutoDistributeModal,
+    selectedMember,
+    setSelectedMember
 }: DutySidebarProps) {
     const [isHolidayModalOpen, setIsHolidayModalOpen] = useState(false);
     const [showCompleted, setShowCompleted] = useState(false);
@@ -85,18 +87,18 @@ export function DutySidebar({
             return [...arr].sort((a, b) => {
                 const roleA = a.member.role || 'member';
                 const roleB = b.member.role || 'member';
-                
+
                 // 1. Regular members first, runners second
                 if (roleA === 'runner' && roleB !== 'runner') return 1;
                 if (roleA !== 'runner' && roleB === 'runner') return -1;
-                
+
                 // 2. Sort by enlistmentDate (asc)
                 const dateA = typeof a.member.enlistmentDate === 'string' ? a.member.enlistmentDate.trim() : '';
                 const dateB = typeof b.member.enlistmentDate === 'string' ? b.member.enlistmentDate.trim() : '';
                 if (dateA !== dateB) {
                     return dateA < dateB ? -1 : 1;
                 }
-                
+
                 // 3. Sort by name (asc)
                 const nameA = typeof a.member.name === 'string' ? a.member.name.trim() : '';
                 const nameB = typeof b.member.name === 'string' ? b.member.name.trim() : '';
@@ -107,6 +109,18 @@ export function DutySidebar({
         const activeMembers = sortMembers(classified.filter(c => !c.isCompleted));
         const completedMembers = sortMembers(classified.filter(c => c.isCompleted));
 
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth();
+        const configs = (() => {
+            try {
+                const saved = localStorage.getItem(`ncoa_duty_auto_configs_${year}_${month}`);
+                return saved ? JSON.parse(saved) : {};
+            } catch (e) {
+                console.error(e);
+                return {};
+            }
+        })();
+
         const renderMemberCard = ({ member, stats, count, isCompleted }: any) => {
             const countBadgeColor = 'bg-slate-850/80 border-slate-800 text-slate-300';
             const dynamicRank = member.role === 'runner'
@@ -114,18 +128,46 @@ export function DutySidebar({
                 : (member.enlistmentDate
                     ? calculateRank(new Date(member.enlistmentDate), member.earlyPromotion || 0, currentDate)
                     : (member.rank || '대원'));
+            const target = configs[member.name] || { weekday: '', friSun: '', sat: '', free: '' };
+            const targetWeekday = parseInt(target.weekday || '0', 10) || 0;
+            const targetFriSun = parseInt(target.friSun || '0', 10) || 0;
+            const targetSat = parseInt(target.sat || '0', 10) || 0;
+            const targetFree = parseInt(target.free || '0', 10) || 0;
+            const hasTarget = targetWeekday > 0 || targetFriSun > 0 || targetSat > 0 || targetFree > 0;
 
             const currentMonthTotal = (stats.currentMonthWeekday || 0) + (stats.currentMonthFriSun || 0) + (stats.currentMonthSat || 0);
+            const targetTotal = targetWeekday + targetFriSun + targetSat + targetFree;
+
+            const isWeekdayMet = stats.currentMonthWeekday >= targetWeekday;
+            const isFriSunMet = stats.currentMonthFriSun >= targetFriSun;
+            const isSatMet = stats.currentMonthSat >= targetSat;
+            const isFreeMet = currentMonthTotal >= targetTotal;
+
+            const isAllMonthlyTargetsMet = hasTarget && isWeekdayMet && isFriSunMet && isSatMet && isFreeMet;
+
+            const isSelected = selectedMember?.id === member.id;
 
             return (
                 <div
                     key={member.id}
-                    className={`w-full flex items-center justify-between p-3.5 rounded-2xl transition-all border text-left group/member ${isCompleted
-                            ? 'bg-slate-950/20 border-slate-900/40 text-slate-550 opacity-60 hover:bg-slate-900/30'
-                            : 'bg-slate-900/40 border-slate-850 text-slate-350 hover:bg-slate-800/60 hover:border-slate-800'
+                    onClick={() => {
+                        if (isSelected) {
+                            setSelectedMember(null);
+                        } else {
+                            setSelectedMember(member);
+                        }
+                    }}
+                    className={`w-full flex items-center justify-between p-3.5 rounded-2xl transition-all border text-left group/member cursor-pointer ${isSelected
+                            ? 'bg-indigo-950/40 border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.15)] text-slate-100 hover:border-indigo-400 ring-1 ring-indigo-500/30'
+                            : isAllMonthlyTargetsMet
+                                ? 'bg-gradient-to-br from-slate-900/90 to-emerald-950/60 border-emerald-500/80 shadow-[0_0_15px_rgba(16,185,129,0.15)] text-slate-200 hover:border-emerald-400 ring-1 ring-emerald-500/30'
+                                : isCompleted
+                                    ? 'bg-slate-950/20 border-slate-900/40 text-slate-555 opacity-60 hover:bg-slate-900/30'
+                                    : 'bg-slate-900/40 border-slate-850 text-slate-350 hover:bg-slate-800/60 hover:border-slate-800'
                         }`}
                 >
-                    <div className="flex flex-col gap-0.5 min-w-0 flex-1 pr-2">
+                    {/* 좌측: 이름 & 계급 */}
+                    <div className="flex flex-col gap-0.5 min-w-0 pr-2">
                         <div className="flex items-center gap-1.5 min-w-0">
                             <span className={`text-sm font-black tracking-tight truncate ${isCompleted ? 'line-through text-slate-500' : ''}`}>
                                 {member.name}
@@ -140,22 +182,16 @@ export function DutySidebar({
                             {dynamicRank}
                         </span>
                     </div>
-                    <div className="flex items-center gap-2.5 shrink-0">
-                        <button
-                            onClick={(e) => toggleMemberDutyCompleted(e, member.id, member.name, isCompleted)}
-                            className={`p-1.5 rounded-lg transition-all border ${isCompleted
-                                    ? 'bg-emerald-950/65 hover:bg-emerald-900 border-emerald-500/40 text-emerald-300'
-                                    : 'hover:bg-slate-800 text-slate-550 hover:text-slate-200 border-transparent hover:border-slate-700'
-                                } ${isCompleted ? 'opacity-100' : 'opacity-0 group-hover/member:opacity-100'}`}
-                            title={isCompleted ? "당직 완료 상태 해제" : "당직 완료 대원으로 설정"}
-                        >
-                            <Check className="w-3.5 h-3.5" />
-                        </button>
+
+
+
+                    {/* 우측: 누적 통계 */}
+                    <div className="flex items-center gap-2.5 shrink-0 ml-auto">
                         {member.role !== 'runner' && (
                             <div className="flex flex-col items-end gap-1.5 select-none min-w-0 pr-0.5">
                                 <div className={`px-2 py-0.5 rounded-xl text-[11px] font-black shrink-0 border flex items-center gap-1 ${isCompleted
-                                        ? 'bg-slate-950/60 border-slate-900 text-slate-550'
-                                        : countBadgeColor
+                                    ? 'bg-slate-950/60 border-slate-900 text-slate-550'
+                                    : countBadgeColor
                                     }`}>
                                     <span>당직 {count}회</span>
                                     {currentMonthTotal > 0 && (
@@ -197,11 +233,11 @@ export function DutySidebar({
                     </div>
                     <button
                         onClick={onOpenAutoDistributeModal}
-                        title="자동 분배"
+                        title="목표치 설정"
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 hover:border-indigo-500/60 text-indigo-300 hover:text-indigo-200 rounded-xl text-[11px] font-black transition-all active:scale-[0.97] cursor-pointer shadow-sm"
                     >
                         <Wand2 className="w-3.5 h-3.5" />
-                        <span>자동 분배</span>
+                        <span>목표치 설정</span>
                     </button>
                 </div>
 
@@ -392,11 +428,10 @@ export function DutySidebar({
                                                     key={sec}
                                                     type="button"
                                                     onClick={() => handleToggleSectionMapping('kta', sec)}
-                                                    className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all border ${
-                                                        isChecked
+                                                    className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all border ${isChecked
                                                             ? 'bg-rose-950/60 border-rose-500/50 text-rose-300'
                                                             : 'bg-slate-900 border-slate-800 text-slate-500 hover:bg-slate-850'
-                                                    }`}
+                                                        }`}
                                                 >
                                                     {sec}
                                                 </button>
@@ -413,11 +448,10 @@ export function DutySidebar({
                                         <button
                                             key={sec}
                                             onClick={() => setRestrictionBrush(prev => prev === sec ? null : sec)}
-                                            className={`w-full py-3.5 px-4 border rounded-2xl text-xs font-black transition-all flex items-center justify-between shadow-md active:scale-[0.98] ${
-                                                isActive
+                                            className={`w-full py-3.5 px-4 border rounded-2xl text-xs font-black transition-all flex items-center justify-between shadow-md active:scale-[0.98] ${isActive
                                                     ? 'bg-rose-900/50 border-rose-500 text-rose-200 ring-2 ring-rose-500/50 shadow-rose-950/40'
                                                     : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                                            }`}
+                                                }`}
                                         >
                                             <div className="flex items-center gap-2">
                                                 <span className="w-2.5 h-2.5 rounded-full bg-rose-550 border border-rose-400 animate-pulse" />
@@ -543,11 +577,10 @@ export function DutySidebar({
                                                     key={sec}
                                                     type="button"
                                                     onClick={() => handleToggleSectionMapping('blc', sec)}
-                                                    className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all border ${
-                                                        isChecked
+                                                    className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all border ${isChecked
                                                             ? 'bg-blue-950/60 border-blue-500/50 text-blue-300'
                                                             : 'bg-slate-900 border-slate-800 text-slate-500 hover:bg-slate-850'
-                                                    }`}
+                                                        }`}
                                                 >
                                                     {sec}
                                                 </button>
@@ -564,11 +597,10 @@ export function DutySidebar({
                                         <button
                                             key={sec}
                                             onClick={() => setRestrictionBrush(prev => prev === sec ? null : sec)}
-                                            className={`w-full py-3.5 px-4 border rounded-2xl text-xs font-black transition-all flex items-center justify-between shadow-md active:scale-[0.98] ${
-                                                isActive
+                                            className={`w-full py-3.5 px-4 border rounded-2xl text-xs font-black transition-all flex items-center justify-between shadow-md active:scale-[0.98] ${isActive
                                                     ? 'bg-blue-900/50 border-blue-500 text-blue-200 ring-2 ring-blue-500/50 shadow-blue-950/40'
                                                     : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                                            }`}
+                                                }`}
                                         >
                                             <div className="flex items-center gap-2">
                                                 <span className="w-2.5 h-2.5 rounded-full bg-blue-550 border border-blue-400 animate-pulse" />

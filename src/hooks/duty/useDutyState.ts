@@ -20,7 +20,7 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
     const [viewMode, setViewMode] = useState<'actual' | 'kta-template' | 'blc-template'>('actual');
     const [restrictionBrush, setRestrictionBrush] = useState<string | null>(null);
     const [selectedMember, setSelectedMember] = useState<CalendarMember | null>(null);
-    
+
     // 로컬 당직 샌드박스 상태
     const [duties, setDuties] = useState<CalendarEvent[]>([]);
     const [dutiesInitialized, setDutiesInitialized] = useState(false);
@@ -91,18 +91,18 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
         if (isHolidayBetween) {
             return 'sat';
         }
-        
+
         // 4. 일반적인 주말 및 금요일 판단
         const d = new Date(dateStr + 'T00:00:00');
         const dayOfWeek = d.getDay(); // 0: Sun, 5: Fri, 6: Sat
-        
+
         if (dayOfWeek === 6) {
             return 'sat'; // 토요일 -> 토당
         }
         if (dayOfWeek === 0 || dayOfWeek === 5) {
             return 'friSun'; // 금요일, 일요일 -> 금일당
         }
-        
+
         // 5. 일반 평일 -> 평당 ('weekday')
         return 'weekday';
     };
@@ -110,7 +110,7 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
     const isDateDuringKtaPeriod = (dateStr: string, eventsList: CalendarEvent[]) => {
         const ktaDay0s = eventsList.filter(e => e.type === 'kta' && e.memo?.includes('Day 0'));
         const ktaGrads = eventsList.filter(e => e.type === 'kta' && (e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓')));
-        
+
         return ktaDay0s.some(day0 => {
             const grad = ktaGrads.find(g => {
                 if (day0.batch && g.batch) {
@@ -120,7 +120,7 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
                 const gTime = new Date(g.startDate + 'T00:00:00').getTime();
                 return gTime >= d0Time && (gTime - d0Time) <= 30 * 24 * 60 * 60 * 1000;
             });
-            
+
             if (grad) {
                 return dateStr >= day0.startDate && dateStr <= grad.startDate;
             }
@@ -129,10 +129,10 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
     };
 
     // 각 대원별 누적 당직 근무 횟수 통계 (평당/금일당/토당 세분화)
-    const dutyStats = members.reduce((acc: Record<string, { 
-        total: number; 
-        weekday: number; 
-        friSun: number; 
+    const dutyStats = members.reduce((acc: Record<string, {
+        total: number;
+        weekday: number;
+        friSun: number;
         sat: number;
         currentMonthWeekday?: number;
         currentMonthFriSun?: number;
@@ -207,10 +207,10 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
             currentMonthSat
         };
         return acc;
-    }, {} as Record<string, { 
-        total: number; 
-        weekday: number; 
-        friSun: number; 
+    }, {} as Record<string, {
+        total: number;
+        weekday: number;
+        friSun: number;
         sat: number;
         currentMonthWeekday?: number;
         currentMonthFriSun?: number;
@@ -224,7 +224,7 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
             const nextList = currentList.includes(memberName)
                 ? currentList.filter(n => n !== memberName)
                 : [...currentList, memberName];
-            
+
             await setDoc(doc(db, 'settings', 'personalRestrictions'), {
                 [dateStr]: nextList
             }, { merge: true });
@@ -275,7 +275,7 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
                 };
                 setDuties(prev => [...prev, newLocalDuty]);
             } else if (existingDuty.memo !== targetMemberName) {
-                setDuties(prev => prev.map((d: CalendarEvent) => 
+                setDuties(prev => prev.map((d: CalendarEvent) =>
                     d.id === existingDuty.id ? { ...d, memo: targetMemberName } : d
                 ));
             }
