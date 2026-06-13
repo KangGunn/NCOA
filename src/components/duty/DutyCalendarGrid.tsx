@@ -20,6 +20,7 @@ interface DutyCalendarGridProps {
     handleClearDate: (e: React.MouseEvent, id: string) => void;
     togglePersonalRestriction: (dateStr: string, memberName: string) => void;
     dutyHolidays: any[];
+    selectedMember: CalendarMember | null;
 }
 
 export function DutyCalendarGrid({
@@ -27,7 +28,7 @@ export function DutyCalendarGrid({
     ktaDayLabels, blcDayLabels, monthlyDayLabels, currentDate,
     getKtaBlcEventsForDate, getDutyForDate,
     isMemberEligibleForDuty, getMemberDutyRestrictionReason, handleCellClick, handleClearDate, togglePersonalRestriction,
-    dutyHolidays
+    dutyHolidays, selectedMember
 }: DutyCalendarGridProps) {
     const getOffsetDateStr = (dateStr: string, offset: number) => {
         const d = new Date(dateStr + 'T00:00:00');
@@ -39,8 +40,6 @@ export function DutyCalendarGrid({
     };
 
     const getPrevDateStr = (dateStr: string) => getOffsetDateStr(dateStr, -1);
-
-
 
     const getDutyType = (dateStr: string): 'weekday' | 'friSun' | 'sat' => {
         // 1. 연휴 시작 전날 -> 금일당 ('friSun')
@@ -76,12 +75,61 @@ export function DutyCalendarGrid({
         return 'weekday';
     };
 
+    const isDateDuringKtaPeriod = (dateStr: string, allEvents: CalendarEvent[]): boolean => {
+        const ktaDay0s = allEvents.filter(e => e.type === 'kta' && e.memo?.includes('Day 0'));
+        const ktaGrads = allEvents.filter(e => e.type === 'kta' && (
+            e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓')
+        ));
+        return ktaDay0s.some(day0 => {
+            const grad = ktaGrads.find(g => {
+                if (day0.batch && g.batch) return g.batch === day0.batch && g.startDate >= day0.startDate;
+                const d0t = new Date(day0.startDate + 'T00:00:00').getTime();
+                const gt = new Date(g.startDate + 'T00:00:00').getTime();
+                return gt >= d0t && (gt - d0t) <= 30 * 24 * 60 * 60 * 1000;
+            });
+            if (grad) return dateStr >= day0.startDate && dateStr <= grad.startDate;
+            return false;
+        });
+    };
+
+    const getDutyTypeForMember = (dateStr: string, member: CalendarMember): 'weekday' | 'friSun' | 'sat' => {
+        const isKtaOrMedic = member.sections?.includes('KTA') || member.sections?.includes('MEDIC');
+        if (isKtaOrMedic && isDateDuringKtaPeriod(dateStr, events)) {
+            const d = new Date(dateStr + 'T00:00:00');
+            const dayOfWeek = d.getDay(); // 0: Sun, 5: Fri, 6: Sat
+            if (dayOfWeek === 6) return 'sat';
+            if (dayOfWeek === 0 || dayOfWeek === 5) return 'friSun';
+            return 'weekday';
+        }
+        return getDutyType(dateStr);
+    };
+
     return (
         <div className="flex-1 min-h-0 grid grid-cols-7 bg-slate-950/20 w-full h-full relative auto-rows-fr">
             {calendarDays.map((cell) => {
                 const duty = getDutyForDate(cell.dateStr);
                 const ktaBlcEvents = getKtaBlcEventsForDate(cell.dateStr);
-                const dutyType = getDutyType(cell.dateStr);
+                
+                // If a member is selected, determine the duty type from their perspective
+                const currentDutyType = selectedMember && cell.isCurrentMonth
+                    ? getDutyTypeForMember(cell.dateStr, selectedMember)
+                    : getDutyType(cell.dateStr);
+
+                let highlightClass = "";
+                if (selectedMember && cell.isCurrentMonth) {
+                    const restrictionReason = getMemberDutyRestrictionReason(selectedMember, cell.dateStr);
+                    if (restrictionReason) {
+                        highlightClass = "opacity-40 bg-slate-950/60";
+                    } else {
+                        if (currentDutyType === 'weekday') {
+                            highlightClass = "bg-amber-950/30 border-amber-500/50 hover:bg-amber-900/40 ring-1 ring-amber-500/20";
+                        } else if (currentDutyType === 'friSun') {
+                            highlightClass = "bg-sky-950/35 border-sky-500/50 hover:bg-sky-900/40 ring-1 ring-sky-500/20";
+                        } else if (currentDutyType === 'sat') {
+                            highlightClass = "bg-rose-950/30 border-rose-500/50 hover:bg-rose-900/40 ring-1 ring-rose-500/20";
+                        }
+                    }
+                }
                 
                 let eligibleMembers: CalendarMember[] = [];
                 
@@ -163,7 +211,9 @@ export function DutyCalendarGrid({
                         onClick={() => handleCellClick(cell.dateStr)}
                         className={`border-r border-b border-slate-850 p-1.5 flex flex-col justify-between select-none relative transition-all group overflow-hidden ${
                             cell.isCurrentMonth 
-                                ? 'bg-slate-900/10 hover:bg-slate-800/40 cursor-crosshair' 
+                                ? highlightClass 
+                                    ? `${highlightClass} cursor-crosshair`
+                                    : 'bg-slate-900/10 hover:bg-slate-800/40 cursor-crosshair' 
                                 : 'bg-slate-950/40 text-slate-700 pointer-events-none'
                         }`}
                     >
@@ -171,9 +221,9 @@ export function DutyCalendarGrid({
                             <div className="flex items-center gap-1.5 min-w-0">
                                 <span className={`text-[11px] font-black tracking-tight shrink-0 ${
                                     cell.isCurrentMonth
-                                        ? dutyType === 'sat'
+                                        ? currentDutyType === 'sat'
                                             ? 'text-rose-500 font-black' 
-                                            : dutyType === 'friSun'
+                                            : currentDutyType === 'friSun'
                                                 ? 'text-sky-500 font-black' 
                                                 : 'text-slate-100 font-extrabold'
                                         : 'text-slate-700'

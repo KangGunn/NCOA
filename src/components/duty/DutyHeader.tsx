@@ -1,4 +1,4 @@
-import { Calendar as CalendarIcon, Trash2, LogOut, Info } from 'lucide-react';
+import { Calendar as CalendarIcon, Trash2, LogOut, Info, Download } from 'lucide-react';
 
 interface DutyHeaderProps {
     viewMode: 'actual' | 'kta-template' | 'blc-template';
@@ -11,12 +11,13 @@ interface DutyHeaderProps {
     onClose: () => void;
     onOpenMonthlyLabelsModal: () => void;
     onOpenInfoModal: () => void;
+    onExportImage?: () => void;
 }
 
 export function DutyHeader({
     viewMode, setViewMode,
     year, month, prevMonth, nextMonth, handleClearMonth, onClose,
-    onOpenMonthlyLabelsModal, onOpenInfoModal
+    onOpenMonthlyLabelsModal, onOpenInfoModal, onExportImage
 }: DutyHeaderProps) {
     return (
         <header className="h-20 border-b border-slate-850 px-8 flex items-center justify-between shrink-0">
@@ -61,6 +62,14 @@ export function DutyHeader({
                         >
                             <Info className="w-4 h-4 text-indigo-400 animate-pulse" />
                         </button>
+                        <button
+                            onClick={onExportImage}
+                            className="flex items-center justify-center gap-1.5 px-4 h-10 bg-slate-900 border border-slate-850 hover:bg-slate-800 text-slate-350 hover:text-slate-200 rounded-2xl transition-all shadow-md active:scale-95 cursor-pointer shrink-0 text-xs font-black"
+                            title="이미지 파일로 내보내기"
+                        >
+                            <Download className="w-4 h-4 text-indigo-450" />
+                            <span>이미지 저장</span>
+                        </button>
                     </div>
                 )}
             </div>
@@ -83,8 +92,8 @@ export function DutyHeader({
                         setViewMode('actual');
                     }}
                     className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl text-xs font-black transition-all shadow-md active:scale-95 border ${viewMode === 'actual'
-                            ? 'bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-500/25 scale-[1.02]'
-                            : 'bg-slate-900 border-slate-850 text-slate-350 hover:bg-slate-800 hover:text-slate-200'
+                        ? 'bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-500/25 scale-[1.02]'
+                        : 'bg-slate-900 border-slate-850 text-slate-350 hover:bg-slate-800 hover:text-slate-200'
                         }`}
                 >
                     <CalendarIcon className="w-3.5 h-3.5" />
@@ -96,8 +105,8 @@ export function DutyHeader({
                         setViewMode('kta-template');
                     }}
                     className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl text-xs font-black transition-all shadow-md active:scale-95 border ${viewMode === 'kta-template'
-                            ? 'bg-rose-600 border-rose-500 text-white shadow-lg shadow-rose-500/25 scale-[1.02]'
-                            : 'bg-slate-900 border-slate-850 text-slate-350 hover:bg-slate-800 hover:text-slate-200'
+                        ? 'bg-rose-600 border-rose-500 text-white shadow-lg shadow-rose-500/25 scale-[1.02]'
+                        : 'bg-slate-900 border-slate-850 text-slate-350 hover:bg-slate-800 hover:text-slate-200'
                         }`}
                 >
                     <CalendarIcon className="w-3.5 h-3.5" />
@@ -109,8 +118,8 @@ export function DutyHeader({
                         setViewMode('blc-template');
                     }}
                     className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl text-xs font-black transition-all shadow-md active:scale-95 border ${viewMode === 'blc-template'
-                            ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-500/25 scale-[1.02]'
-                            : 'bg-slate-900 border-slate-850 text-slate-350 hover:bg-slate-800 hover:text-slate-200'
+                        ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-500/25 scale-[1.02]'
+                        : 'bg-slate-900 border-slate-850 text-slate-350 hover:bg-slate-800 hover:text-slate-200'
                         }`}
                 >
                     <CalendarIcon className="w-3.5 h-3.5" />

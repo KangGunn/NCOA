@@ -133,6 +133,16 @@ function getBlcActiveDay(day0: string, target: string, isHoliday: (s: string) =>
     return Math.round((tgt.getTime() - start.getTime()) / 86400000);
 }
 
+function isDateDuringBlcPeriod(dateStr: string, allEvents: CalendarEvent[]): boolean {
+    const blcDay0s = allEvents.filter(e => e.type === 'blc' && e.memo?.includes('Day 0'));
+    const isHoliday = (ds: string) => allEvents.some(e => e.type === 'holiday' && ds >= e.startDate && ds <= e.endDate);
+    return blcDay0s.some(day0 => {
+        if (dateStr < day0.startDate) return false;
+        const diffDays = getBlcActiveDay(day0.startDate, dateStr, isHoliday);
+        return diffDays >= 0 && diffDays <= 22;
+    });
+}
+
 // ── Counts type ───────────────────────────────────────────
 
 type Counts = { weekday: number; friSun: number; sat: number };
@@ -243,7 +253,12 @@ export function runAutoDistribute(params: {
                 for (const an of assignedNames) {
                     if (an === m.name) continue;
                     const other = memberByName.get(an);
-                    if (other?.sections?.some(s => m.sections!.includes(s))) {
+                    if (other?.sections?.some(s => {
+                        if (s === 'S6') return false;
+                        if ((s === 'KTA' || s === 'MEDIC') && !isDateDuringKtaPeriod(eDate, allEvents)) return false;
+                        if (s === 'BLC' && !isDateDuringBlcPeriod(eDate, allEvents)) return false;
+                        return m.sections!.includes(s);
+                    })) {
                         baseRestrictions.add(`${m.name}:${addDaysStr(eDate, -1)}`);
                         baseRestrictions.add(`${m.name}:${addDaysStr(eDate, 1)}`);
                     }
@@ -321,7 +336,12 @@ export function runAutoDistribute(params: {
             }
             return secs;
         };
-        const hasCommonSectionLocal = (secs1: string[], secs2: string[]) => secs1.some(s => secs2.includes(s));
+        const hasCommonSectionLocal = (secs1: string[], secs2: string[]) => secs1.some(s => {
+            if (s === 'S6') return false;
+            if ((s === 'KTA' || s === 'MEDIC') && !isDateDuringKtaPeriod(dateStr, allEvents)) return false;
+            if (s === 'BLC' && !isDateDuringBlcPeriod(dateStr, allEvents)) return false;
+            return secs2.includes(s);
+        });
 
         if (ms.length > 0) {
             const sMinus2 = getSectionsOnDateLocal(addDaysStr(dateStr, -2));

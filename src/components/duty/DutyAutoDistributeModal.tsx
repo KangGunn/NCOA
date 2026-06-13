@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Wand2, X, ChevronRight, AlertTriangle, CheckCircle2, RefreshCw, Lock, Unlock } from 'lucide-react';
 import type { CalendarEvent, CalendarMember } from '../../types/calendar/calendar.type';
@@ -74,10 +74,34 @@ export function DutyAutoDistributeModal({
     onApply
 }: DutyAutoDistributeModalProps) {
     const [step, setStep] = useState<Step>('configure');
-    const [configs, setConfigs] = useState<Record<string, MemberConfig>>({});
-    const [lockedMembers, setLockedMembers] = useState<Record<string, boolean>>({});
+    const [configs, setConfigs] = useState<Record<string, MemberConfig>>(() => {
+        try {
+            const saved = localStorage.getItem(`ncoa_duty_auto_configs_${year}_${month}`);
+            return saved ? JSON.parse(saved) : {};
+        } catch (e) {
+            console.error(e);
+            return {};
+        }
+    });
+    const [lockedMembers, setLockedMembers] = useState<Record<string, boolean>>(() => {
+        try {
+            const saved = localStorage.getItem(`ncoa_duty_auto_locked_${year}_${month}`);
+            return saved ? JSON.parse(saved) : {};
+        } catch (e) {
+            console.error(e);
+            return {};
+        }
+    });
     const [result, setResult] = useState<{ assignments: AssignedDuty[]; warnings: DistributeWarning[]; violations: RuleViolation[] } | null>(null);
     const [isRunning, setIsRunning] = useState(false);
+
+    useEffect(() => {
+        localStorage.setItem(`ncoa_duty_auto_configs_${year}_${month}`, JSON.stringify(configs));
+    }, [configs, year, month]);
+
+    useEffect(() => {
+        localStorage.setItem(`ncoa_duty_auto_locked_${year}_${month}`, JSON.stringify(lockedMembers));
+    }, [lockedMembers, year, month]);
 
     const daysInMonth = new Date(year, month + 1, 0).getDate();
 
