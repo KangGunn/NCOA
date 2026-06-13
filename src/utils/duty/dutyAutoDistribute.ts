@@ -82,7 +82,7 @@ function getDutyTypeGeneral(dateStr: string, dutyHolidays: any[]): DutyType {
     return 'weekday';
 }
 
-function isDateDuringKtaPeriod(dateStr: string, allEvents: CalendarEvent[]): boolean {
+export function isDateDuringKtaPeriod(dateStr: string, allEvents: CalendarEvent[]): boolean {
     const ktaDay0s = allEvents.filter(e => e.type === 'kta' && e.memo?.includes('Day 0'));
     const ktaGrads = allEvents.filter(e => e.type === 'kta' && (
         e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓')
@@ -97,6 +97,28 @@ function isDateDuringKtaPeriod(dateStr: string, allEvents: CalendarEvent[]): boo
         if (grad) return dateStr >= day0.startDate && dateStr <= grad.startDate;
         return false;
     });
+}
+
+export function isDateDuringBlcPeriod(dateStr: string, allEvents: CalendarEvent[]): boolean {
+    const blcDay0s = allEvents.filter(e => e.type === 'blc' && e.memo?.includes('Day 0'));
+    const isHoliday = (ds: string) => allEvents.some(e => e.type === 'holiday' && ds >= e.startDate && ds <= e.endDate);
+    return blcDay0s.some(day0 => {
+        if (dateStr < day0.startDate) return false;
+        const diffDays = getBlcActiveDay(day0.startDate, dateStr, isHoliday);
+        return diffDays >= 0 && diffDays <= 22;
+    });
+}
+
+export function getActiveSectionsFor(member: CalendarMember, dateStr: string, allEvents: CalendarEvent[]): Set<string> {
+    const active = new Set<string>();
+    if (!member.sections) return active;
+    for (const s of member.sections) {
+        if (s === 'S6') continue;
+        if ((s === 'KTA' || s === 'MEDIC') && !isDateDuringKtaPeriod(dateStr, allEvents)) continue;
+        if (s === 'BLC' && !isDateDuringBlcPeriod(dateStr, allEvents)) continue;
+        active.add(s);
+    }
+    return active;
 }
 
 function getDutyTypeForMember(
@@ -126,22 +148,13 @@ function getBlcActiveDay(day0: string, target: string, isHoliday: (s: string) =>
             cur.setDate(cur.getDate() + 1);
             const cs = toDateStr(cur);
             if (cur.getDay() !== 0 && !isHoliday(cs)) cnt++;
-            if (cnt >= 22) break;
         }
         return cnt;
     }
     return Math.round((tgt.getTime() - start.getTime()) / 86400000);
 }
 
-function isDateDuringBlcPeriod(dateStr: string, allEvents: CalendarEvent[]): boolean {
-    const blcDay0s = allEvents.filter(e => e.type === 'blc' && e.memo?.includes('Day 0'));
-    const isHoliday = (ds: string) => allEvents.some(e => e.type === 'holiday' && ds >= e.startDate && ds <= e.endDate);
-    return blcDay0s.some(day0 => {
-        if (dateStr < day0.startDate) return false;
-        const diffDays = getBlcActiveDay(day0.startDate, dateStr, isHoliday);
-        return diffDays >= 0 && diffDays <= 22;
-    });
-}
+
 
 // ── Counts type ───────────────────────────────────────────
 
@@ -253,14 +266,18 @@ export function runAutoDistribute(params: {
                 for (const an of assignedNames) {
                     if (an === m.name) continue;
                     const other = memberByName.get(an);
-                    if (other?.sections?.some(s => {
-                        if (s === 'S6') return false;
-                        if ((s === 'KTA' || s === 'MEDIC') && !isDateDuringKtaPeriod(eDate, allEvents)) return false;
-                        if (s === 'BLC' && !isDateDuringBlcPeriod(eDate, allEvents)) return false;
-                        return m.sections!.includes(s);
-                    })) {
-                        baseRestrictions.add(`${m.name}:${addDaysStr(eDate, -1)}`);
-                        baseRestrictions.add(`${m.name}:${addDaysStr(eDate, 1)}`);
+                    if (!other) continue;
+
+                    const otherActiveOnDuty = getActiveSectionsFor(other, eDate, allEvents);
+                    if (otherActiveOnDuty.size === 0) continue;
+
+                    for (const offset of [-1, 1]) {
+                        const candDate = addDaysStr(eDate, offset);
+                        const mActiveOnCand = getActiveSectionsFor(m, candDate, allEvents);
+                        const hasIntersection = Array.from(mActiveOnCand).some(s => otherActiveOnDuty.has(s));
+                        if (hasIntersection) {
+                            baseRestrictions.add(`${m.name}:${candDate}`);
+                        }
                     }
                 }
             }
@@ -325,33 +342,35 @@ export function runAutoDistribute(params: {
             }
         }
 
-        const getSectionsOnDateLocal = (dStr: string): string[] => {
-            const names = existingByDate.get(dStr) || [];
-            const newAssigns = newAssignments.filter(a => a.dateStr === dStr).map(a => a.memberName);
-            const allNames = [...names, ...newAssigns];
-            const secs: string[] = [];
-            for (const n of allNames) {
-                const other = memberByName.get(n);
-                if (other && other.sections) secs.push(...other.sections);
-            }
-            return secs;
-        };
-        const hasCommonSectionLocal = (secs1: string[], secs2: string[]) => secs1.some(s => {
-            if (s === 'S6') return false;
-            if ((s === 'KTA' || s === 'MEDIC') && !isDateDuringKtaPeriod(dateStr, allEvents)) return false;
-            if (s === 'BLC' && !isDateDuringBlcPeriod(dateStr, allEvents)) return false;
-            return secs2.includes(s);
-        });
+        const memberActiveOnDate = getActiveSectionsFor(member, dateStr, allEvents);
 
-        if (ms.length > 0) {
-            const sMinus2 = getSectionsOnDateLocal(addDaysStr(dateStr, -2));
-            const sMinus1 = getSectionsOnDateLocal(addDaysStr(dateStr, -1));
-            const sPlus1 = getSectionsOnDateLocal(addDaysStr(dateStr, 1));
-            const sPlus2 = getSectionsOnDateLocal(addDaysStr(dateStr, 2));
-            
-            if (hasCommonSectionLocal(ms, sMinus1) && hasCommonSectionLocal(ms, sMinus2)) return true;
-            if (hasCommonSectionLocal(ms, sMinus1) && hasCommonSectionLocal(ms, sPlus1)) return true;
-            if (hasCommonSectionLocal(ms, sPlus1) && hasCommonSectionLocal(ms, sPlus2)) return true;
+        if (memberActiveOnDate.size > 0) {
+            const getActiveSectionsForAssignedOn = (dStr: string): Set<string> => {
+                const names = existingByDate.get(dStr) || [];
+                const newAssigns = newAssignments.filter(a => a.dateStr === dStr).map(a => a.memberName);
+                const allNames = [...names, ...newAssigns];
+                const activeSecs = new Set<string>();
+                for (const name of allNames) {
+                    const other = memberByName.get(name);
+                    if (other) {
+                        getActiveSectionsFor(other, dStr, allEvents).forEach(s => activeSecs.add(s));
+                    }
+                }
+                return activeSecs;
+            };
+
+            const hasIntersection = (setA: Set<string>, setB: Set<string>) => {
+                return Array.from(setA).some(s => setB.has(s));
+            };
+
+            const sMinus2 = getActiveSectionsForAssignedOn(addDaysStr(dateStr, -2));
+            const sMinus1 = getActiveSectionsForAssignedOn(addDaysStr(dateStr, -1));
+            const sPlus1 = getActiveSectionsForAssignedOn(addDaysStr(dateStr, 1));
+            const sPlus2 = getActiveSectionsForAssignedOn(addDaysStr(dateStr, 2));
+
+            if (hasIntersection(memberActiveOnDate, sMinus1) && hasIntersection(memberActiveOnDate, sMinus2)) return true;
+            if (hasIntersection(memberActiveOnDate, sMinus1) && hasIntersection(memberActiveOnDate, sPlus1)) return true;
+            if (hasIntersection(memberActiveOnDate, sPlus1) && hasIntersection(memberActiveOnDate, sPlus2)) return true;
         }
 
         const mKta = ms.filter(s => ktaSections.includes(s));

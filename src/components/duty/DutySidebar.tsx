@@ -136,11 +136,12 @@ export function DutySidebar({
             const hasTarget = targetWeekday > 0 || targetFriSun > 0 || targetSat > 0 || targetFree > 0;
 
             const currentMonthTotal = (stats.currentMonthWeekday || 0) + (stats.currentMonthFriSun || 0) + (stats.currentMonthSat || 0);
+            const targetTotal = targetWeekday + targetFriSun + targetSat + targetFree;
 
             const isWeekdayMet = stats.currentMonthWeekday >= targetWeekday;
             const isFriSunMet = stats.currentMonthFriSun >= targetFriSun;
             const isSatMet = stats.currentMonthSat >= targetSat;
-            const isFreeMet = currentMonthTotal >= targetFree;
+            const isFreeMet = currentMonthTotal >= targetTotal;
 
             const isAllMonthlyTargetsMet = hasTarget && isWeekdayMet && isFriSunMet && isSatMet && isFreeMet;
 

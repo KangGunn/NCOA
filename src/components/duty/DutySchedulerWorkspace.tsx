@@ -13,6 +13,7 @@ import { db } from '../../lib/firebase';
 import { doc, setDoc, updateDoc, deleteField } from 'firebase/firestore';
 import type { CalendarEvent, CalendarMember } from '../../types/calendar/calendar.type';
 import type { AssignedDuty } from '../../utils/duty/dutyAutoDistribute';
+import { getActiveSectionsFor } from '../../utils/duty/dutyAutoDistribute';
 import { exportCalendarImage } from '../../utils/duty/exportCalendarImage';
 
 interface DutySchedulerWorkspaceProps {
@@ -268,32 +269,6 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
         return true;
     };
 
-    const isDateDuringKtaPeriod = (dateStr: string) => {
-        const ktaDay0s = events.filter(e => e.type === 'kta' && e.memo?.includes('Day 0'));
-        const ktaGrads = events.filter(e => e.type === 'kta' && (
-            e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓')
-        ));
-        return ktaDay0s.some(day0 => {
-            const grad = ktaGrads.find(g => {
-                if (day0.batch && g.batch) return g.batch === day0.batch && g.startDate >= day0.startDate;
-                const d0t = new Date(day0.startDate + 'T00:00:00').getTime();
-                const gt = new Date(g.startDate + 'T00:00:00').getTime();
-                return gt >= d0t && (gt - d0t) <= 30 * 24 * 60 * 60 * 1000;
-            });
-            if (grad) return dateStr >= day0.startDate && dateStr <= grad.startDate;
-            return false;
-        });
-    };
-
-    const isDateDuringBlcPeriod = (dateStr: string) => {
-        const blcDay0s = events.filter(e => e.type === 'blc' && e.memo?.includes('Day 0'));
-        return blcDay0s.some(day0 => {
-            if (dateStr < day0.startDate) return false;
-            const diffDays = getBlcActiveDay(day0.startDate, dateStr);
-            return diffDays >= 0 && diffDays <= 22;
-        });
-    };
-
     const getConsecutiveRestrictionReason = (memberName: string, dateStr: string, allDuties: CalendarEvent[]) => {
         const targetMember = members.find(m => m.name === memberName);
         if (!targetMember) return null;
@@ -320,13 +295,10 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
 
             if (dutyMember.sections && targetMember.sections) {
                 if (diffDays === -1 || diffDays === 1) {
-                    const hasSharedSection = dutyMember.sections.some(sec => {
-                        if (sec === 'S6') return false;
-                        if ((sec === 'KTA' || sec === 'MEDIC') && !isDateDuringKtaPeriod(dateStr)) return false;
-                        if (sec === 'BLC' && !isDateDuringBlcPeriod(dateStr)) return false;
-                        return targetMember.sections?.includes(sec);
-                    });
-                    if (hasSharedSection) {
+                    const targetActiveOnDate = getActiveSectionsFor(targetMember, dateStr, events);
+                    const dutyMemberActiveOnDutyDate = getActiveSectionsFor(dutyMember, d.startDate, events);
+                    const hasIntersection = Array.from(targetActiveOnDate).some(s => dutyMemberActiveOnDutyDate.has(s));
+                    if (hasIntersection) {
                         reason = '같은 섹션: 연달아 당직 불가';
                         return true;
                     }

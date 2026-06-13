@@ -1,12 +1,19 @@
 import type { CalendarEvent } from '../../types/calendar/calendar.type';
 
+export interface DutyHoliday {
+    id: string;
+    name: string;
+    startDate: string;
+    endDate: string;
+}
+
 interface ExportParams {
     year: number;
     month: number;
     calendarDays: { dayNumber: number; dateStr: string; isCurrentMonth: boolean }[];
     duties: CalendarEvent[];
     events: CalendarEvent[];
-    dutyHolidays: any[];
+    dutyHolidays: DutyHoliday[];
     ktaDayLabels: Record<number, string>;
     blcDayLabels: Record<number, string>;
     monthlyDayLabels?: Record<string, string>;
@@ -265,17 +272,17 @@ export function exportCalendarImage({
     ctx.fillText('금일당', 50, footerY + 65);
 
     // Holidays / Special Note
-    const activeMonthHolidays = dutyHolidays.filter((h: any) => {
-        const start = new Date(h.startDate);
-        const end = new Date(h.endDate);
-        const mStart = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`;
-        const mEnd = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}`;
-        const activeMonthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
-        return mStart === activeMonthStr || mEnd === activeMonthStr;
+    const activeMonthStart = new Date(year, month, 1);
+    const activeMonthEnd = new Date(year, month + 1, 0, 23, 59, 59, 999);
+    
+    const activeMonthHolidays = dutyHolidays.filter((h) => {
+        const start = new Date(h.startDate + 'T00:00:00');
+        const end = new Date(h.endDate + 'T23:59:59');
+        return !(end < activeMonthStart || start > activeMonthEnd);
     });
 
     if (activeMonthHolidays.length > 0) {
-        const noteText = '특이사항: ' + activeMonthHolidays.map((h: any) => {
+        const noteText = '특이사항: ' + activeMonthHolidays.map((h) => {
             const start = new Date(h.startDate);
             const end = new Date(h.endDate);
             const startStr = `${start.getMonth() + 1}/${start.getDate()}`;

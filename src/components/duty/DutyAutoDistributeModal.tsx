@@ -96,11 +96,19 @@ export function DutyAutoDistributeModal({
     const [isRunning, setIsRunning] = useState(false);
 
     useEffect(() => {
-        localStorage.setItem(`ncoa_duty_auto_configs_${year}_${month}`, JSON.stringify(configs));
+        try {
+            localStorage.setItem(`ncoa_duty_auto_configs_${year}_${month}`, JSON.stringify(configs));
+        } catch (e) {
+            console.error("Failed to save configs to localStorage:", e);
+        }
     }, [configs, year, month]);
 
     useEffect(() => {
-        localStorage.setItem(`ncoa_duty_auto_locked_${year}_${month}`, JSON.stringify(lockedMembers));
+        try {
+            localStorage.setItem(`ncoa_duty_auto_locked_${year}_${month}`, JSON.stringify(lockedMembers));
+        } catch (e) {
+            console.error("Failed to save lockedMembers to localStorage:", e);
+        }
     }, [lockedMembers, year, month]);
 
     const daysInMonth = new Date(year, month + 1, 0).getDate();
