@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Wand2, X, ChevronRight, AlertTriangle, CheckCircle2, RefreshCw, Lock, Unlock } from 'lucide-react';
 import type { CalendarEvent, CalendarMember } from '../../types/calendar/calendar.type';
@@ -94,6 +94,26 @@ export function DutyAutoDistributeModal({
     });
     const [result, setResult] = useState<{ assignments: AssignedDuty[]; warnings: DistributeWarning[]; violations: RuleViolation[] } | null>(null);
     const [isRunning, setIsRunning] = useState(false);
+    const cancelTokenRef = useRef({ isCancelled: false });
+    const [progressInfo, setProgressInfo] = useState<{
+        progress: number;
+        message: string;
+        costBreakdown?: { label: string; cost: number }[];
+    } | null>(null);
+    const [elapsedTime, setElapsedTime] = useState(0);
+
+    useEffect(() => {
+        let interval: any;
+        if (isRunning) {
+            setElapsedTime(0);
+            interval = setInterval(() => {
+                setElapsedTime(prev => prev + 1);
+            }, 1000);
+        } else {
+            setElapsedTime(0);
+        }
+        return () => clearInterval(interval);
+    }, [isRunning]);
 
     useEffect(() => {
         try {
@@ -127,6 +147,11 @@ export function DutyAutoDistributeModal({
     // 이번 달 첫 날
     const firstDayStr = `${year}-${String(month + 1).padStart(2, '0')}-01`;
 
+    const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}-`;
+    const preAssigned = useMemo(() => {
+        return allDuties.filter(d => d.type === 'duty' && d.startDate.startsWith(monthPrefix));
+    }, [allDuties, monthPrefix]);
+
     // 배정 가능 대원 (러너 제외, SK 제외, 당직완료 제외, 전역자 제외, 아직 전입 안 한 대원 제외)
     const eligibleMembers = useMemo(() => {
         const criteriaWeekday = (() => {
@@ -144,7 +169,7 @@ export function DutyAutoDistributeModal({
 
         return members.filter(m => {
             if (m.role === 'runner') return false;
-            
+
             const isSK = m.sections?.includes('SK') || false;
             if (isSK) return false;
 
@@ -160,7 +185,7 @@ export function DutyAutoDistributeModal({
             if (m.joinDate && lastDayStr < m.joinDate) return false;
             return true;
         });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [members, year, month, dutyStats]);
 
     const getConfig = (memberName: string): MemberConfig =>
@@ -180,91 +205,109 @@ export function DutyAutoDistributeModal({
         }));
     };
 
-    // 전체 목표 합산 (이번 달 남은 일수 초과 여부 확인용)
-    const preAssignedCount = useMemo(() => {
-        const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}-`;
-        return new Set(
-            allDuties
-                .filter(d => d.type === 'duty' && d.startDate.startsWith(monthPrefix))
-                .map(d => d.startDate)
-        ).size;
-    }, [allDuties, year, month]);
 
-    const availableDays = daysInMonth - preAssignedCount;
 
     const totalTarget = useMemo(() => {
         let sum = 0;
         for (const m of eligibleMembers) {
             const cfg = getConfig(m.name);
-            sum += (parseInt(cfg.weekday || '0', 10) || 0)
-                + (parseInt(cfg.friSun || '0', 10) || 0)
-                + (parseInt(cfg.sat || '0', 10) || 0)
-                + (parseInt(cfg.free || '0', 10) || 0);
+            const parsed = parseInt(cfg.free, 10);
+            const fr = (cfg.free === '' || isNaN(parsed)) ? null : parsed;
+            sum += (fr !== null ? fr : 2);
         }
         return sum;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [configs, eligibleMembers]);
 
     const handleRun = async () => {
         setIsRunning(true);
-        const targets: MemberDutyTarget[] = [];
-        for (const m of eligibleMembers) {
-            const cfg = getConfig(m.name);
-            const w = parseInt(cfg.weekday || '0', 10) || 0;
-            const f = parseInt(cfg.friSun || '0', 10) || 0;
-            const s = parseInt(cfg.sat || '0', 10) || 0;
-            const fr = parseInt(cfg.free || '0', 10) || 0;
-            if (w > 0 || f > 0 || s > 0 || fr > 0 || lockedMembers[m.name]) {
-                targets.push({
-                    memberName: m.name,
-                    weekday: w,
-                    friSun: f,
-                    sat: s,
-                    free: fr,
-                    isLocked: !!lockedMembers[m.name]
-                });
+        cancelTokenRef.current = { isCancelled: false };
+        try {
+            const parseVal = (val: string) => {
+                if (val === undefined || val === null || val.trim() === '') return null;
+                const parsed = parseInt(val, 10);
+                return isNaN(parsed) ? null : parsed;
+            };
+
+            const targets: MemberDutyTarget[] = [];
+            for (const m of eligibleMembers) {
+                const cfg = getConfig(m.name);
+                const w = parseVal(cfg.weekday);
+                const f = parseVal(cfg.friSun);
+                const s = parseVal(cfg.sat);
+                const fr = parseVal(cfg.free);
+                if (w !== null || f !== null || s !== null || fr !== null || lockedMembers[m.name]) {
+                    targets.push({
+                        memberName: m.name,
+                        weekday: w,
+                        friSun: f,
+                        sat: s,
+                        free: fr,
+                        isLocked: !!lockedMembers[m.name]
+                    });
+                }
             }
+
+            const criteriaWeekday = (() => {
+                const saved = localStorage.getItem('ncoa_criteria_weekday');
+                return saved ? parseInt(saved, 10) : 13;
+            })();
+            const criteriaFriSun = (() => {
+                const saved = localStorage.getItem('ncoa_criteria_frisun');
+                return saved ? parseInt(saved, 10) : 9;
+            })();
+            const criteriaSat = (() => {
+                const saved = localStorage.getItem('ncoa_criteria_sat');
+                return saved ? parseInt(saved, 10) : 6;
+            })();
+
+            await new Promise(r => setTimeout(r, 50));
+
+            const historicalStats = Object.keys(dutyStats).reduce((acc, name) => {
+                const s = dutyStats[name];
+                acc[name] = {
+                    total: Math.max(0, s.total - (s.currentMonthWeekday || 0) - (s.currentMonthFriSun || 0) - (s.currentMonthSat || 0)),
+                    weekday: Math.max(0, s.weekday - (s.currentMonthWeekday || 0)),
+                    friSun: Math.max(0, s.friSun - (s.currentMonthFriSun || 0)),
+                    sat: Math.max(0, s.sat - (s.currentMonthSat || 0)),
+                };
+                return acc;
+            }, {} as typeof dutyStats);
+
+            const res = await runAutoDistribute({
+                year, month,
+                members,
+                allDuties,
+                allEvents,
+                personalRestrictions,
+                dutyHolidays,
+                targets,
+                restrictions,
+                blcRestrictions,
+                ktaSections,
+                blcSections,
+                dutyStats: historicalStats,
+                currentDate,
+                criteria: {
+                    weekday: criteriaWeekday,
+                    friSun: criteriaFriSun,
+                    sat: criteriaSat
+                },
+                onProgress: (info) => {
+                    setProgressInfo(info);
+                },
+                cancelToken: cancelTokenRef.current
+            });
+
+            setProgressInfo(null);
+            setResult(res);
+            setStep('preview');
+        } catch (e: any) {
+            console.error("Auto distribute failed:", e);
+            alert("자동 배정 중 오류가 발생했습니다: " + (e.message || e));
+        } finally {
+            setIsRunning(false);
         }
-
-        const criteriaWeekday = (() => {
-            const saved = localStorage.getItem('ncoa_criteria_weekday');
-            return saved ? parseInt(saved, 10) : 13;
-        })();
-        const criteriaFriSun = (() => {
-            const saved = localStorage.getItem('ncoa_criteria_frisun');
-            return saved ? parseInt(saved, 10) : 9;
-        })();
-        const criteriaSat = (() => {
-            const saved = localStorage.getItem('ncoa_criteria_sat');
-            return saved ? parseInt(saved, 10) : 6;
-        })();
-
-        await new Promise(r => setTimeout(r, 50));
-
-        const res = runAutoDistribute({
-            year, month,
-            members,
-            allDuties,
-            allEvents,
-            personalRestrictions,
-            dutyHolidays,
-            targets,
-            restrictions,
-            blcRestrictions,
-            ktaSections,
-            blcSections,
-            dutyStats,
-            currentDate,
-            criteria: {
-                weekday: criteriaWeekday,
-                friSun: criteriaFriSun,
-                sat: criteriaSat
-            }
-        });
-
-        setResult(res);
-        setStep('preview');
-        setIsRunning(false);
     };
 
     const handleApply = () => {
@@ -280,11 +323,81 @@ export function DutyAutoDistributeModal({
 
     if (!isOpen) return null;
 
-    const isOverBudget = totalTarget > availableDays;
+    const isOverBudget = totalTarget > daysInMonth;
 
     return createPortal(
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200">
-            <div className="w-[740px] max-h-[90vh] bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden">
+            <div className="relative w-[740px] max-h-[90vh] bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden">
+                {/* 로딩/진행률 오버레이 */}
+                {isRunning && (
+                    <div className="absolute inset-0 z-[210] flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200 p-8 text-center">
+                        <div className="w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center mb-6">
+                            <RefreshCw className="w-8 h-8 text-indigo-400 animate-spin" />
+                        </div>
+                        <h3 className="text-sm font-black text-slate-200 mb-2">당직 자동 분배 분석 중...</h3>
+                        <p className="text-[11px] font-bold text-slate-400 max-w-md mb-4 leading-relaxed">
+                            수많은 대원 조합과 이틀 연속 당직 금지, KTA/BLC 제한일, 개인 선호 등 수십 가지 제약 조건을 동시에 연산 중입니다.
+                        </p>
+                        <div className="text-[10px] font-black text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-3 py-1.5 rounded-full mb-6 inline-flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                            경과 시간: {elapsedTime >= 60 ? `${Math.floor(elapsedTime / 60)}분 ${elapsedTime % 60}초` : `${elapsedTime}초`}
+                        </div>
+                        
+                        {/* 진행률 바 */}
+                        <div className="w-96 space-y-2">
+                            <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden border border-slate-700/50">
+                                <div 
+                                    className="h-full bg-gradient-to-r from-indigo-500 to-sky-400 rounded-full transition-all duration-300"
+                                    style={{ width: `${progressInfo?.progress ?? 0}%` }}
+                                />
+                            </div>
+                            <div className="flex justify-between items-center text-[9px] font-black text-slate-500 gap-4">
+                                <span className="truncate text-left flex-1" title={progressInfo?.message || '탐색 준비 중...'}>
+                                    {progressInfo?.message || '탐색 준비 중...'}
+                                </span>
+                                <span className="tabular-nums shrink-0">{progressInfo?.progress ?? 0}%</span>
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={() => {
+                                cancelTokenRef.current.isCancelled = true;
+                            }}
+                            className="mt-6 px-4 py-2 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-xs font-black text-white rounded-xl shadow-lg hover:shadow-rose-900/20 transition-all cursor-pointer flex items-center gap-1.5"
+                        >
+                            <span>🛑</span> 최적 결과 적용하고 탐색 중지
+                        </button>
+
+                        {/* 실시간 위반 내역 및 벌점 (내림차순) */}
+                        {progressInfo?.costBreakdown && progressInfo.costBreakdown.filter(item => item.cost > 0).length > 0 && (
+                            <div className="mt-6 w-[620px] bg-slate-950/40 border border-slate-800/60 rounded-2xl p-4 text-left flex flex-col overflow-hidden max-h-[300px] animate-in fade-in duration-300">
+                                <div className="text-[9px] font-black text-slate-500 mb-2 border-b border-slate-800 pb-1.5 flex justify-between shrink-0 tracking-wider">
+                                    <span>실시간 위반 내역 (오류치 내림차순)</span>
+                                    <span>가중 벌점</span>
+                                </div>
+                                <div className="flex-1 overflow-y-auto space-y-2 pr-1 font-mono text-[9px] scrollbar-thin">
+                                    {progressInfo.costBreakdown
+                                        .filter(item => item.cost > 0)
+                                        .map((item, idx) => (
+                                            <div key={idx} className="flex justify-between items-start gap-4 text-slate-300 border-b border-slate-800/20 pb-1">
+                                                <span className="text-slate-400 font-bold break-all pr-2">{item.label}</span>
+                                                <span className="shrink-0 font-black text-rose-500 tabular-nums">
+                                                    {item.cost >= 1000000000 
+                                                        ? `${(item.cost / 1000000000).toFixed(0)}억` 
+                                                        : item.cost >= 100000000 
+                                                            ? `${(item.cost / 100000000).toFixed(0)}억` 
+                                                            : item.cost >= 10000 
+                                                                ? `${Math.round(item.cost / 10000).toLocaleString()}만` 
+                                                                : item.cost.toLocaleString()}
+                                                </span>
+                                            </div>
+                                        ))
+                                    }
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {/* 헤더 */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 shrink-0">
@@ -324,17 +437,17 @@ export function DutyAutoDistributeModal({
                         : 'bg-slate-950/30 border-slate-800/50'
                         }`}>
                         <span className="text-[10px] font-black text-slate-500">
-                            이번 달 전체 배정 목표 합계 (남은 일수 {availableDays}일 기준)
+                            이번 달 전체 배정 목표 합계 (전체 {daysInMonth}일 기준)
                         </span>
                         <div className="flex items-center gap-2">
                             <span className={`text-sm font-black tabular-nums ${isOverBudget ? 'text-rose-400' : 'text-indigo-300'}`}>
                                 {totalTarget}
                             </span>
-                            <span className="text-[11px] font-black text-slate-600">/ {availableDays}일</span>
+                            <span className="text-[11px] font-black text-slate-600">/ {daysInMonth}일</span>
                             {isOverBudget && (
                                 <span className="text-[10px] font-black text-rose-400 flex items-center gap-1">
                                     <AlertTriangle className="w-3 h-3" />
-                                    목표 합계가 남은 일수를 초과합니다
+                                    목표 합계가 이번 달 일수를 초과합니다
                                 </span>
                             )}
                         </div>
@@ -356,6 +469,7 @@ export function DutyAutoDistributeModal({
                     ) : (
                         <PreviewStep
                             assignments={result?.assignments ?? []}
+                            preAssigned={preAssigned}
                             warnings={result?.warnings ?? []}
                             violations={result?.violations ?? []}
                             year={year}
@@ -416,9 +530,9 @@ interface ConfigureStepProps {
 
 const FIELD_LABELS: { key: keyof MemberConfig; label: string; color: string }[] = [
     { key: 'weekday', label: '평당', color: 'text-slate-300' },
-    { key: 'friSun',  label: '금일당', color: 'text-sky-400' },
-    { key: 'sat',     label: '토당', color: 'text-rose-400' },
-    { key: 'free',    label: '자유', color: 'text-indigo-400' },
+    { key: 'friSun', label: '금일당', color: 'text-sky-400' },
+    { key: 'sat', label: '토당', color: 'text-rose-400' },
+    { key: 'free', label: '총합', color: 'text-indigo-400' },
 ];
 
 function ConfigureStep({ eligibleMembers, dutyStats, getConfig, updateConfig, currentDate, lockedMembers, toggleLock }: ConfigureStepProps) {
@@ -455,9 +569,8 @@ function ConfigureStep({ eligibleMembers, dutyStats, getConfig, updateConfig, cu
                 return (
                     <div
                         key={member.id}
-                        className={`flex items-center justify-between gap-4 px-4 py-3 bg-slate-950/50 border rounded-2xl hover:border-slate-700 transition-colors ${
-                            isLocked ? 'border-amber-500/40 bg-amber-950/5' : 'border-slate-800'
-                        }`}
+                        className={`flex items-center justify-between gap-4 px-4 py-3 bg-slate-950/50 border rounded-2xl hover:border-slate-700 transition-colors ${isLocked ? 'border-amber-500/40 bg-amber-950/5' : 'border-slate-800'
+                            }`}
                     >
                         {/* 대원 정보 */}
                         <div className="flex flex-col gap-0.5 min-w-0 flex-1">
@@ -482,11 +595,10 @@ function ConfigureStep({ eligibleMembers, dutyStats, getConfig, updateConfig, cu
                             <button
                                 type="button"
                                 onClick={() => toggleLock(member.name)}
-                                className={`p-1.5 rounded-lg border transition-all cursor-pointer flex items-center justify-center w-8 h-8 ${
-                                    isLocked
+                                className={`p-1.5 rounded-lg border transition-all cursor-pointer flex items-center justify-center w-8 h-8 ${isLocked
                                         ? 'bg-amber-500/15 border-amber-500/30 text-amber-400 hover:bg-amber-500/25'
                                         : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-400 hover:bg-slate-800'
-                                }`}
+                                    }`}
                                 title={isLocked ? '설정 횟수 고정됨' : '설정 횟수 고정하기'}
                             >
                                 {isLocked ? (
@@ -503,7 +615,7 @@ function ConfigureStep({ eligibleMembers, dutyStats, getConfig, updateConfig, cu
                                     max="31"
                                     value={cfg[f.key]}
                                     onChange={e => updateConfig(member.name, { [f.key]: e.target.value })}
-                                    placeholder="0"
+                                    placeholder="-"
                                     className={`w-14 py-1.5 px-1 bg-slate-900 border border-slate-800 rounded-lg text-xs text-center font-black placeholder-slate-700 focus:outline-none focus:border-indigo-500 transition-colors ${f.color}`}
                                 />
                             ))}
@@ -519,6 +631,7 @@ function ConfigureStep({ eligibleMembers, dutyStats, getConfig, updateConfig, cu
 
 interface PreviewStepProps {
     assignments: AssignedDuty[];
+    preAssigned: CalendarEvent[];
     warnings: DistributeWarning[];
     violations: RuleViolation[];
     year: number;
@@ -526,13 +639,16 @@ interface PreviewStepProps {
     daysInMonth: number;
 }
 
-function PreviewStep({ assignments, warnings, violations, year, month, daysInMonth }: PreviewStepProps) {
+function PreviewStep({ assignments, preAssigned, warnings, violations, year, month, daysInMonth }: PreviewStepProps) {
     const unassigned = warnings.filter(w => w.type === 'unassigned');
     const hardViolations = violations.filter(v => v.level === 'hard');
     const softViolations = violations.filter(v => v.level === 'soft');
 
     const byDate = new Map<string, AssignedDuty>();
     for (const a of assignments) byDate.set(a.dateStr, a);
+
+    const preAssignedByDate = new Map<string, CalendarEvent>();
+    for (const p of preAssigned) preAssignedByDate.set(p.startDate, p);
 
     const allDates: string[] = [];
     for (let d = 1; d <= daysInMonth; d++) {
@@ -654,6 +770,7 @@ function PreviewStep({ assignments, warnings, violations, year, month, daysInMon
 
                     {allDates.map(dateStr => {
                         const a = byDate.get(dateStr);
+                        const p = preAssignedByDate.get(dateStr);
                         const d = parseLocalDateSimple(dateStr);
                         const dow = d.getDay();
                         const isUnassigned = unassigned.some(w => w.dateStr === dateStr);
@@ -663,9 +780,11 @@ function PreviewStep({ assignments, warnings, violations, year, month, daysInMon
                                 key={dateStr}
                                 className={`rounded-xl p-1.5 text-center border transition-all min-h-[52px] flex flex-col items-center justify-center ${a
                                     ? 'bg-indigo-950/50 border-indigo-500/40'
-                                    : isUnassigned
-                                        ? 'bg-amber-950/30 border-amber-500/30'
-                                        : 'bg-slate-900/30 border-slate-800/40'
+                                    : p
+                                        ? 'bg-slate-800/40 border-slate-700/60 opacity-80'
+                                        : isUnassigned
+                                            ? 'bg-amber-950/30 border-amber-500/30'
+                                            : 'bg-slate-900/30 border-slate-800/40'
                                     }`}
                             >
                                 <div className={`text-[9px] font-black mb-0.5 ${dow === 0 ? 'text-rose-400' : dow === 6 ? 'text-sky-400' : 'text-slate-500'}`}>
@@ -678,6 +797,17 @@ function PreviewStep({ assignments, warnings, violations, year, month, daysInMon
                                         </div>
                                         <div className={`text-[7px] font-black ${DUTY_TYPE_COLORS[a.dutyType]}`}>
                                             {DUTY_TYPE_LABELS[a.dutyType]}
+                                        </div>
+                                    </>
+                                )}
+                                {p && (
+                                    <>
+                                        <div className="text-[8px] font-bold text-slate-300 leading-tight truncate w-full text-center px-0.5 flex items-center justify-center gap-0.5" title={p.memo}>
+                                            <Lock className="w-2.5 h-2.5 text-slate-400 shrink-0" />
+                                            <span>{p.memo}</span>
+                                        </div>
+                                        <div className="text-[7px] font-black text-slate-500">
+                                            (고정)
                                         </div>
                                     </>
                                 )}
