@@ -465,7 +465,7 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
             />
 
             <main className="flex-1 bg-slate-950 flex flex-col min-w-0 h-full overflow-hidden">
-                 <DutyHeader
+                <DutyHeader
                     viewMode={viewMode}
                     setViewMode={setViewMode}
                     year={year}
@@ -741,22 +741,24 @@ function DutyInfoModal({ isOpen, onClose }: DutyInfoModalProps) {
     })();
 
     const hardRules = [
-        "이틀 텀(2-day gap) 근무 제한: 동일한 대원은 당직을 선 후 최소 이틀의 텀을 두어야 합니다. (예: 1일 근무 시 2, 3일 제한, 4일부터 가능) [필수 - 절대 준수]",
-        "월 최소 1회 / 최대 3회: 당직을 덜 선 인원들에게 당직을 우선 분배하고 월 3회를 초과하거나 0회가 되지 않도록 강제합니다. [필수 - 절대 준수]",
-        "목표치(고정): 배분 모달에서 자물쇠로 잠근(고정) 목표치는 반드시 준수합니다. [필수 - 절대 준수]",
-        "동일 섹션 연속 근무 금지: 동일한 부서/섹션의 인원들이 연속으로(2일 연속) 당직을 서는 것은 무조건 차단됩니다. (단, S6 섹션은 예외로 제외) [필수 - 절대 준수]",
-        "신병 보호기간 및 개인 제한: 전입일 포함 15일간의 신병 보호기간 및 개인 휴가, KTA/BLC 파견 훈련 등 지정된 제한 기간에는 배정되지 않습니다. [필수 - 절대 준수]",
-        `당직 완료 기준: 특정 당직 누적 횟수가 완료 기준(평당: ${criteriaWeekday}회, 금일당: ${criteriaFriSun}회, 토당: ${criteriaSat}회)을 충족하면, 해당 당직은 더 이상 배정되지 않습니다. [필수 - 절대 준수]`
+        "이틀 텀(2-day gap) 근무 제한: 동일한 인원은 당직을 선 후 최소 이틀의 텀을 두어야 합니다.\n(예: 1일 근무 시 2, 3일 제한, 4일부터 가능)",
+        "미배정 당직 방지: 모든 당직일에는 반드시 인원이 배정되어야 합니다.\n(위반 시 하루당 오류 패널티 1,000,000점 부과)",
+        "목표치(고정) 준수: 배분 모달에서 자물쇠로 잠근(고정) 목표치는 반드시 준수합니다.\n(위반 시 미배정 수준의 높은 오류 패널티 100,000,000점 부과)",
+        "동일 섹션 연속 근무 금지: 동일한 섹션의 인원들이 연속으로(2일 연속) 당직을 서는 것은 차단됩니다.\n(단, S6 섹션은 예외로 항상 제외되며, KTA/MEDIC/BLC는 비기수 기간에 연속 근무가 가능합니다.)",
+        "월 최소 1회 권장: 대상 인원이 당직을 월 1회도 서지 않는 경우(0회)를 방지합니다.\n(위반 시 인원당 오류 패널티 500,000점 부과)",
+        "신병 보호기간 및 개인 제한: 전입일 포함 15일간의 신병 보호기간에는 배정되지 않습니다.",
+        `당직 완료 기준: 특정 당직 누적 횟수가 완료 기준(평당: ${criteriaWeekday}회, 금일당: ${criteriaFriSun}회, 토당: ${criteriaSat}회)을 충족하면, 해당 당직은 더 이상 배정되지 않습니다.`
     ];
 
     const softRules = [
-        "목표치 준수 (미고정): 자물쇠를 잠그지 않은 설정 목표 수치를 최대한 맞춰 배정합니다. [선호 가중치: 1순위 - 편차 제곱당 200,000점]",
-        "기본 2회 균등 배정: 특별히 설정하거나 고정하지 않은 대상자들은 한 달에 모두 2회씩 당직을 서도록 유도합니다. [선호 가중치: 2순위 - 편차 제곱당 30,000점]",
-        "누적 페이스(Pace) 조율: 입대일 및 동기들 간 누적 횟수의 균등성을 유지하고, 페이스에 맞춰 고르게 분배합니다. [선호 가중치: 3순위 - 요일 편차 제곱당 2,000점 / 전체 편차 제곱당 1,000점]"
+        "목표치 준수 (미고정): 자물쇠를 잠그지 않은 설정 목표 수치를 최대한 맞춰 배정합니다.\n[선호 가중치: 1순위 - 편차 제곱당 200,000점]",
+        "기본 2회 균등 배정: 특별히 설정하거나 고정하지 않은 대상자들은 한 달에 모두 2회씩 당직을 서도록 유도합니다.\n[선호 가중치: 2순위 - 편차 제곱당 30,000점]",
+        "누적 페이스(Pace) 조율: 입대일 및 동기들 간 누적 횟수의 균등성을 유지하고, 페이스에 맞춰 고르게 분배합니다.\n[선호 가중치: 3순위 - 요일 편차 제곱당 2,000점 / 전체 편차 제곱당 1,000점]",
+        "동일 섹션 연속 근무 최소화: 동일 섹션 인원들의 연속 당직 배정을 최대한 방지합니다.\n[선호 가중치: 4순위 - 연속 2일 발생 건당 1,000점]"
     ];
 
     return createPortal(
-        <div 
+        <div
             onClick={onClose}
             className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200"
         >
@@ -775,16 +777,16 @@ function DutyInfoModal({ isOpen, onClose }: DutyInfoModalProps) {
                     background: #3f4255;
                 }
             `}</style>
-            <div 
+            <div
                 onClick={(e) => e.stopPropagation()}
-                className="w-[540px] max-h-[80vh] flex flex-col bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl animate-in zoom-in-95 duration-200 relative text-left"
+                className="w-[680px] max-h-[85vh] flex flex-col bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl animate-in zoom-in-95 duration-200 relative text-left"
             >
                 {/* Header */}
                 <div className="flex items-center justify-between pb-3 border-b border-slate-850 shrink-0">
                     <div className="flex items-center gap-2">
                         <span className="text-xl">ℹ️</span>
                         <h3 className="text-sm font-black text-slate-200 tracking-wider">
-                            당직 작성 자동 적용 규칙 안내
+                            당직 작성 자동 적용 규칙 및 오류치 가중치 안내
                         </h3>
                     </div>
                     <button
@@ -798,11 +800,11 @@ function DutyInfoModal({ isOpen, onClose }: DutyInfoModalProps) {
                 {/* Content */}
                 <div className="flex-1 overflow-y-auto pr-1 info-modal-scrollbar space-y-6 pt-3 min-h-0">
                     <p className="text-xs text-slate-400 font-bold leading-relaxed mb-2">
-                        NCOA 당직 작성을 원활하게 진행할 수 있도록 아래 규칙들이 백그라운드에서 자동으로 계산 및 적용되고 있습니다:
+                        NCOA 당직 작성을 원활하게 진행할 수 있도록 자동 배정 알고리즘(점수가 낮을수록 최적)이 아래 규칙과 오류치 가중치(Cost)를 바탕으로 동작합니다:
                     </p>
 
                     <div className="space-y-3">
-                        <h4 className="text-sm font-black text-rose-400 border-b border-rose-500/20 pb-1">A. 필수 규칙 (절대 위반 불가)</h4>
+                        <h4 className="text-sm font-black text-rose-400 border-b border-rose-500/20 pb-1">A. 필수 규칙 (절대 위반 불가 / 매우 높은 패널티)</h4>
                         <ul className="space-y-3.5 pl-1">
                             {hardRules.map((rule, idx) => {
                                 const parts = rule.split(": ");
@@ -813,7 +815,7 @@ function DutyInfoModal({ isOpen, onClose }: DutyInfoModalProps) {
                                         <span className="text-rose-400 mt-0.5 shrink-0">•</span>
                                         <div>
                                             <strong className="text-rose-300 font-black block mb-0.5">{title}</strong>
-                                            <span className="text-[11px] text-slate-455">{desc}</span>
+                                            <span className="text-[11px] text-slate-455 block whitespace-pre-line">{desc}</span>
                                         </div>
                                     </li>
                                 );
@@ -822,7 +824,7 @@ function DutyInfoModal({ isOpen, onClose }: DutyInfoModalProps) {
                     </div>
 
                     <div className="space-y-3">
-                        <h4 className="text-sm font-black text-sky-400 border-b border-sky-500/20 pb-1">B. 선호 사항 (최적화 목표)</h4>
+                        <h4 className="text-sm font-black text-sky-400 border-b border-sky-500/20 pb-1">B. 선호 사항 (오류치/패널티 최소화 대상)</h4>
                         <ul className="space-y-3.5 pl-1">
                             {softRules.map((rule, idx) => {
                                 const parts = rule.split(": ");
@@ -833,7 +835,7 @@ function DutyInfoModal({ isOpen, onClose }: DutyInfoModalProps) {
                                         <span className="text-sky-400 mt-0.5 shrink-0">•</span>
                                         <div>
                                             <strong className="text-sky-300 font-black block mb-0.5">{title}</strong>
-                                            <span className="text-[11px] text-slate-455">{desc}</span>
+                                            <span className="text-[11px] text-slate-455 block whitespace-pre-line">{desc}</span>
                                         </div>
                                     </li>
                                 );
