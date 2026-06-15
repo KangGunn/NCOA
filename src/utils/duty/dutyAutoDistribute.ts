@@ -4,6 +4,15 @@ import type { CalendarEvent, CalendarMember } from '../../types/calendar/calenda
 
 export interface MemberDutyTarget {
     memberName: string;
+    weekday: number | null;
+    friSun: number | null;
+    sat: number | null;
+    free: number | null;
+    isLocked?: boolean;
+}
+
+export interface ResolvedMemberDutyTarget {
+    memberName: string;
     weekday: number;
     friSun: number;
     sat: number;
@@ -197,13 +206,14 @@ export async function runAutoDistribute(params: {
         message: string; 
         costBreakdown?: { label: string; cost: number }[];
     }) => void;
+    cancelToken?: { isCancelled: boolean };
 }): Promise<DistributeResult> {
     const {
         year, month, members, allDuties, allEvents,
         personalRestrictions, dutyHolidays,
         targets, restrictions, blcRestrictions,
         ktaSections, blcSections, dutyStats, currentDate, criteria,
-        onProgress
+        onProgress, cancelToken
     } = params;
 
     const TIME_LIMIT_MS = 150_000;
@@ -296,13 +306,13 @@ export async function runAutoDistribute(params: {
     }
 
     // Target map (Automatically adjust targets to be at least the pre-assigned count)
-    const targetMap = new Map<string, MemberDutyTarget>();
+    const targetMap = new Map<string, ResolvedMemberDutyTarget>();
     for (const t of targets) {
         const ext = existingCountsBase.get(t.memberName) || { weekday: 0, friSun: 0, sat: 0 };
-        const adjWeekday = Math.max(t.weekday, ext.weekday);
-        const adjFriSun = Math.max(t.friSun, ext.friSun);
-        const adjSat = Math.max(t.sat, ext.sat);
-        const adjFree = t.free;
+        const adjWeekday = Math.max(t.weekday || 0, ext.weekday);
+        const adjFriSun = Math.max(t.friSun || 0, ext.friSun);
+        const adjSat = Math.max(t.sat || 0, ext.sat);
+        const adjFree = t.free || 0;
         if (adjWeekday > 0 || adjFriSun > 0 || adjSat > 0 || adjFree > 0 || t.isLocked) {
             targetMap.set(t.memberName, {
                 memberName: t.memberName,
@@ -904,6 +914,9 @@ export async function runAutoDistribute(params: {
         const now = Date.now();
         if (now - lastYieldTime > 30) {
             await new Promise(resolve => setTimeout(resolve, 0));
+            if (cancelToken?.isCancelled) {
+                break;
+            }
             lastYieldTime = Date.now();
             if (onProgress) {
                 const progress = Math.min(99, Math.round((step / MAX_STEPS) * 100));
