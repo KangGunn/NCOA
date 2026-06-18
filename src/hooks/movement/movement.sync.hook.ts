@@ -697,15 +697,24 @@ export function useMovementSync(baseDate?: Date) {
 
                 // 1. Delete existing movements for these names that overlap with this range
                 if (namesToSync.size > 0 && minDate !== '9999-12-31' && maxDate !== '0000-01-01') {
-                    const qExisting = query(
-                        collection(db, 'movements'),
-                        where('name', 'in', Array.from(namesToSync))
-                    );
-                    const snapExisting = await getDocs(qExisting);
+                    const namesArray = Array.from(namesToSync);
+                    const chunkSize = 30;
+                    const existingDocs: any[] = [];
+
+                    for (let i = 0; i < namesArray.length; i += chunkSize) {
+                        const chunk = namesArray.slice(i, i + chunkSize);
+                        const qExisting = query(
+                            collection(db, 'movements'),
+                            where('name', 'in', chunk)
+                        );
+                        const snapExisting = await getDocs(qExisting);
+                        existingDocs.push(...snapExisting.docs);
+                    }
+
                     const deleteBatch = writeBatch(db);
                     let shouldCommitDelete = false;
 
-                    snapExisting.docs.forEach(docSnap => {
+                    existingDocs.forEach(docSnap => {
                         const data = docSnap.data();
                         if (data.startDate <= maxDate && data.endDate >= minDate) {
                             deleteBatch.delete(docSnap.ref);

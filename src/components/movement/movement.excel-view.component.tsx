@@ -30,7 +30,7 @@ export function MovementExcelView({
     const tempMovements: MovementRecord[] = parsedData.flatMap((item: any) => {
         const cleanName = item.name.replace(/^(병장|상병|일병|이병)\s*/, '');
         const records: MovementRecord[] = [];
-        const currentYear = new Date().getFullYear();
+        const currentYear = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
 
         const toISODate = (monthDayStr: string) => {
             if (!monthDayStr) return '';

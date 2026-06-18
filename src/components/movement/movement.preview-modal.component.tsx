@@ -1,5 +1,6 @@
 import { X, Copy } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import DOMPurify from 'dompurify';
 
 interface MovementPreviewModalProps {
     htmlContent: string;
@@ -127,7 +128,7 @@ export function MovementPreviewModal({
                     {activeTab === 'table' && (
                         <div 
                             className="w-full h-full bg-white p-4 rounded-xl border border-gray-100 shadow-sm overflow-auto flex justify-center"
-                            dangerouslySetInnerHTML={{ __html: htmlContent }} 
+                            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(htmlContent) }} 
                         />
                     )}
                     {activeTab === 'enclosure' && (

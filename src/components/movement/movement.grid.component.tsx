@@ -2,10 +2,19 @@ import { useState, useEffect } from 'react';
 import { cn } from '../../lib/utils';
 import type { MovementRecord } from '../../types/movement/movement.type';
 
+export interface DbMember {
+    name: string;
+    enlistmentDate?: string;
+    englishName?: string;
+    rank?: string;
+    sections?: string[];
+    phoneNumber?: string;
+}
+
 interface MovementGridProps {
     timeline: string[];
     dataList: { name: string; dayStatuses: Record<string, string> }[];
-    dbMembers: any[];
+    dbMembers: DbMember[];
     baseDate?: Date;
     movements?: MovementRecord[];
 }
@@ -22,6 +31,8 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
             document.removeEventListener('click', handleOutsideClick);
         };
     }, []);
+
+    const currentYear = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
 
     const sortedEntries = [...dataList].sort((a, b) => {
         const cleanA = a.name.replace(/^(병장|상병|일병|이병)\s*/, '');
@@ -60,7 +71,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                     mov.name === cleanName && 
                     timeline.some(dateStr => {
                         const [m, d] = dateStr.split('.').map(Number);
-                        const isoDate = `2026-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                        const isoDate = `${currentYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                         return isoDate >= mov.startDate && isoDate <= mov.endDate;
                     })
                 );
@@ -108,7 +119,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                             {timeline.map((dateStr, tIdx) => {
                                 let status = member.dayStatuses[dateStr] || 'none';
                                 const [m, d] = dateStr.split('.').map(Number);
-                                const isWeekend = new Date(2026, m - 1, d, 12, 0, 0, 0).getDay() % 6 === 0;
+                                const isWeekend = new Date(currentYear, m - 1, d, 12, 0, 0, 0).getDay() % 6 === 0;
 
                                 // Dynamically detect if we are departing for/on a pass on the recovery day (day after duty)
                                 if (status === 'pass-depart' || status === 'pass') {
@@ -147,7 +158,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                         {(() => {
                                             const isFirst = tIdx === 0;
                                             const isLast = tIdx === timeline.length - 1;
-                                            const isSunday = new Date(2026, m - 1, d, 12, 0, 0, 0).getDay() === 0;
+                                            const isSunday = new Date(currentYear, m - 1, d, 12, 0, 0, 0).getDay() === 0;
                                             const isMonthStart = d === 1;
                                             const today = baseDate || new Date();
                                             const isToday = today.getMonth() === m - 1 && today.getDate() === d;

@@ -102,7 +102,7 @@ export function MovementSheetView({
                     return ['pass', 'pass-depart', 'vacation', 'linked', 'recovery-pass-depart'].includes(status);
                 });
 
-                const yearVal = baseDate ? baseDate.getFullYear() : 2026;
+                const yearVal = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
                 const blocks: Date[][] = [];
                 let currentBlock: Date[] = [];
                 activeDates.forEach((dateStr: string) => {
@@ -323,7 +323,7 @@ export function MovementSheetView({
                     const endStr = parts[1] || parts[0];
                     
                     // Determine year dynamically from baseDate
-                    const yearVal = baseDate ? baseDate.getFullYear() : 2026;
+                    const yearVal = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
                     
                     const [sm, sd] = startStr.split('.').map(Number);
                     const [em, ed] = endStr.split('.').map(Number);
@@ -390,7 +390,7 @@ export function MovementSheetView({
             
             // Track all dates in remarks to calculate overall min/max bounds for the title
             const allRemarksDates: Date[] = [];
-            const yearVal = baseDate ? baseDate.getFullYear() : 2026;
+            const yearVal = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
 
             enclosureItems.forEach(item => {
                 // Determine raw Korean rank from rankEnglish or dbMember
