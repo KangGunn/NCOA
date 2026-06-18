@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { RefreshCw, Check, Info, Calendar, ChevronDown, Wand2 } from 'lucide-react';
 import type { CalendarMember } from '../../types/calendar/calendar.type';
 import { calculateRank } from '../../lib/rankUtils';
+import type { DutyHoliday } from '../../hooks/duty/useDutySync';
 
 interface DutySidebarProps {
     viewMode: 'actual' | 'kta-template' | 'blc-template';
@@ -25,7 +26,7 @@ interface DutySidebarProps {
     handleSaveTemplateSettings: () => void;
     handleSaveBlcTemplateSettings: () => void;
     showToast: (msg: string, type?: 'success' | 'error') => void;
-    dutyHolidays: any[];
+    dutyHolidays: DutyHoliday[];
     handleAddDutyHoliday: (name: string, startDate: string, endDate: string) => Promise<void>;
     handleDeleteDutyHoliday: (id: string) => Promise<void>;
     ktaSections: string[];
@@ -323,15 +324,14 @@ export function DutySidebar({
                                             {(() => {
                                                 const handleDateInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
                                                     const target = e.currentTarget;
-                                                    if (!(target as any)._digitCount) {
-                                                        (target as any)._digitCount = 0;
-                                                    }
+                                                    let digitCount = parseInt(target.dataset.digitCount || '0', 10);
+                                                    
                                                     if (e.key === 'Backspace') {
-                                                        (target as any)._digitCount = Math.max(0, (target as any)._digitCount - 1);
+                                                        target.dataset.digitCount = Math.max(0, digitCount - 1).toString();
                                                         return;
                                                     }
                                                     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Tab') {
-                                                        (target as any)._digitCount = 0;
+                                                        target.dataset.digitCount = '0';
                                                         return;
                                                     }
                                                     
@@ -341,9 +341,9 @@ export function DutySidebar({
                                                                       (e.keyCode >= 96 && e.keyCode <= 105);
                                                     
                                                     if (isNumeric) {
-                                                        (target as any)._digitCount += 1;
-                                                        if ((target as any)._digitCount === 4) {
-                                                            (target as any)._digitCount = 0;
+                                                        digitCount += 1;
+                                                        if (digitCount === 4) {
+                                                            target.dataset.digitCount = '0';
                                                             setTimeout(() => {
                                                                 const rightEvent = new KeyboardEvent('keydown', {
                                                                     key: 'ArrowRight',
@@ -355,11 +355,13 @@ export function DutySidebar({
                                                                 });
                                                                 target.dispatchEvent(rightEvent);
                                                             }, 50);
+                                                        } else {
+                                                            target.dataset.digitCount = digitCount.toString();
                                                         }
                                                     }
                                                 };
                                                 const handleDateInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
-                                                    (e.currentTarget as any)._digitCount = 0;
+                                                    e.currentTarget.dataset.digitCount = '0';
                                                 };
                                                 return (
                                                     <>
@@ -427,7 +429,7 @@ export function DutySidebar({
                                         <div className="max-h-48 overflow-y-auto space-y-2 custom-scrollbar pr-1 w-full">
                                             {[...dutyHolidays]
                                                 .sort((a, b) => b.startDate.localeCompare(a.startDate) || b.endDate.localeCompare(a.endDate))
-                                                .map((h: any) => (
+                                                .map((h: DutyHoliday) => (
                                                     <div key={h.id} className="flex items-center justify-between p-3 bg-slate-950/60 rounded-xl border border-slate-850 w-full hover:border-slate-800 transition-colors">
                                                         <div className="flex flex-col gap-0.5 min-w-0 pr-2">
                                                             <span className="text-[11px] font-black text-slate-300 truncate">{h.name}</span>

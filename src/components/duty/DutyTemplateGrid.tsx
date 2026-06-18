@@ -1,3 +1,8 @@
+interface TemplateScheduleItem {
+    day: number;
+    events: string[];
+}
+
 interface DutyTemplateGridProps {
     viewMode: 'kta-template' | 'blc-template';
     ktaTemplate: any;
@@ -32,7 +37,7 @@ export function DutyTemplateGrid({
                     const isSun = i % 7 === 6;
                     const dayNum = i - 3; // 월요일(i=0) = Day -3, ...
 
-                    const dayEvents = ktaTemplate?.schedules?.find((s: any) => s.day === dayNum)?.events || [];
+                    const dayEvents = ktaTemplate?.schedules?.find((s: TemplateScheduleItem) => s.day === dayNum)?.events || [];
                     const customLabel = ktaDayLabels[dayNum];
 
                     return (
@@ -128,7 +133,7 @@ export function DutyTemplateGrid({
         return (
             <div className="flex-1 min-h-0 grid grid-cols-7 bg-slate-950/20 w-full h-full relative grid-rows-4">
                 {blcDays.map((dayNum) => {
-                    const dayEvents = blcTemplate?.schedules?.find((s: any) => s.day === dayNum)?.events || [];
+                    const dayEvents = blcTemplate?.schedules?.find((s: TemplateScheduleItem) => s.day === dayNum)?.events || [];
                     const customLabel = blcDayLabels[dayNum];
                     
                     return (
