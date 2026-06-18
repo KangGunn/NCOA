@@ -12,6 +12,8 @@ export interface MemberDoc {
     earlyPromotion?: number;
     joinDate?: string;
     updatedAt?: unknown;
+    englishName?: string;
+    phoneNumber?: string;
 }
 
 export function usePersonnel(baseDate: Date) {

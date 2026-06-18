@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { CheckCircle2, Send } from 'lucide-react';
 import { MovementGrid } from './movement.grid.component';
+import type { MovementRecord } from '../../types/movement/movement.type';
 
 interface MovementExcelViewProps {
     parsedData: any[];
@@ -24,6 +25,55 @@ export function MovementExcelView({
     baseDate
 }: MovementExcelViewProps) {
     const { timeline, dataList } = getExcelTimelineAndData();
+
+    // Construct temporary movements for hover tooltips prior to Firestore sync
+    const tempMovements: MovementRecord[] = parsedData.flatMap((item: any) => {
+        const cleanName = item.name.replace(/^(병장|상병|일병|이병)\s*/, '');
+        const records: MovementRecord[] = [];
+        const currentYear = new Date().getFullYear();
+
+        const toISODate = (monthDayStr: string) => {
+            if (!monthDayStr) return '';
+            const clean = monthDayStr.replace(/\(원데이\)/, '').trim();
+            const parts = clean.split(/[./~]/).map(p => p.trim());
+            if (parts.length < 2) return '';
+            const m = parseInt(parts[0]);
+            const d = parseInt(parts[1]);
+            if (isNaN(m) || isNaN(d)) return '';
+            return `${currentYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        };
+
+        if (item.period && item.type === '외박') {
+            const [startStr, endStr] = item.period.split('~').map((s: string) => s.trim());
+            const startDate = toISODate(startStr);
+            const endDate = endStr ? toISODate(endStr) : startDate;
+            if (startDate && endDate) {
+                records.push({
+                    name: cleanName,
+                    type: 'pass',
+                    startDate,
+                    endDate,
+                    reason: item.reason || ''
+                });
+            }
+        }
+
+        if (item.vacation) {
+            const startDate = toISODate(item.vacation.depart);
+            const endDate = toISODate(item.vacation.return);
+            if (startDate && endDate) {
+                records.push({
+                    name: cleanName,
+                    type: 'vacation',
+                    startDate,
+                    endDate,
+                    reason: item.vacation.reason || ''
+                });
+            }
+        }
+
+        return records;
+    });
 
     return (
         <div className="space-y-4 animate-in zoom-in-95 duration-300">
@@ -68,6 +118,7 @@ export function MovementExcelView({
                 dataList={dataList}
                 dbMembers={dbMembers}
                 baseDate={baseDate}
+                movements={tempMovements}
             />
         </div>
     );

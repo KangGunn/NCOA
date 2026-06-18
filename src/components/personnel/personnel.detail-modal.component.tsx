@@ -71,6 +71,18 @@ export function PersonnelDetailModal({
                         <div className="text-xs font-black text-gray-400 uppercase tracking-wide mb-1">이름 (구분)</div>
                         <div className="text-xl font-black text-gray-900">{member.name} {member.role === 'runner' && <span className="text-sm text-indigo-500 ml-2">(미군 러너)</span>}</div>
                     </div>
+                    {member.englishName && (
+                        <div>
+                            <div className="text-xs font-black text-gray-400 uppercase tracking-wide mb-1">영문 이름</div>
+                            <div className="text-lg font-bold text-gray-800">{member.englishName}</div>
+                        </div>
+                    )}
+                    {member.phoneNumber && (
+                        <div>
+                            <div className="text-xs font-black text-gray-400 uppercase tracking-wide mb-1">전화번호</div>
+                            <div className="text-lg font-bold text-gray-800">{member.phoneNumber}</div>
+                        </div>
+                    )}
                     <div>
                         <div className="text-xs font-black text-gray-400 uppercase tracking-wide mb-1">계급</div>
                         <div className="flex items-center gap-2">

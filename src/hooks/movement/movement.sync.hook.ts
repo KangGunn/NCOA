@@ -3,8 +3,9 @@ import { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
 import axios from 'axios';
-import { doc, onSnapshot, setDoc, serverTimestamp, collection, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, serverTimestamp, collection, getDoc, writeBatch, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
+import type { MovementRecord } from '../../types/movement/movement.type';
 
 const SPREADSHEET_URLS = {
     test: "https://docs.google.com/spreadsheets/d/1eyiNzyvJ1BguGzzpkYDnVegi-4U-zuCacCvy9bOW8R8/export?format=csv&gid=1529486829",
@@ -93,6 +94,7 @@ export function useMovementSync(baseDate?: Date) {
     const [sheetMode, setSheetMode] = useState<'test' | 'prod' | null>(null);
     const [sheetUpdatedAt, setSheetUpdatedAt] = useState<string>('0');
     const [dbMembers, setDbMembers] = useState<any[]>([]);
+    const [movements, setMovements] = useState<MovementRecord[]>([]);
 
     useEffect(() => {
         const unsub = onSnapshot(doc(db, 'settings', 'spreadsheet'), (snap) => {
@@ -120,9 +122,15 @@ export function useMovementSync(baseDate?: Date) {
             setDbMembers(rows);
         });
 
+        const unsubMovements = onSnapshot(collection(db, 'movements'), (snap) => {
+            const rows = snap.docs.map(d => ({ id: d.id, ...d.data() } as MovementRecord));
+            setMovements(rows);
+        });
+
         return () => {
             unsub();
             unsubMembers();
+            unsubMovements();
         };
     }, []);
 
@@ -452,14 +460,29 @@ export function useMovementSync(baseDate?: Date) {
                                         } else {
                                             isLinked = passReturn ? vStartStr === passReturn : false;
                                         }
+
+                                        let vReason = vacationPart.trim();
+                                        vReason = vReason.replace(rangeRegex, '');
+                                        vReason = vReason.replace(singleRegex, '');
+                                        vReason = vReason.replace(/\([^\)]+\)/g, '');
+                                        vReason = vReason.trim();
+
                                         return {
                                             period: vRangeMatch ? `${vM1}.${vD1}~${vM2}.${vD2}` : `${vM1}.${vD1}`,
                                             depart: vStartStr,
                                             isLinked,
                                             return: vEndStr,
-                                            stayDays: getDatesBetween(vStartDate, vEndDate, false)
+                                            stayDays: getDatesBetween(vStartDate, vEndDate, false),
+                                            reason: vReason
                                         };
                                     };
+
+                                    let passReason = passPart.trim();
+                                    passReason = passReason.replace(/^(병장|상병|일병|이병)\s+[가-힣]+\s*/, '');
+                                    passReason = passReason.replace(rangeRegex, '');
+                                    passReason = passReason.replace(singleRegex, '');
+                                    passReason = passReason.replace(/\([^\)]+\)/g, '');
+                                    passReason = passReason.trim();
 
                                     if (rangeMatch) {
                                         // '+' 앞에 날짜 범위 있음 → 외박 처리
@@ -480,7 +503,8 @@ export function useMovementSync(baseDate?: Date) {
                                             period: `${startM}.${startD}~${endM}.${endD}`,
                                             depart: `${departDate.getMonth() + 1}.${departDate.getDate()}`,
                                             return: `${endM}.${endD}`,
-                                            stayDays: getDatesBetween(startDate, endDate, true)
+                                            stayDays: getDatesBetween(startDate, endDate, true),
+                                            reason: passReason
                                         };
 
                                         if (vacationRaw) {
@@ -516,7 +540,8 @@ export function useMovementSync(baseDate?: Date) {
                                                     period: `${m}.${d} (원데이)`,
                                                     depart: `${departDate.getMonth() + 1}.${departDate.getDate()}`,
                                                     return: `${m}.${d}`,
-                                                    stayDays: [] as string[]
+                                                    stayDays: [] as string[],
+                                                    reason: passReason
                                                 };
 
                                                 if (vacationRaw) {
@@ -541,6 +566,7 @@ export function useMovementSync(baseDate?: Date) {
                                                     depart: '',
                                                     return: vacation.return,
                                                     stayDays: [] as string[],
+                                                    reason: '',
                                                     vacation
                                                 });
                                             } else {
@@ -612,9 +638,10 @@ export function useMovementSync(baseDate?: Date) {
 
         try {
             const isLocal = window.location.hostname === 'localhost';
-            const baseUrl = isLocal
-                ? 'http://127.0.0.1:5001/seniorkatusa-aa594/asia-northeast3'
-                : 'https://asia-northeast3-seniorkatusa-aa594.cloudfunctions.net';
+            const baseUrl = import.meta.env.VITE_BACKEND_URL 
+                || (isLocal
+                    ? 'http://127.0.0.1:5001/seniorkatusa-aa594/asia-northeast3'
+                    : 'https://asia-northeast3-seniorkatusa-aa594.cloudfunctions.net');
 
             const movementsToSync = targetData.map(m => {
                 const resolvedName = resolutions[m.name] || m.name;
@@ -632,6 +659,115 @@ export function useMovementSync(baseDate?: Date) {
             }
 
             if (response.data.status === 'success') {
+                const currentYear = new Date().getFullYear();
+                const toISODate = (monthDayStr: string) => {
+                    if (!monthDayStr) return '';
+                    const clean = monthDayStr.replace(/\(원데이\)/, '').trim();
+                    const parts = clean.split(/[./~]/).map(p => p.trim());
+                    if (parts.length < 2) return '';
+                    const m = parseInt(parts[0]);
+                    const d = parseInt(parts[1]);
+                    if (isNaN(m) || isNaN(d)) return '';
+                    return `${currentYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                };
+
+                // Find date range of sync and names
+                let minDate = '9999-12-31';
+                let maxDate = '0000-01-01';
+                const namesToSync = new Set<string>();
+
+                movementsToSync.forEach(m => {
+                    const cleanName = m.name.replace(/^(병장|상병|일병|이병)\s*/, '');
+                    namesToSync.add(cleanName);
+
+                    if (m.period && m.type === '외박') {
+                        const [startStr, endStr] = m.period.split('~').map((s: string) => s.trim());
+                        const startDate = toISODate(startStr);
+                        const endDate = endStr ? toISODate(endStr) : startDate;
+                        if (startDate && startDate < minDate) minDate = startDate;
+                        if (endDate && endDate > maxDate) maxDate = endDate;
+                    }
+                    if (m.vacation) {
+                        const startDate = toISODate(m.vacation.depart);
+                        const endDate = toISODate(m.vacation.return);
+                        if (startDate && startDate < minDate) minDate = startDate;
+                        if (endDate && endDate > maxDate) maxDate = endDate;
+                    }
+                });
+
+                // 1. Delete existing movements for these names that overlap with this range
+                if (namesToSync.size > 0 && minDate !== '9999-12-31' && maxDate !== '0000-01-01') {
+                    const qExisting = query(
+                        collection(db, 'movements'),
+                        where('name', 'in', Array.from(namesToSync))
+                    );
+                    const snapExisting = await getDocs(qExisting);
+                    const deleteBatch = writeBatch(db);
+                    let shouldCommitDelete = false;
+
+                    snapExisting.docs.forEach(docSnap => {
+                        const data = docSnap.data();
+                        if (data.startDate <= maxDate && data.endDate >= minDate) {
+                            deleteBatch.delete(docSnap.ref);
+                            shouldCommitDelete = true;
+                        }
+                    });
+                    if (shouldCommitDelete) {
+                        await deleteBatch.commit();
+                    }
+                }
+
+                // 2. Add new movements to Firestore
+                const addBatch = writeBatch(db);
+                let shouldCommitAdd = false;
+
+                movementsToSync.forEach(m => {
+                    const cleanName = m.name.replace(/^(병장|상병|일병|이병)\s*/, '');
+
+                    // Save pass movement
+                    if (m.period && m.type === '외박') {
+                        const [startStr, endStr] = m.period.split('~').map((s: string) => s.trim());
+                        const startDate = toISODate(startStr);
+                        const endDate = endStr ? toISODate(endStr) : startDate;
+
+                        if (startDate && endDate) {
+                            const docRef = doc(collection(db, 'movements'));
+                            addBatch.set(docRef, {
+                                name: cleanName,
+                                type: 'pass',
+                                startDate,
+                                endDate,
+                                reason: m.reason || '',
+                                createdAt: serverTimestamp()
+                            });
+                            shouldCommitAdd = true;
+                        }
+                    }
+
+                    // Save vacation movement
+                    if (m.vacation) {
+                        const startDate = toISODate(m.vacation.depart);
+                        const endDate = toISODate(m.vacation.return);
+
+                        if (startDate && endDate) {
+                            const docRef = doc(collection(db, 'movements'));
+                            addBatch.set(docRef, {
+                                name: cleanName,
+                                type: 'vacation',
+                                startDate,
+                                endDate,
+                                reason: m.vacation.reason || '',
+                                createdAt: serverTimestamp()
+                            });
+                            shouldCommitAdd = true;
+                        }
+                    }
+                });
+
+                if (shouldCommitAdd) {
+                    await addBatch.commit();
+                }
+
                 setSuccess(`${response.data.count}개의 셀이 성공적으로 업데이트되었습니다!`);
                 setAmbiguousMembers(null);
                 setResolutions({});
@@ -761,6 +897,7 @@ export function useMovementSync(baseDate?: Date) {
         setResolutions,
         sheetMode,
         dbMembers,
+        movements,
         toggleMode,
         handleFileUpload,
         handleSync,
