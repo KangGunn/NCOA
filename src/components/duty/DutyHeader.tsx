@@ -1,5 +1,5 @@
 import { Calendar as CalendarIcon, Trash2, LogOut, Info, Download, Check } from 'lucide-react';
- 
+
 interface DutyHeaderProps {
     viewMode: 'actual' | 'kta-template' | 'blc-template';
     setViewMode: (mode: 'actual' | 'kta-template' | 'blc-template') => void;

@@ -26,6 +26,23 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
     const [dutiesInitialized, setDutiesInitialized] = useState(false);
     const isConfirmingRef = useRef(false);
 
+    // 편집 중인 월 (예: "2026-06") 목록 관리
+    const [editedMonths, setEditedMonths] = useState<Set<string>>(() => {
+        const saved = localStorage.getItem('ncoa_duty_planner_edited_months');
+        if (saved) {
+            try {
+                return new Set(JSON.parse(saved));
+            } catch (e) {
+                console.error("Failed to parse saved edited months:", e);
+            }
+        }
+        return new Set<string>();
+    });
+
+    useEffect(() => {
+        localStorage.setItem('ncoa_duty_planner_edited_months', JSON.stringify(Array.from(editedMonths)));
+    }, [editedMonths]);
+
     // 원본 데이터가 최초 로드될 때 샌드박스 초기화 (로컬스토리지 백업 지원)
     useEffect(() => {
         if (events.length > 0 && !dutiesInitialized) {
@@ -35,7 +52,6 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
                     const parsed = JSON.parse(saved) as CalendarEvent[];
                     setDuties(parsed);
                     setDutiesInitialized(true);
-                    showToast("이전에 편집 중이던 임시 당직 데이터를 로컬 저장소에서 불러왔습니다!");
                     return;
                 } catch (e) {
                     console.error("Failed to parse saved duties:", e);
@@ -45,9 +61,32 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
             const initialDuties = events.filter((e: CalendarEvent) => e.type === 'duty');
             setDuties(initialDuties);
             setDutiesInitialized(true);
-            showToast("실제 당직 데이터를 로컬 샌드박스에 연동했습니다! (실제 DB는 수정되지 않습니다)");
         }
-    }, [events, dutiesInitialized, showToast]);
+    }, [events, dutiesInitialized]);
+
+    // DB의 실제 당직이 변경될 때 자동으로 동기화 (단, 편집 중인 월은 제외)
+    useEffect(() => {
+        if (!dutiesInitialized) return;
+
+        const dbDuties = events.filter((e: CalendarEvent) => e.type === 'duty');
+        setDuties(prevDuties => {
+            // 편집 중인 월의 당직만 유지
+            const editedLocalDuties = prevDuties.filter(d => {
+                const [yStr, mStr] = d.startDate.split('-');
+                const monthKey = `${yStr}-${mStr}`;
+                return editedMonths.has(monthKey);
+            });
+
+            // 편집 중이 아닌 월의 당직은 DB에서 실시간 반영
+            const nonEditedDbDuties = dbDuties.filter(d => {
+                const [yStr, mStr] = d.startDate.split('-');
+                const monthKey = `${yStr}-${mStr}`;
+                return !editedMonths.has(monthKey);
+            });
+
+            return [...editedLocalDuties, ...nonEditedDbDuties];
+        });
+    }, [events, editedMonths, dutiesInitialized]);
 
     // 샌드박스 상태가 변경될 때마다 로컬스토리지에 동기화
     useEffect(() => {
@@ -251,6 +290,17 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
         }
     };
 
+    const markCurrentMonthAsEdited = () => {
+        const monthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
+        if (!editedMonths.has(monthKey)) {
+            setEditedMonths(prev => {
+                const next = new Set(prev);
+                next.add(monthKey);
+                return next;
+            });
+        }
+    };
+
     // 단일 날짜 당직 배정 및 로컬 샌드박스 처리
     const handleCellClick = (dateStr: string, directMemberName?: string) => {
         if (viewMode === 'actual' && restrictionBrush === 'personal') {
@@ -264,6 +314,7 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
             return;
         }
 
+        markCurrentMonthAsEdited();
         const existingDuty = currentMonthDuties.find((d: CalendarEvent) => d.startDate === dateStr);
         const targetMemberName = directMemberName || selectedMember?.name;
 
@@ -289,6 +340,7 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
 
     const handleClearDate = (e: React.MouseEvent, id: string) => {
         e.stopPropagation();
+        markCurrentMonthAsEdited();
         setDuties(prev => prev.filter((d: CalendarEvent) => d.id !== id));
     };
 
@@ -299,6 +351,7 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
         }
 
         if (confirm(`⚠️ [경고] ${year}년 ${month + 1}월에 배정된 총 ${currentMonthDuties.length}개의 당직 일정을 전부 지우시겠습니까? (이 변경은 임시 화면에만 적용되며 실제 DB에는 반영되지 않습니다)`)) {
+            markCurrentMonthAsEdited();
             setDuties(prev => prev.filter((d: CalendarEvent) => {
                 const [yStr, mStr] = d.startDate.split('-');
                 const eYear = parseInt(yStr, 10);
@@ -306,6 +359,35 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
                 return !(eYear === year && eMonth === month);
             }));
             showToast(`[임시] ${month + 1}월의 당직표가 초기화되었습니다.`);
+        }
+    };
+
+    const handleSyncFromDB = () => {
+        const actualDutiesThisMonth = events.filter((e: CalendarEvent) => {
+            if (e.type !== 'duty') return false;
+            const [yStr, mStr] = e.startDate.split('-');
+            const eYear = parseInt(yStr, 10);
+            const eMonth = parseInt(mStr, 10) - 1;
+            return eYear === year && eMonth === month;
+        });
+
+        if (confirm(`📅 실제 캘린더 DB에 저장된 ${year}년 ${month + 1}월의 당직 일정 ${actualDutiesThisMonth.length}건을 플래너에 불러오시겠습니까?\n(현재 플래너에 임시 작성 중인 당월 정보는 덮어씌워집니다)`)) {
+            const otherMonthDuties = duties.filter((d: CalendarEvent) => {
+                const [yStr, mStr] = d.startDate.split('-');
+                const eYear = parseInt(yStr, 10);
+                const eMonth = parseInt(mStr, 10) - 1;
+                return !(eYear === year && eMonth === month);
+            });
+
+            const monthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
+            setEditedMonths(prev => {
+                const next = new Set(prev);
+                next.delete(monthKey);
+                return next;
+            });
+
+            setDuties([...otherMonthDuties, ...actualDutiesThisMonth]);
+            showToast("실제 캘린더 당직 데이터를 성공적으로 가져왔습니다!");
         }
     };
 
@@ -364,6 +446,14 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
             });
 
             await batch.commit();
+
+            const monthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
+            setEditedMonths(prev => {
+                const next = new Set(prev);
+                next.delete(monthKey);
+                return next;
+            });
+
             showToast(`${year}년 ${month + 1}월 당직이 실제 캘린더 DB에 성공적으로 반영되었습니다! 🎉`, "success");
         } catch (e) {
             console.error("Error confirming duties:", e);
@@ -384,6 +474,8 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
         togglePersonalRestriction,
         toggleMemberDutyCompleted,
         handleCellClick, handleClearDate, handleClearMonth,
-        handleConfirmDuties
+        handleConfirmDuties,
+        handleSyncFromDB,
+        markCurrentMonthAsEdited
     };
 }

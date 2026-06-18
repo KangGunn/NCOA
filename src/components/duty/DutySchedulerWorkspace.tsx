@@ -52,7 +52,8 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
         dutiesInitialized,
         togglePersonalRestriction,
         handleCellClick: baseHandleCellClick, handleClearDate, handleClearMonth,
-        handleConfirmDuties
+        handleConfirmDuties,
+        markCurrentMonthAsEdited
     } = useDutyState({ events, members, personalRestrictions, dutyHolidays, showToast });
 
 
@@ -583,6 +584,7 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                     blcSections={blcSections}
                     currentDate={currentDate}
                     onApply={(assignments: AssignedDuty[]) => {
+                        markCurrentMonthAsEdited();
                         const newDuties = assignments.map(a => ({
                             id: `auto-${a.dateStr}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
                             type: 'duty' as const,
