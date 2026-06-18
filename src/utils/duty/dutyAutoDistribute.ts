@@ -227,7 +227,7 @@ export async function runAutoDistribute(params: {
     }
 
     const isHoliday = (ds: string) =>
-        allEvents.some(e => e.type === 'holiday' && ds >= e.startDate && ds <= e.endDate);
+        allEvents.some(e => e.type === 'holiday' && e.holidayType !== 'duty' && ds >= e.startDate && ds <= e.endDate);
 
     const blcActiveDayFn = (day0: string, tds: string) => getBlcActiveDay(day0, tds, isHoliday);
 

@@ -159,7 +159,7 @@ export function DutyCalendarGrid({
                             if (dayCount < 22) {
                                 const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
                                 const isSunday = current.getDay() === 0;
-                                const isHoliday = events.some((e: CalendarEvent) => e.type === 'holiday' && currentStr >= e.startDate && currentStr <= e.endDate);
+                                const isHoliday = events.some((e: CalendarEvent) => e.type === 'holiday' && e.holidayType !== 'duty' && currentStr >= e.startDate && currentStr <= e.endDate);
                                 if (!isSunday && !isHoliday) {
                                     dayCount++;
                                 }
@@ -187,7 +187,7 @@ export function DutyCalendarGrid({
                     if (customLabel) {
                         customKtaBadges.push({
                             id: `kta-cust-${e.id}-${diffDays}`,
-                            label: `K-${customLabel}`
+                            label: customLabel
                         });
                     }
                 });
@@ -200,7 +200,7 @@ export function DutyCalendarGrid({
                     if (customLabel) {
                         customBlcBadges.push({
                             id: `blc-cust-${day0.id}-${diffDays}`,
-                            label: `B-${customLabel}`
+                            label: customLabel
                         });
                     }
                 });
@@ -259,7 +259,7 @@ export function DutyCalendarGrid({
                                             className={`text-[8.5px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 whitespace-nowrap ${badgeBg}`}
                                             title={e.memo}
                                         >
-                                            {isBlc ? 'B' : 'K'}-{label}{batchSuffix}
+                                            {label}{batchSuffix}
                                         </span>
                                     );
                                 })}

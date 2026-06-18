@@ -1,3 +1,8 @@
+interface TemplateScheduleItem {
+    day: number;
+    events: string[];
+}
+
 interface DutyTemplateGridProps {
     viewMode: 'kta-template' | 'blc-template';
     ktaTemplate: any;
@@ -32,7 +37,7 @@ export function DutyTemplateGrid({
                     const isSun = i % 7 === 6;
                     const dayNum = i - 3; // 월요일(i=0) = Day -3, ...
 
-                    const dayEvents = ktaTemplate?.schedules?.find((s: any) => s.day === dayNum)?.events || [];
+                    const dayEvents = ktaTemplate?.schedules?.find((s: TemplateScheduleItem) => s.day === dayNum)?.events || [];
                     const customLabel = ktaDayLabels[dayNum];
 
                     return (
@@ -66,10 +71,10 @@ export function DutyTemplateGrid({
                                                     delete next[dayNum];
                                                     setKtaDayLabels(next);
                                                 }}
-                                                className="text-[8px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 bg-rose-950/80 text-rose-450 border border-rose-900/35 cursor-pointer hover:bg-rose-900 hover:text-white transition-all select-none animate-pulse"
+                                                className="text-[8px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 bg-rose-950/80 text-rose-455 border border-rose-900/35 cursor-pointer hover:bg-rose-900 hover:text-white transition-all select-none"
                                                 title="클릭 시 라벨 삭제"
                                             >
-                                                K-{customLabel}
+                                                {customLabel}
                                             </span>
                                         )}
                                     </div>
@@ -79,7 +84,7 @@ export function DutyTemplateGrid({
                                         </span>
                                     )}
                                 </div>
-
+                                
                                 <div className="flex-1 min-h-0 my-1.5 flex flex-col gap-0.5 overflow-y-auto custom-scrollbar pr-0.5 w-full">
                                     {dayEvents.map((evt: string, idx: number) => (
                                         <div
@@ -92,7 +97,7 @@ export function DutyTemplateGrid({
                                         </div>
                                     ))}
                                 </div>
-
+                                
                                 <div className="flex flex-row gap-1 w-full shrink-0 mt-auto pt-1.5 border-t border-slate-800/40 min-h-[30px] flex-wrap">
                                     {ktaSections.map((sec) => {
                                         const isRestricted = !!restrictions[dayNum]?.[sec] ||
@@ -122,15 +127,15 @@ export function DutyTemplateGrid({
             </div>
         );
     }
-
+    
     if (viewMode === 'blc-template') {
         const blcDays = Array.from({ length: 28 }, (_, i) => i - 1); // Day -1 ~ Day 26
         return (
             <div className="flex-1 min-h-0 grid grid-cols-7 bg-slate-950/20 w-full h-full relative grid-rows-4">
                 {blcDays.map((dayNum) => {
-                    const dayEvents = blcTemplate?.schedules?.find((s: any) => s.day === dayNum)?.events || [];
+                    const dayEvents = blcTemplate?.schedules?.find((s: TemplateScheduleItem) => s.day === dayNum)?.events || [];
                     const customLabel = blcDayLabels[dayNum];
-
+                    
                     return (
                         <div
                             key={dayNum}
@@ -158,18 +163,13 @@ export function DutyTemplateGrid({
                                                     delete next[dayNum];
                                                     setBlcDayLabels(next);
                                                 }}
-                                                className="text-[8px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 bg-indigo-950/80 text-indigo-400 border border-indigo-900/35 cursor-pointer hover:bg-indigo-900 hover:text-white transition-all select-none animate-pulse"
+                                                className="text-[8px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 bg-indigo-950/80 text-indigo-400 border border-indigo-900/35 cursor-pointer hover:bg-indigo-900 hover:text-white transition-all select-none"
                                                 title="클릭 시 라벨 삭제"
                                             >
-                                                B-{customLabel}
+                                                {customLabel}
                                             </span>
                                         )}
                                     </div>
-                                    {dayNum === 0 && (
-                                        <span className="text-[9px] font-black text-blue-400 bg-blue-950/20 px-2 py-0.5 rounded-lg border border-blue-500/10 uppercase shrink-0">
-                                            ★ 입소일
-                                        </span>
-                                    )}
                                     {dayNum === 22 && (
                                         <span className="text-[9px] font-black text-blue-400 bg-blue-950/20 px-2 py-0.5 rounded-lg border border-blue-500/10 uppercase shrink-0">
                                             Grad
@@ -188,9 +188,6 @@ export function DutyTemplateGrid({
                                             <span className="truncate">{evt}</span>
                                         </div>
                                     ))}
-                                    {dayEvents.length === 0 && (
-                                        <span className="text-[8.5px] text-slate-700 italic">등록된 일정 없음</span>
-                                    )}
                                 </div>
 
                                 <div className="flex flex-row gap-1 w-full shrink-0 mt-auto pt-1.5 border-t border-slate-800/40 min-h-[30px] flex-wrap">

@@ -73,10 +73,10 @@ export function exportCalendarImage({
 
         const isHolidayBetween = dutyHolidays.some(h => dateStr >= h.startDate && dateStr < h.endDate);
         if (isHolidayBetween) return 'sat';
-        
+
         const d = new Date(dateStr + 'T00:00:00');
         const dayOfWeek = d.getDay();
-        
+
         if (dayOfWeek === 6) return 'sat';
         if (dayOfWeek === 0 || dayOfWeek === 5) return 'friSun';
         return 'weekday';
@@ -100,7 +100,7 @@ export function exportCalendarImage({
                 if (dayCount < 22) {
                     const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
                     const isSunday = current.getDay() === 0;
-                    const isHoliday = events.some((e: CalendarEvent) => e.type === 'holiday' && currentStr >= e.startDate && currentStr <= e.endDate);
+                    const isHoliday = events.some((e: CalendarEvent) => e.type === 'holiday' && e.holidayType !== 'duty' && currentStr >= e.startDate && currentStr <= e.endDate);
                     if (!isSunday && !isHoliday) {
                         dayCount++;
                     }
@@ -187,7 +187,7 @@ export function exportCalendarImage({
             const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
             const customLabel = ktaDayLabels[diffDays];
             if (customLabel) {
-                cellLabels.push(`K-${customLabel}`);
+                cellLabels.push(`KTA ${customLabel}`);
             }
         });
 
@@ -197,7 +197,7 @@ export function exportCalendarImage({
             const diffDays = getBlcActiveDay(day0.startDate, cell.dateStr);
             const customLabel = blcDayLabels[diffDays];
             if (customLabel) {
-                cellLabels.push(`B-${customLabel}`);
+                cellLabels.push(`BLC ${customLabel}`);
             }
         });
 
@@ -217,16 +217,8 @@ export function exportCalendarImage({
             cellLabels.push(monthlyDayLabels[cell.dateStr]);
         }
 
-        // De-duplicate and apply generalized label transformations
-        const finalLabels = Array.from(new Set(cellLabels)).map(label => {
-            if (label.startsWith('K-')) {
-                return 'KTA ' + label.substring(2);
-            }
-            if (label.startsWith('B-')) {
-                return 'BLC ' + label.substring(2);
-            }
-            return label;
-        });
+        // De-duplicate
+        const finalLabels = Array.from(new Set(cellLabels));
 
         if (finalLabels.length > 0) {
             const lineHeight = 15;
@@ -274,7 +266,7 @@ export function exportCalendarImage({
     // Holidays / Special Note
     const activeMonthStart = new Date(year, month, 1);
     const activeMonthEnd = new Date(year, month + 1, 0, 23, 59, 59, 999);
-    
+
     const activeMonthHolidays = dutyHolidays.filter((h) => {
         const start = new Date(h.startDate + 'T00:00:00');
         const end = new Date(h.endDate + 'T23:59:59');

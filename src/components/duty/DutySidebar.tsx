@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { RefreshCw, Check, Info, Calendar, ChevronDown, Wand2 } from 'lucide-react';
 import type { CalendarMember } from '../../types/calendar/calendar.type';
 import { calculateRank } from '../../lib/rankUtils';
+import type { DutyHoliday } from '../../hooks/duty/useDutySync';
 
 interface DutySidebarProps {
     viewMode: 'actual' | 'kta-template' | 'blc-template';
@@ -25,7 +26,7 @@ interface DutySidebarProps {
     handleSaveTemplateSettings: () => void;
     handleSaveBlcTemplateSettings: () => void;
     showToast: (msg: string, type?: 'success' | 'error') => void;
-    dutyHolidays: any[];
+    dutyHolidays: DutyHoliday[];
     handleAddDutyHoliday: (name: string, startDate: string, endDate: string) => Promise<void>;
     handleDeleteDutyHoliday: (id: string) => Promise<void>;
     ktaSections: string[];
@@ -33,6 +34,7 @@ interface DutySidebarProps {
     handleToggleSectionMapping: (mode: 'kta' | 'blc', section: string) => void;
     currentDate: Date;
     onOpenAutoDistributeModal: () => void;
+    onOpenMonthlyLabelsModal: () => void;
     selectedMember: CalendarMember | null;
     setSelectedMember: (member: CalendarMember | null) => void;
 }
@@ -48,6 +50,7 @@ export function DutySidebar({
     ktaSections, blcSections, handleToggleSectionMapping,
     currentDate,
     onOpenAutoDistributeModal,
+    onOpenMonthlyLabelsModal,
     selectedMember,
     setSelectedMember
 }: DutySidebarProps) {
@@ -132,18 +135,18 @@ export function DutySidebar({
             const targetWeekday = parseInt(target.weekday || '0', 10) || 0;
             const targetFriSun = parseInt(target.friSun || '0', 10) || 0;
             const targetSat = parseInt(target.sat || '0', 10) || 0;
-            const targetFree = parseInt(target.free || '0', 10) || 0;
-            const hasTarget = targetWeekday > 0 || targetFriSun > 0 || targetSat > 0 || targetFree > 0;
+            const isFreeConfigured = target.free !== undefined && target.free !== null && target.free !== '';
+            const targetFree = isFreeConfigured ? (parseInt(target.free || '0', 10) || 0) : 0;
 
             const currentMonthTotal = (stats.currentMonthWeekday || 0) + (stats.currentMonthFriSun || 0) + (stats.currentMonthSat || 0);
-            const targetTotal = targetWeekday + targetFriSun + targetSat + targetFree;
 
             const isWeekdayMet = stats.currentMonthWeekday >= targetWeekday;
             const isFriSunMet = stats.currentMonthFriSun >= targetFriSun;
             const isSatMet = stats.currentMonthSat >= targetSat;
-            const isFreeMet = currentMonthTotal >= targetTotal;
 
-            const isAllMonthlyTargetsMet = hasTarget && isWeekdayMet && isFriSunMet && isSatMet && isFreeMet;
+            const isAllMonthlyTargetsMet = isFreeConfigured
+                ? (isWeekdayMet && isFriSunMet && isSatMet && currentMonthTotal >= (targetWeekday + targetFriSun + targetSat + targetFree))
+                : (currentMonthTotal >= 2);
 
             const isSelected = selectedMember?.id === member.id;
 
@@ -272,13 +275,20 @@ export function DutySidebar({
                     )}
                 </div>
 
-                <div className="p-4 border-t border-slate-850 bg-slate-900/40 shrink-0 flex gap-2">
+                <div className="p-4 border-t border-slate-850 bg-slate-900/40 shrink-0 flex flex-col gap-2">
                     <button
                         onClick={() => setIsHolidayModalOpen(true)}
-                        className="flex-1 py-3 px-4 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-350 hover:text-slate-200 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 active:scale-[0.98] shadow-md cursor-pointer"
+                        className="w-full py-3 px-4 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-350 hover:text-slate-200 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 active:scale-[0.98] shadow-md cursor-pointer"
                     >
                         <Calendar className="w-4 h-4 text-indigo-400" />
                         <span>휴일 추가 / 관리</span>
+                    </button>
+                    <button
+                        onClick={onOpenMonthlyLabelsModal}
+                        className="w-full py-3 px-4 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-350 hover:text-slate-200 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 active:scale-[0.98] shadow-md cursor-pointer"
+                    >
+                        <Calendar className="w-4 h-4 text-emerald-400" />
+                        <span>날짜 레이블 편집</span>
                     </button>
                 </div>
 
@@ -311,22 +321,73 @@ export function DutySidebar({
                                             className="w-full py-2.5 px-3 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500"
                                         />
                                         <div className="flex gap-2 w-full">
-                                            <div className="flex-1 min-w-0">
-                                                <span className="text-[10px] font-black text-slate-500 block mb-1">시작일</span>
-                                                <input
-                                                    type="date"
-                                                    id="duty-holiday-start-modal"
-                                                    className="w-full py-2 px-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold text-slate-100 focus:outline-none focus:border-indigo-500"
-                                                />
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <span className="text-[10px] font-black text-slate-500 block mb-1">종료일</span>
-                                                <input
-                                                    type="date"
-                                                    id="duty-holiday-end-modal"
-                                                    className="w-full py-2 px-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold text-slate-100 focus:outline-none focus:border-indigo-500"
-                                                />
-                                            </div>
+                                            {(() => {
+                                                const handleDateInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+                                                    const target = e.currentTarget;
+                                                    let digitCount = parseInt(target.dataset.digitCount || '0', 10);
+                                                    
+                                                    if (e.key === 'Backspace') {
+                                                        target.dataset.digitCount = Math.max(0, digitCount - 1).toString();
+                                                        return;
+                                                    }
+                                                    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Tab') {
+                                                        target.dataset.digitCount = '0';
+                                                        return;
+                                                    }
+                                                    
+                                                    // Robust check for numeric keys (Digit0-9, Numpad0-9, or keyCode 48-57 / 96-105) to bypass Windows IME 'Process' key issues
+                                                    const isNumeric = /^(Digit|Numpad)[0-9]$/.test(e.code) || 
+                                                                      (e.keyCode >= 48 && e.keyCode <= 57) || 
+                                                                      (e.keyCode >= 96 && e.keyCode <= 105);
+                                                    
+                                                    if (isNumeric) {
+                                                        digitCount += 1;
+                                                        if (digitCount === 4) {
+                                                            target.dataset.digitCount = '0';
+                                                            setTimeout(() => {
+                                                                const rightEvent = new KeyboardEvent('keydown', {
+                                                                    key: 'ArrowRight',
+                                                                    code: 'ArrowRight',
+                                                                    keyCode: 39,
+                                                                    which: 39,
+                                                                    bubbles: true,
+                                                                    cancelable: true
+                                                                });
+                                                                target.dispatchEvent(rightEvent);
+                                                            }, 50);
+                                                        } else {
+                                                            target.dataset.digitCount = digitCount.toString();
+                                                        }
+                                                    }
+                                                };
+                                                const handleDateInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+                                                    e.currentTarget.dataset.digitCount = '0';
+                                                };
+                                                return (
+                                                    <>
+                                                        <div className="flex-1 min-w-0">
+                                                            <span className="text-[10px] font-black text-slate-500 block mb-1">시작일</span>
+                                                            <input
+                                                                type="date"
+                                                                id="duty-holiday-start-modal"
+                                                                onKeyDown={handleDateInputKeyDown}
+                                                                onFocus={handleDateInputFocus}
+                                                                className="w-full py-2 px-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold text-slate-100 focus:outline-none focus:border-indigo-500"
+                                                            />
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <span className="text-[10px] font-black text-slate-500 block mb-1">종료일</span>
+                                                            <input
+                                                                type="date"
+                                                                id="duty-holiday-end-modal"
+                                                                onKeyDown={handleDateInputKeyDown}
+                                                                onFocus={handleDateInputFocus}
+                                                                className="w-full py-2 px-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold text-slate-100 focus:outline-none focus:border-indigo-500"
+                                                            />
+                                                        </div>
+                                                    </>
+                                                );
+                                            })()}
                                         </div>
                                         <button
                                             onClick={async () => {
@@ -366,21 +427,23 @@ export function DutySidebar({
                                         <p className="text-[11px] text-slate-600 text-center py-6 font-bold">등록된 전용 휴일이 없습니다.</p>
                                     ) : (
                                         <div className="max-h-48 overflow-y-auto space-y-2 custom-scrollbar pr-1 w-full">
-                                            {dutyHolidays.map((h: any) => (
-                                                <div key={h.id} className="flex items-center justify-between p-3 bg-slate-950/60 rounded-xl border border-slate-850 w-full hover:border-slate-800 transition-colors">
-                                                    <div className="flex flex-col gap-0.5 min-w-0 pr-2">
-                                                        <span className="text-[11px] font-black text-slate-300 truncate">{h.name}</span>
-                                                        <span className="text-[9px] font-bold text-slate-500">{h.startDate} ~ {h.endDate}</span>
+                                            {[...dutyHolidays]
+                                                .sort((a, b) => b.startDate.localeCompare(a.startDate) || b.endDate.localeCompare(a.endDate))
+                                                .map((h: DutyHoliday) => (
+                                                    <div key={h.id} className="flex items-center justify-between p-3 bg-slate-950/60 rounded-xl border border-slate-850 w-full hover:border-slate-800 transition-colors">
+                                                        <div className="flex flex-col gap-0.5 min-w-0 pr-2">
+                                                            <span className="text-[11px] font-black text-slate-300 truncate">{h.name}</span>
+                                                            <span className="text-[9px] font-bold text-slate-500">{h.startDate} ~ {h.endDate}</span>
+                                                        </div>
+                                                        <button
+                                                            onClick={() => handleDeleteDutyHoliday(h.id)}
+                                                            className="text-[10px] font-black text-rose-500 hover:text-rose-400 px-2 py-1 bg-rose-950/20 hover:bg-rose-950/20 border border-rose-900/30 rounded-lg transition-all shrink-0 cursor-pointer"
+                                                            title="휴일 삭제"
+                                                        >
+                                                            삭제
+                                                        </button>
                                                     </div>
-                                                    <button
-                                                        onClick={() => handleDeleteDutyHoliday(h.id)}
-                                                        className="text-[10px] font-black text-rose-500 hover:text-rose-400 px-2 py-1 bg-rose-950/20 hover:bg-rose-950/20 border border-rose-900/30 rounded-lg transition-all shrink-0 cursor-pointer"
-                                                        title="휴일 삭제"
-                                                    >
-                                                        삭제
-                                                    </button>
-                                                </div>
-                                            ))}
+                                                ))}
                                         </div>
                                     )}
                                 </div>
@@ -537,7 +600,7 @@ export function DutySidebar({
                             className="w-full py-4 px-4 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 shadow-lg shadow-rose-950/30"
                         >
                             <Check className="w-4 h-4" />
-                            템플릿 당직 불가 설정 저장
+                            KTA 템플릿 설정 저장
                         </button>
                     </div>
                 </div>
@@ -686,7 +749,7 @@ export function DutySidebar({
                             className="w-full py-4 px-4 bg-blue-600 hover:bg-blue-550 active:scale-95 text-white rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-950/30"
                         >
                             <Check className="w-4 h-4" />
-                            BLC/S3 당직 불가 설정 저장
+                            BLC 템플릿 설정 저장
                         </button>
                     </div>
                 </div>

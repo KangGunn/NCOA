@@ -51,7 +51,8 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
         currentMonthDuties, dutyStats,
         dutiesInitialized,
         togglePersonalRestriction,
-        handleCellClick: baseHandleCellClick, handleClearDate, handleClearMonth
+        handleCellClick: baseHandleCellClick, handleClearDate, handleClearMonth,
+        handleConfirmDuties
     } = useDutyState({ events, members, personalRestrictions, dutyHolidays, showToast });
 
 
@@ -166,7 +167,7 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
     };
 
     const getDutyForDate = (dateStr: string) => duties.find((d: CalendarEvent) => d.startDate === dateStr);
-    const isHolidayDate = (dateStr: string) => events.some((e: CalendarEvent) => e.type === 'holiday' && dateStr >= e.startDate && dateStr <= e.endDate);
+    const isHolidayDate = (dateStr: string) => events.some((e: CalendarEvent) => e.type === 'holiday' && e.holidayType !== 'duty' && dateStr >= e.startDate && dateStr <= e.endDate);
 
     const parseLocalDate = (dateStr: string) => {
         const [y, m, d] = dateStr.split('-').map(Number);
@@ -460,6 +461,7 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                 handleToggleSectionMapping={handleToggleSectionMapping}
                 currentDate={currentDate}
                 onOpenAutoDistributeModal={() => setIsAutoDistributeModalOpen(true)}
+                onOpenMonthlyLabelsModal={() => setIsMonthlyLabelsModalOpen(true)}
                 selectedMember={selectedMember}
                 setSelectedMember={setSelectedMember}
             />
@@ -474,8 +476,8 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                     nextMonth={nextMonth}
                     handleClearMonth={handleClearMonth}
                     onClose={onClose}
-                    onOpenMonthlyLabelsModal={() => setIsMonthlyLabelsModalOpen(true)}
                     onOpenInfoModal={() => setIsInfoModalOpen(true)}
+                    onConfirmDuties={handleConfirmDuties}
                     onExportImage={() => {
                         exportCalendarImage({
                             year,

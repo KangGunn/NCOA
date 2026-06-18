@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { db } from '../../lib/firebase';
-import { doc, setDoc, updateDoc } from 'firebase/firestore';
+import { useState, useEffect, useRef } from 'react';
+import { db, auth } from '../../lib/firebase';
+import { doc, setDoc, updateDoc, writeBatch, collection, serverTimestamp } from 'firebase/firestore';
 import type { CalendarEvent, CalendarMember } from '../../types/calendar/calendar.type';
 
 interface UseDutyStateProps {
@@ -24,6 +24,7 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
     // 로컬 당직 샌드박스 상태
     const [duties, setDuties] = useState<CalendarEvent[]>([]);
     const [dutiesInitialized, setDutiesInitialized] = useState(false);
+    const isConfirmingRef = useRef(false);
 
     // 원본 데이터가 최초 로드될 때 샌드박스 초기화 (로컬스토리지 백업 지원)
     useEffect(() => {
@@ -60,8 +61,10 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
 
     const currentMonthDuties = duties.filter((e: CalendarEvent) => {
         if (e.type !== 'duty') return false;
-        const eDate = new Date(e.startDate);
-        return eDate.getFullYear() === year && eDate.getMonth() === month;
+        const [yStr, mStr] = e.startDate.split('-');
+        const eYear = parseInt(yStr, 10);
+        const eMonth = parseInt(mStr, 10) - 1;
+        return eYear === year && eMonth === month;
     });
 
     const getPrevDateStr = (dateStr: string) => {
@@ -297,10 +300,76 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
 
         if (confirm(`⚠️ [경고] ${year}년 ${month + 1}월에 배정된 총 ${currentMonthDuties.length}개의 당직 일정을 전부 지우시겠습니까? (이 변경은 임시 화면에만 적용되며 실제 DB에는 반영되지 않습니다)`)) {
             setDuties(prev => prev.filter((d: CalendarEvent) => {
-                const eDate = new Date(d.startDate);
-                return !(eDate.getFullYear() === year && eDate.getMonth() === month);
+                const [yStr, mStr] = d.startDate.split('-');
+                const eYear = parseInt(yStr, 10);
+                const eMonth = parseInt(mStr, 10) - 1;
+                return !(eYear === year && eMonth === month);
             }));
             showToast(`[임시] ${month + 1}월의 당직표가 초기화되었습니다.`);
+        }
+    };
+
+    const handleConfirmDuties = async () => {
+        if (!dutiesInitialized || isConfirmingRef.current) return;
+
+        const sandboxDutiesThisMonth = duties.filter((d: CalendarEvent) => {
+            if (d.type !== 'duty') return false;
+            const [yStr, mStr] = d.startDate.split('-');
+            const eYear = parseInt(yStr, 10);
+            const eMonth = parseInt(mStr, 10) - 1;
+            return eYear === year && eMonth === month;
+        });
+
+        if (sandboxDutiesThisMonth.length === 0) {
+            if (!confirm(`⚠️ 현재 ${year}년 ${month + 1}월에 배정된 당직이 없습니다. 기존 실제 DB의 해당 월 당직을 모두 삭제하시겠습니까?`)) {
+                return;
+            }
+        } else {
+            if (!confirm(`📅 ${year}년 ${month + 1}월의 당직 일정 ${sandboxDutiesThisMonth.length}건을 확정하여 실제 캘린더 DB에 반영하시겠습니까?\n(기존 해당 월의 실제 당직 일정은 모두 삭제 후 새로 덮어씌워집니다)`)) {
+                return;
+            }
+        }
+
+        isConfirmingRef.current = true;
+        try {
+            const dbDutiesThisMonth = events.filter((e: CalendarEvent) => {
+                if (e.type !== 'duty') return false;
+                const [yStr, mStr] = e.startDate.split('-');
+                const eYear = parseInt(yStr, 10);
+                const eMonth = parseInt(mStr, 10) - 1;
+                return eYear === year && eMonth === month;
+            });
+
+            const batch = writeBatch(db);
+
+            // Delete existing actual duties
+            dbDutiesThisMonth.forEach(d => {
+                batch.delete(doc(db, "schedules", d.id));
+            });
+
+            // Add new duties
+            const user = auth.currentUser;
+            const uid = user?.uid || "";
+
+            sandboxDutiesThisMonth.forEach(d => {
+                const newDocRef = doc(collection(db, "schedules"));
+                batch.set(newDocRef, {
+                    uid,
+                    type: 'duty',
+                    startDate: d.startDate,
+                    endDate: d.endDate,
+                    memo: d.memo,
+                    createdAt: serverTimestamp()
+                });
+            });
+
+            await batch.commit();
+            showToast(`${year}년 ${month + 1}월 당직이 실제 캘린더 DB에 성공적으로 반영되었습니다! 🎉`, "success");
+        } catch (e) {
+            console.error("Error confirming duties:", e);
+            showToast("당직 확정 중 오류가 발생했습니다.", "error");
+        } finally {
+            isConfirmingRef.current = false;
         }
     };
 
@@ -314,6 +383,7 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
         dutiesInitialized,
         togglePersonalRestriction,
         toggleMemberDutyCompleted,
-        handleCellClick, handleClearDate, handleClearMonth
+        handleCellClick, handleClearDate, handleClearMonth,
+        handleConfirmDuties
     };
 }
