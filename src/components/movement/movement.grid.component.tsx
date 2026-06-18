@@ -1,14 +1,39 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+import { useState, useEffect } from 'react';
 import { cn } from '../../lib/utils';
+import type { MovementRecord } from '../../types/movement/movement.type';
+
+export interface DbMember {
+    name: string;
+    enlistmentDate?: string;
+    englishName?: string;
+    rank?: string;
+    sections?: string[];
+    phoneNumber?: string;
+}
 
 interface MovementGridProps {
     timeline: string[];
     dataList: { name: string; dayStatuses: Record<string, string> }[];
-    dbMembers: any[];
+    dbMembers: DbMember[];
     baseDate?: Date;
+    movements?: MovementRecord[];
 }
 
-export function MovementGrid({ timeline, dataList, dbMembers, baseDate }: MovementGridProps) {
+export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movements = [] }: MovementGridProps) {
+    const [activeCardIndex, setActiveCardIndex] = useState<number | null>(null);
+
+    useEffect(() => {
+        const handleOutsideClick = () => {
+            setActiveCardIndex(null);
+        };
+        document.addEventListener('click', handleOutsideClick);
+        return () => {
+            document.removeEventListener('click', handleOutsideClick);
+        };
+    }, []);
+
+    const currentYear = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
+
     const sortedEntries = [...dataList].sort((a, b) => {
         const cleanA = a.name.replace(/^(병장|상병|일병|이병)\s*/, '');
         const cleanB = b.name.replace(/^(병장|상병|일병|이병)\s*/, '');
@@ -38,78 +63,125 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate }: Moveme
 
     return (
         <div className="grid gap-2">
-            {sortedEntries.map((member, idx) => (
-                <div key={idx} className="bg-white border border-gray-100 rounded-xl p-3 shadow-sm hover:border-blue-200 transition-all flex items-center gap-4">
-                    <div className="w-24 shrink-0">
-                        <span className="text-sm font-black text-gray-900 truncate block">{member.name}</span>
-                    </div>
+            {sortedEntries.map((member, idx) => {
+                const cleanName = member.name.replace(/^(병장|상병|일병|이병)\s*/, '');
+                
+                // Collect all movements for this member that overlap with the current timeline view
+                const memberMovements = movements.filter(mov => 
+                    mov.name === cleanName && 
+                    timeline.some(dateStr => {
+                        const [m, d] = dateStr.split('.').map(Number);
+                        const isoDate = `${currentYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                        return isoDate >= mov.startDate && isoDate <= mov.endDate;
+                    })
+                );
 
-                    <div className="flex-1 flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar relative pt-4">
-                        {timeline.map((dateStr, tIdx) => {
-                            let status = member.dayStatuses[dateStr] || 'none';
-                            const [m, d] = dateStr.split('.').map(Number);
-                            const isWeekend = new Date(2026, m - 1, d, 12, 0, 0, 0).getDay() % 6 === 0;
+                const hasReason = memberMovements.some(mov => mov.reason);
 
-                            // Dynamically detect if we are departing for/on a pass on the recovery day (day after duty)
-                            if (status === 'pass-depart' || status === 'pass') {
-                                const yesterdayStr = tIdx > 0 ? timeline[tIdx - 1] : null;
-                                const yesterdayStatus = yesterdayStr ? (member.dayStatuses[yesterdayStr] || 'none') : 'none';
-                                if (yesterdayStatus === 'duty') {
-                                    status = 'recovery-pass-depart';
-                                }
-                            }
-
-                            return (
-                                <div key={tIdx} className="flex flex-col items-center gap-1 relative">
-                                    <div
-                                        className={cn(
-                                            "w-4 h-4 rounded-sm transition-all duration-300",
-                                            status === 'none' && "bg-gray-100",
-                                            status === 'pass' && "bg-blue-500 shadow-[0_0_6px_rgba(59,130,246,0.3)]",
-                                            status === 'pass-depart' && "",
-                                            status === 'vacation' && "bg-orange-500 shadow-[0_0_6px_rgba(249,115,22,0.3)]",
-                                            status === 'duty' && "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]",
-                                            status === 'recovery' && "bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.4)]",
-                                            status === 'linked' && "shadow-[0_0_8px_rgba(59,130,246,0.4)]",
-                                            status === 'recovery-pass-depart' && "shadow-[0_0_6px_rgba(250,204,21,0.4)]",
-                                            isWeekend && "border-2 border-black"
-                                        )}
-                                        style={
-                                            status === 'linked' ? {
-                                                background: 'linear-gradient(135deg, #3b82f6 50%, #f97316 50%)'
-                                            } : status === 'pass-depart' ? {
-                                                background: 'linear-gradient(135deg, #f3f4f6 50%, #3b82f6 50%)'
-                                            } : status === 'recovery-pass-depart' ? {
-                                                background: 'linear-gradient(135deg, #facc15 50%, #3b82f6 50%)'
-                                            } : undefined
-                                        }
-                                    />
-                                    {(() => {
-                                        const isFirst = tIdx === 0;
-                                        const isLast = tIdx === timeline.length - 1;
-                                        const isSunday = new Date(2026, m - 1, d, 12, 0, 0, 0).getDay() === 0;
-                                        const isMonthStart = d === 1;
-                                        const today = baseDate || new Date();
-                                        const isToday = today.getMonth() === m - 1 && today.getDate() === d;
-
-                                        if (isFirst || isLast || isSunday || isMonthStart || isToday) {
-                                            return (
-                                                <span className={cn(
-                                                    "text-[8px] font-black absolute -top-4 whitespace-nowrap",
-                                                    isToday ? "text-red-500 font-extrabold" : "text-gray-300"
-                                                )}>
-                                                    {dateStr}
-                                                </span>
-                                            );
-                                        }
-                                        return null;
-                                    })()}
+                return (
+                    <div 
+                        key={idx} 
+                        className={cn(
+                            "bg-white border border-gray-100 rounded-xl p-3 shadow-sm hover:border-blue-200 transition-all flex items-center gap-4 relative group/card",
+                            hasReason && "cursor-pointer"
+                        )}
+                        onClick={(e) => {
+                            if (!hasReason) return;
+                            e.stopPropagation();
+                            setActiveCardIndex(prev => prev === idx ? null : idx);
+                        }}
+                    >
+                        {/* Tooltip centered over the card */}
+                        {hasReason && (
+                            <div className={cn(
+                                "absolute bottom-full left-1/2 -translate-x-1/2 mb-2 flex-col items-center z-50 animate-in fade-in zoom-in-95 duration-100 pointer-events-none",
+                                activeCardIndex === idx ? "flex" : "hidden group-hover/card:flex"
+                            )}>
+                                <div className="bg-gray-950 text-white text-[11px] font-medium rounded-lg py-1.5 px-2.5 whitespace-nowrap shadow-xl leading-tight text-center border border-gray-800 space-y-1">
+                                    {memberMovements.filter(m => m.reason).map((mov, mIdx) => (
+                                        <div key={mIdx} className={mIdx > 0 ? "border-t border-gray-800 pt-1 mt-1" : ""}>
+                                            <div className="text-[9px] text-gray-400 font-bold mb-0.5">
+                                                {mov.type === 'pass' ? '외박' : '휴가'} ({mov.startDate.slice(5).replace('-', '.')} ~ {mov.endDate.slice(5).replace('-', '.')})
+                                            </div>
+                                            <div className="text-gray-100 font-semibold">{mov.reason}</div>
+                                        </div>
+                                    ))}
                                 </div>
-                            );
-                        })}
+                                <div className="w-1.5 h-1.5 bg-gray-950 rotate-45 -mt-[3.5px] border-r border-b border-gray-800" />
+                            </div>
+                        )}
+
+                        <div className="w-24 shrink-0">
+                            <span className="text-sm font-black text-gray-900 truncate block">{member.name}</span>
+                        </div>
+
+                        <div className="flex-1 flex items-center gap-1 overflow-visible pb-1 no-scrollbar relative pt-4">
+                            {timeline.map((dateStr, tIdx) => {
+                                let status = member.dayStatuses[dateStr] || 'none';
+                                const [m, d] = dateStr.split('.').map(Number);
+                                const isWeekend = new Date(currentYear, m - 1, d, 12, 0, 0, 0).getDay() % 6 === 0;
+
+                                // Dynamically detect if we are departing for/on a pass on the recovery day (day after duty)
+                                if (status === 'pass-depart' || status === 'pass') {
+                                    const yesterdayStr = tIdx > 0 ? timeline[tIdx - 1] : null;
+                                    const yesterdayStatus = yesterdayStr ? (member.dayStatuses[yesterdayStr] || 'none') : 'none';
+                                    if (yesterdayStatus === 'duty') {
+                                        status = 'recovery-pass-depart';
+                                    }
+                                }
+
+                                return (
+                                    <div key={tIdx} className="flex flex-col items-center gap-1 relative">
+                                        <div
+                                            className={cn(
+                                                "w-4 h-4 rounded-sm transition-all duration-300",
+                                                status === 'none' && "bg-gray-100",
+                                                status === 'pass' && "bg-blue-500 shadow-[0_0_6px_rgba(59,130,246,0.3)]",
+                                                status === 'pass-depart' && "",
+                                                status === 'vacation' && "bg-orange-500 shadow-[0_0_6px_rgba(249,115,22,0.3)]",
+                                                status === 'duty' && "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]",
+                                                status === 'recovery' && "bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.4)]",
+                                                status === 'linked' && "shadow-[0_0_8px_rgba(59,130,246,0.4)]",
+                                                status === 'recovery-pass-depart' && "shadow-[0_0_6px_rgba(250,204,21,0.4)]",
+                                                isWeekend && "border-2 border-black"
+                                            )}
+                                            style={
+                                                status === 'linked' ? {
+                                                    background: 'linear-gradient(135deg, #3b82f6 50%, #f97316 50%)'
+                                                } : status === 'pass-depart' ? {
+                                                    background: 'linear-gradient(135deg, #f3f4f6 50%, #3b82f6 50%)'
+                                                } : status === 'recovery-pass-depart' ? {
+                                                    background: 'linear-gradient(135deg, #facc15 50%, #3b82f6 50%)'
+                                                } : undefined
+                                            }
+                                        />
+                                        {(() => {
+                                            const isFirst = tIdx === 0;
+                                            const isLast = tIdx === timeline.length - 1;
+                                            const isSunday = new Date(currentYear, m - 1, d, 12, 0, 0, 0).getDay() === 0;
+                                            const isMonthStart = d === 1;
+                                            const today = baseDate || new Date();
+                                            const isToday = today.getMonth() === m - 1 && today.getDate() === d;
+
+                                            if (isFirst || isLast || isSunday || isMonthStart || isToday) {
+                                                return (
+                                                    <span className={cn(
+                                                        "text-[8px] font-black absolute -top-4 whitespace-nowrap",
+                                                        isToday ? "text-red-500 font-extrabold" : "text-gray-300"
+                                                    )}>
+                                                        {dateStr}
+                                                    </span>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
-                </div>
-            ))}
+                );
+            })}
         </div>
     );
 }

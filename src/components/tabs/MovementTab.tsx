@@ -27,6 +27,7 @@ export default function MovementTab({ baseDate }: MovementTabProps) {
         setResolutions,
         sheetMode,
         dbMembers,
+        movements,
         toggleMode,
         handleFileUpload,
         handleSync,
@@ -38,6 +39,7 @@ export default function MovementTab({ baseDate }: MovementTabProps) {
             <MovementHeader
                 sheetMode={sheetMode}
                 toggleMode={toggleMode}
+                handleFileUpload={viewMode === 'sheet' && !loading ? handleFileUpload : undefined}
             />
 
             {loading && (
@@ -59,9 +61,9 @@ export default function MovementTab({ baseDate }: MovementTabProps) {
                     sheetWeeks={sheetWeeks}
                     currentWeekIndex={currentWeekIndex}
                     setCurrentWeekIndex={setCurrentWeekIndex}
-                    handleFileUpload={handleFileUpload}
                     dbMembers={dbMembers}
                     baseDate={baseDate}
+                    movements={movements}
                 />
             )}
 

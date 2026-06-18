@@ -6,4 +6,6 @@ export interface Member {
     sections?: string[];
     earlyPromotion?: number;
     joinDate?: string;
+    englishName?: string;
+    phoneNumber?: string;
 }
