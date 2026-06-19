@@ -255,8 +255,9 @@ export function useCalendarSchedule(
     const handleDeleteEvent = async (id: string) => {
         let eventToDelete = events.find(e => e.id === id);
         if (!eventToDelete && id.startsWith('dynamic-blc-')) {
-            const parts = id.split('-');
-            const batch = parts[2];
+            const inner = id.slice('dynamic-blc-'.length);
+            const lastDashIndex = inner.lastIndexOf('-');
+            const batch = lastDashIndex !== -1 ? inner.substring(0, lastDashIndex) : inner;
             eventToDelete = events.find(e => e.type === 'blc' && e.batch === batch && e.memo?.includes('Day 0'));
         }
 
