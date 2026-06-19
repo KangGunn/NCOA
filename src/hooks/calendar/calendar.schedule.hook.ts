@@ -253,9 +253,30 @@ export function useCalendarSchedule(
     };
 
     const handleDeleteEvent = async (id: string) => {
-        const eventToDelete = events.find(e => e.id === id);
-        const isKta = eventToDelete?.type === 'kta' && eventToDelete.batch;
-        const isBlc = eventToDelete?.type === 'blc' && eventToDelete.batch;
+        let eventToDelete = events.find(e => e.id === id);
+        if (!eventToDelete && id.startsWith('dynamic-blc-')) {
+            const parts = id.split('-');
+            const batch = parts[2];
+            eventToDelete = events.find(e => e.type === 'blc' && e.batch === batch && e.memo?.includes('Day 0'));
+        }
+
+        if (!eventToDelete) {
+            if (!id.startsWith('dynamic-blc-')) {
+                if (!confirm("일정을 삭제하시겠습니까?")) return;
+                setIsAdding(false);
+                setSelectedDate(null);
+                try {
+                    await deleteDoc(doc(db, "schedules", id));
+                } catch (error) {
+                    console.error("Error deleting event:", error);
+                    alert("삭제 중 오류가 발생했습니다.");
+                }
+            }
+            return;
+        }
+
+        const isKta = eventToDelete.type === 'kta' && eventToDelete.batch;
+        const isBlc = eventToDelete.type === 'blc' && eventToDelete.batch;
 
         if (!confirm(isKta ? `해당 기수(${eventToDelete.batch}기)의 모든 KTA 일정을 삭제하시겠습니까?` : isBlc ? `해당 기수(${eventToDelete.batch}기)의 모든 BLC 일정을 삭제하시겠습니까?` : "일정을 삭제하시겠습니까?")) return;
 
@@ -270,7 +291,7 @@ export function useCalendarSchedule(
                 const linkedEvents = events.filter(e => e.type === 'blc' && e.batch === eventToDelete.batch);
                 await Promise.all(linkedEvents.map(e => deleteDoc(doc(db, "schedules", e.id))));
             } else {
-                await deleteDoc(doc(db, "schedules", id));
+                await deleteDoc(doc(db, "schedules", eventToDelete.id));
             }
         } catch (error) {
             console.error("Error deleting event:", error);

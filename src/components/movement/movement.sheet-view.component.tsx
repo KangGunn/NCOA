@@ -597,7 +597,7 @@ export function MovementSheetView({
                         className="flex items-center justify-center gap-1.5 px-2.5 sm:px-4 h-[44px] bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 hover:border-indigo-200 rounded-xl text-xs sm:text-sm font-bold text-indigo-600 transition-all shadow-sm w-auto whitespace-nowrap"
                     >
                         <Copy className="w-4 h-4 shrink-0" />
-                        <span>표 복사</span>
+                        <span>패스지</span>
                     </button>
                 </div>
 

@@ -79,7 +79,7 @@ export function MovementPreviewModal({
 
     const getTabLabel = (tab: TabType) => {
         switch (tab) {
-            case 'table': return 'Table';
+            case 'table': return '패스지';
             case 'enclosure': return 'Enclosure';
             case 'remarks': return '출타 특이사항';
         }
