@@ -106,9 +106,7 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
         });
     };
 
-    const calendarEvents = calendarMode === 'duty' 
-        ? events.filter(e => e.type === 'duty' || (e.type === 'holiday' && e.holidayType === 'duty')) 
-        : events.filter(e => e.type !== 'duty' && e.holidayType !== 'duty');
+
 
     return (
         <div className="w-full max-w-7xl mx-auto pb-20 animate-in fade-in duration-500">
@@ -123,7 +121,7 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
             <CalendarGrid
                 currentDate={currentDate}
                 baseDate={baseDate}
-                events={calendarEvents}
+                events={events}
                 onDateClick={(dateStr) => {
                     setSelectedDate(dateStr);
                     setIsAdding(true);

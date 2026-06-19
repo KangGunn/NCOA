@@ -24,7 +24,7 @@ export function CalendarGrid({ currentDate, baseDate, events, onDateClick, calen
     const firstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
 
     const isHolidayDate = (dateStr: string) => {
-        return events.some(e => e.type === 'holiday' && dateStr >= e.startDate && dateStr <= e.endDate);
+        return events.some(e => e.type === 'holiday' && e.holidayType !== 'duty' && dateStr >= e.startDate && dateStr <= e.endDate);
     };
 
     const getDutyType = (dateStr: string): 'weekday' | 'friSun' | 'sat' => {
@@ -109,7 +109,19 @@ export function CalendarGrid({ currentDate, baseDate, events, onDateClick, calen
             ...dynamicBlcEvents
         ];
 
-        return finalEvents;
+        if (calendarMode === 'duty') {
+            return finalEvents.filter(e => {
+                if (e.type === 'duty' || (e.type === 'holiday' && e.holidayType === 'duty')) {
+                    return true;
+                }
+                if (e.type === 'kta' || e.type === 'blc') {
+                    return e.memo?.includes('Day 0') || e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓');
+                }
+                return false;
+            });
+        } else {
+            return finalEvents.filter(e => e.type !== 'duty' && e.holidayType !== 'duty');
+        }
     };
 
     const year = currentDate.getFullYear();

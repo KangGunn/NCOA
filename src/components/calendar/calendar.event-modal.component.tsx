@@ -50,16 +50,63 @@ export function EventModal(props: EventModalProps) {
     const isDateInRange = (dateStr: string, start: string, end: string) => dateStr >= start && dateStr <= end;
 
     const getEventsForDate = (dateStr: string) => {
-        const dateEvents = props.events.filter(e => {
-            if (!isDateInRange(dateStr, e.startDate, e.endDate)) return false;
-            if (props.calendarMode === 'duty') {
-                return e.type === 'duty' || (e.type === 'holiday' && e.holidayType === 'duty');
-            } else {
-                return e.type !== 'duty' && e.holidayType !== 'duty';
+        const baseEvents = props.events.filter(e => isDateInRange(dateStr, e.startDate, e.endDate));
+        const blcDay0s = props.events.filter(e => e.type === 'blc' && e.memo?.includes('Day 0'));
+        const dynamicBlcEvents: CalendarEvent[] = [];
+
+        blcDay0s.forEach(day0 => {
+            const start = new Date(day0.startDate);
+            const batch = day0.batch || "";
+            let dayCount = 0;
+            let current = new Date(start);
+
+            const isHolidayDateLocal = (dStr: string) => {
+                return props.events.some(e => e.type === 'holiday' && e.holidayType !== 'duty' && dStr >= e.startDate && dStr <= e.endDate);
+            };
+
+            while (dayCount < 22) {
+                current.setDate(current.getDate() + 1);
+                const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
+                const isSunday = current.getDay() === 0;
+
+                if (!isSunday && !isHolidayDateLocal(currentStr)) {
+                    dayCount++;
+                    if (currentStr === dateStr) {
+                        dynamicBlcEvents.push({
+                            id: `dynamic-blc-${batch}-${dayCount}`,
+                            type: 'blc',
+                            startDate: currentStr,
+                            endDate: currentStr,
+                            memo: dayCount === 22 ? `Graduation (${batch})` : `Day ${dayCount} (${batch})`,
+                            batch: batch
+                        });
+                    }
+                }
             }
         });
+
+        const allEvents = [
+            ...baseEvents.filter(e => !(e.type === 'blc' && !e.memo?.includes('Day 0'))),
+            ...dynamicBlcEvents
+        ];
+
+        let filtered: CalendarEvent[] = [];
+        if (props.calendarMode === 'duty') {
+            filtered = allEvents.filter(e => {
+                if (e.type === 'duty' || (e.type === 'holiday' && e.holidayType === 'duty')) {
+                    return true;
+                }
+                if (e.type === 'kta' || e.type === 'blc') {
+                    return e.memo?.includes('Day 0') || e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓');
+                }
+                return false;
+            });
+        } else {
+            filtered = allEvents.filter(e => e.type !== 'duty' && e.holidayType !== 'duty');
+        }
+
         const order = { duty: 1, blc: 2, holiday: 2, kta: 3 };
-        return dateEvents.sort((a, b) => (order[a.type as keyof typeof order] || 0) - (order[b.type as keyof typeof order] || 0));
+        return filtered.sort((a, b) => (order[a.type as keyof typeof order] || 0) - (order[b.type as keyof typeof order] || 0));
     };
 
     return createPortal(
