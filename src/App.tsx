@@ -11,6 +11,27 @@ import type { User } from 'firebase/auth';
 import { useRollCallSchedule } from './hooks/rollcall/rollcall.schedule.hook';
 import DutySchedulerWorkspace from './components/duty/DutySchedulerWorkspace';
 
+function formatDateStr(dateStr: unknown): string | null {
+  if (!dateStr || typeof dateStr !== 'string') return null;
+  const parts = dateStr.trim().split(/[-./]/);
+  if (parts.length >= 3) {
+    const y = parts[0];
+    const m = parts[1].padStart(2, '0');
+    const d = parts[2].substring(0, 2).padStart(2, '0');
+    if (y.length === 4 && m.length === 2 && d.length === 2) {
+      return `${y}-${m}-${d}`;
+    }
+  }
+  const date = new Date(dateStr);
+  if (!isNaN(date.getTime())) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  return null;
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState(() => {
     const savedTab = localStorage.getItem('ncoa_active_tab');
@@ -45,6 +66,7 @@ function App() {
   const [blcBatches, setBlcBatches] = useState<{ batch: string, startDate: string, memo?: string }[]>([]);
   const [blcTemplate, setBlcTemplate] = useState<any>(null);
   const [holidays, setHolidays] = useState<{startDate: string, endDate: string}[]>([]);
+  const [dutyHolidays, setDutyHolidays] = useState<{startDate: string, endDate: string}[]>([]);
 
 
   useEffect(() => {
@@ -73,20 +95,32 @@ function App() {
       const kBatches: { batch: string, startDate: string, ktaType?: 'A' | 'B', memo?: string }[] = [];
       const bBatches: { batch: string, startDate: string, memo?: string }[] = [];
       const hDays: {startDate: string, endDate: string}[] = [];
+      const dHolidays: {startDate: string, endDate: string}[] = [];
 
       snap.docs.forEach(doc => {
         const data = doc.data();
         if (data.type === 'kta' && data.memo && data.memo.startsWith('Day 0')) {
-          if (data.batch && data.startDate) kBatches.push({ batch: data.batch, startDate: data.startDate, ktaType: data.ktaType });
+          const sDate = formatDateStr(data.startDate);
+          if (data.batch && sDate) kBatches.push({ batch: data.batch, startDate: sDate, ktaType: data.ktaType });
         } else if (data.type === 'blc') {
-          if (data.batch && data.startDate) bBatches.push({ batch: data.batch, startDate: data.startDate, memo: data.memo });
-        } else if (data.type === 'holiday' && data.holidayType !== 'duty') {
-          if (data.startDate) hDays.push({ startDate: data.startDate, endDate: data.endDate || data.startDate });
+          const sDate = formatDateStr(data.startDate);
+          if (data.batch && sDate) bBatches.push({ batch: data.batch, startDate: sDate, memo: data.memo });
+        } else if (data.type === 'holiday') {
+          const sDate = formatDateStr(data.startDate);
+          const eDate = formatDateStr(data.endDate || data.startDate);
+          if (sDate && eDate) {
+            if (data.holidayType === 'duty') {
+              dHolidays.push({ startDate: sDate, endDate: eDate });
+            } else {
+              hDays.push({ startDate: sDate, endDate: eDate });
+            }
+          }
         }
       });
       setKtaBatches(kBatches);
       setBlcBatches(bBatches);
       setHolidays(hDays);
+      setDutyHolidays(dHolidays);
     });
 
     const unsubKtaTemplate = onSnapshot(doc(db, 'settings', 'ktaTemplate'), (snap) => {
@@ -111,9 +145,11 @@ function App() {
     const tomorrowDay = tomorrow.getDay();
     // 일~목(0~4)에 점호를 하면 내일이 월~금(1~5)이므로 PT가 있음
     const isTomorrowWeekday = tomorrowDay >= 1 && tomorrowDay <= 5;
+    const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
+    const isDutyHoliday = dutyHolidays.some((h: any) => tomorrowStr >= h.startDate && tomorrowStr <= h.endDate);
 
     let scheduleLines: string[] = [];
-    if (isTomorrowWeekday) {
+    if (isTomorrowWeekday && !isDutyHoliday) {
       scheduleLines.push('0620 HQ PT');
     }
 
@@ -206,7 +242,7 @@ function App() {
 
     // 강제 업데이트
     setScheduleText(sortedSchedule);
-  }, [baseDate, ktaBatches, ktaTemplate, blcBatches, blcTemplate, holidays]);
+  }, [baseDate, ktaBatches, ktaTemplate, blcBatches, blcTemplate, holidays, dutyHolidays]);
 
   if (loading) {
     return (

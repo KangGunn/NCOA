@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
+import { History } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { MovementRecord } from '../../types/movement/movement.type';
+import { MovementHistoryModal } from './movement.history-modal.component';
 
 export interface DbMember {
     name: string;
@@ -17,10 +19,12 @@ interface MovementGridProps {
     dbMembers: DbMember[];
     baseDate?: Date;
     movements?: MovementRecord[];
+    sheetWeeks?: any[];
 }
 
-export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movements = [] }: MovementGridProps) {
+export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movements = [], sheetWeeks = [] }: MovementGridProps) {
     const [activeCardIndex, setActiveCardIndex] = useState<number | null>(null);
+    const [historyMember, setHistoryMember] = useState<{ name: string; fullName: string } | null>(null);
 
     useEffect(() => {
         const handleOutsideClick = () => {
@@ -31,6 +35,14 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
             document.removeEventListener('click', handleOutsideClick);
         };
     }, []);
+
+    useEffect(() => {
+        if (activeCardIndex === null) return;
+        const timer = setTimeout(() => {
+            setActiveCardIndex(null);
+        }, 1000);
+        return () => clearTimeout(timer);
+    }, [activeCardIndex]);
 
     const currentYear = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
 
@@ -66,57 +78,78 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
             {sortedEntries.map((member, idx) => {
                 const cleanName = member.name.replace(/^(병장|상병|일병|이병)\s*/, '');
                 
+                if (!timeline || timeline.length === 0) return null;
+                const [firstM, firstD] = timeline[0].split('.').map(Number);
+                const timelineStartIso = `${currentYear}-${String(firstM).padStart(2, '0')}-${String(firstD).padStart(2, '0')}`;
+
                 // Collect all movements for this member that overlap with the current timeline view
-                const memberMovements = movements.filter(mov => 
-                    mov.name === cleanName && 
-                    timeline.some(dateStr => {
+                // For passes (외박), they must contain at least one weekend day within the visible timeline
+                const memberMovements = movements.filter(mov => {
+                    if (mov.name !== cleanName) return false;
+                    if (mov.startDate < timelineStartIso) return false;
+                    
+                    return timeline.some(dateStr => {
                         const [m, d] = dateStr.split('.').map(Number);
                         const isoDate = `${currentYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                        return isoDate >= mov.startDate && isoDate <= mov.endDate;
-                    })
-                );
+                        const isOverlapping = isoDate >= mov.startDate && isoDate <= mov.endDate;
+                        if (!isOverlapping) return false;
+                        
+                        if (mov.type === 'pass') {
+                            const gridStatus = member.dayStatuses[dateStr] || '';
+                            const isGridVacation = gridStatus === 'vacation' || gridStatus === 'linked';
+                            if (!isGridVacation) {
+                                const isWeekend = new Date(currentYear, m - 1, d, 12, 0, 0, 0).getDay() % 6 === 0;
+                                return isWeekend;
+                            }
+                        }
+                        
+                        return true;
+                    });
+                });
 
                 const hasReason = memberMovements.some(mov => mov.reason);
 
                 return (
                     <div 
                         key={idx} 
-                        className={cn(
-                            "bg-white border border-gray-100 rounded-xl p-3 shadow-sm hover:border-blue-200 transition-all flex items-center gap-4 relative group/card",
-                            hasReason && "cursor-pointer"
-                        )}
-                        onClick={(e) => {
-                            if (!hasReason) return;
-                            e.stopPropagation();
-                            setActiveCardIndex(prev => prev === idx ? null : idx);
-                        }}
+                        className="bg-white border border-gray-100 rounded-xl px-3 py-0 shadow-sm transition-all flex items-center gap-4 relative h-[56px]"
                     >
-                        {/* Tooltip centered over the card */}
-                        {hasReason && (
-                            <div className={cn(
-                                "absolute bottom-full left-1/2 -translate-x-1/2 mb-2 flex-col items-center z-50 animate-in fade-in zoom-in-95 duration-100 pointer-events-none",
-                                activeCardIndex === idx ? "flex" : "hidden group-hover/card:flex"
-                            )}>
-                                <div className="bg-gray-950 text-white text-[11px] font-medium rounded-lg py-1.5 px-2.5 whitespace-nowrap shadow-xl leading-tight text-center border border-gray-800 space-y-1">
-                                    {memberMovements.filter(m => m.reason).map((mov, mIdx) => (
-                                        <div key={mIdx} className={mIdx > 0 ? "border-t border-gray-800 pt-1 mt-1" : ""}>
-                                            <div className="text-[9px] text-gray-400 font-bold mb-0.5">
-                                                {mov.type === 'pass' ? '외박' : '휴가'} ({mov.startDate.slice(5).replace('-', '.')} ~ {mov.endDate.slice(5).replace('-', '.')})
-                                            </div>
-                                            <div className="text-gray-100 font-semibold">{mov.reason}</div>
-                                        </div>
-                                    ))}
-                                </div>
-                                <div className="w-1.5 h-1.5 bg-gray-950 rotate-45 -mt-[3.5px] border-r border-b border-gray-800" />
-                            </div>
-                        )}
-
-                        <div className="w-24 shrink-0">
+                        <div className="w-24 shrink-0 flex items-center">
                             <span className="text-sm font-black text-gray-900 truncate block">{member.name}</span>
                         </div>
 
-                        <div className="flex-1 flex items-center gap-1 overflow-visible pb-1 no-scrollbar relative pt-4">
-                            {timeline.map((dateStr, tIdx) => {
+                        <div className="flex-1 flex items-stretch overflow-visible pb-1 no-scrollbar pt-3 h-full">
+                            <div 
+                                className={cn(
+                                    "inline-flex items-center gap-1 overflow-visible relative h-full group/timeline",
+                                    hasReason && "cursor-pointer"
+                                )}
+                                onClick={(e) => {
+                                    if (!hasReason) return;
+                                    e.stopPropagation();
+                                    setActiveCardIndex(prev => prev === idx ? null : idx);
+                                }}
+                            >
+                                {/* Tooltip centered over the boxes */}
+                                {hasReason && (
+                                    <div className={cn(
+                                        "absolute bottom-full left-1/2 -translate-x-1/2 mb-2 flex-col items-center z-50 animate-in fade-in zoom-in-95 duration-100 pointer-events-none",
+                                        activeCardIndex === idx ? "flex" : "hidden group-hover/timeline:flex"
+                                    )}>
+                                        <div className="bg-gray-950 text-white text-[11px] font-medium rounded-lg py-1.5 px-2.5 whitespace-nowrap shadow-xl leading-tight text-center border border-gray-800 space-y-1">
+                                            {memberMovements.filter(m => m.reason).map((mov, mIdx) => (
+                                                <div key={mIdx} className={mIdx > 0 ? "border-t border-gray-800 pt-1 mt-1" : ""}>
+                                                    <div className="text-[9px] text-gray-400 font-bold mb-0.5">
+                                                        {mov.type === 'pass' ? '외박' : '휴가'} ({mov.startDate.slice(5).replace('-', '.')} ~ {mov.endDate.slice(5).replace('-', '.')})
+                                                    </div>
+                                                    <div className="text-gray-100 font-semibold">{mov.reason}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div className="w-1.5 h-1.5 bg-gray-950 rotate-45 -mt-[3.5px] border-r border-b border-gray-800" />
+                                    </div>
+                                )}
+                                {timeline.map((dateStr, tIdx) => {
                                 let status = member.dayStatuses[dateStr] || 'none';
                                 const [m, d] = dateStr.split('.').map(Number);
                                 const isWeekend = new Date(currentYear, m - 1, d, 12, 0, 0, 0).getDay() % 6 === 0;
@@ -178,10 +211,35 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                     </div>
                                 );
                             })}
+                            </div>
                         </div>
+
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                const rankMatch = member.name.match(/^(병장|상병|일병|이병)\s*(.*)$/);
+                                const formattedName = rankMatch ? `${rankMatch[2]} ${rankMatch[1]}` : member.name;
+                                setHistoryMember({ name: cleanName, fullName: formattedName });
+                            }}
+                            className="flex items-center justify-center p-1.5 rounded-lg text-gray-400 shrink-0"
+                            title="출타 히스토리"
+                        >
+                            <History className="w-4 h-4" />
+                        </button>
                     </div>
                 );
             })}
+            {historyMember && (
+                <MovementHistoryModal
+                    memberName={historyMember.name}
+                    fullNameWithRank={historyMember.fullName}
+                    movements={movements}
+                    onClose={() => setHistoryMember(null)}
+                    baseDate={baseDate}
+                    sheetWeeks={sheetWeeks}
+                    timeline={timeline}
+                />
+            )}
         </div>
     );
 }

@@ -237,7 +237,7 @@ export function useMovementSync(baseDate?: Date) {
                         const m = parseInt(parts[1]);
                         const d = parseInt(parts[2]);
                         const dateStr = `${m}.${d}`;
-                        
+
                         if (seenDates.has(dateStr)) continue;
                         seenDates.add(dateStr);
 
@@ -274,7 +274,7 @@ export function useMovementSync(baseDate?: Date) {
                         defaultEnd.setHours(12, 0, 0, 0);
 
                         const blockCols = sortedCols.filter(c => c.date >= wed && c.date <= defaultEnd);
-                        if (blockCols.length === 0) return null;
+                        if (blockCols.length < 4) return null;
 
                         const weekData: any[] = [];
                         for (let r = 2; r < rows.length; r++) {
@@ -638,7 +638,7 @@ export function useMovementSync(baseDate?: Date) {
 
         try {
             const isLocal = window.location.hostname === 'localhost';
-            const baseUrl = import.meta.env.VITE_BACKEND_URL 
+            const baseUrl = import.meta.env.VITE_BACKEND_URL
                 || (isLocal
                     ? 'http://127.0.0.1:5001/seniorkatusa-aa594/asia-northeast3'
                     : 'https://asia-northeast3-seniorkatusa-aa594.cloudfunctions.net');
@@ -726,6 +726,38 @@ export function useMovementSync(baseDate?: Date) {
                     }
                 }
 
+                // Determine the main pass dates of this synced batch (most frequent pass period)
+                const passPeriods: Record<string, number> = {};
+                movementsToSync.forEach(m => {
+                    if (m.type === '외박' && m.period && !m.period.includes('원데이')) {
+                        passPeriods[m.period] = (passPeriods[m.period] || 0) + 1;
+                    }
+                });
+                let maxPeriodCount = 0;
+                let mainPassPeriod = '';
+                Object.entries(passPeriods).forEach(([p, count]) => {
+                    if (count > maxPeriodCount) {
+                        maxPeriodCount = count;
+                        mainPassPeriod = p;
+                    }
+                });
+
+                let mainPassStart = '';
+                let mainPassEnd = '';
+                if (mainPassPeriod) {
+                    const [startStr, endStr] = mainPassPeriod.split('~').map((s: string) => s.trim());
+                    mainPassStart = toISODate(startStr);
+                    mainPassEnd = endStr ? toISODate(endStr) : mainPassStart;
+                    if (mainPassStart && mainPassEnd && mainPassEnd < mainPassStart) {
+                        const [y, m, d] = mainPassEnd.split('-').map(Number);
+                        mainPassEnd = `${y + 1}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    }
+                }
+                if (!mainPassStart && minDate !== '9999-12-31' && maxDate !== '0000-01-01') {
+                    mainPassStart = minDate;
+                    mainPassEnd = maxDate;
+                }
+
                 // 2. Add new movements to Firestore
                 const addBatch = writeBatch(db);
                 let shouldCommitAdd = false;
@@ -751,6 +783,20 @@ export function useMovementSync(baseDate?: Date) {
                             });
                             shouldCommitAdd = true;
                         }
+                    }
+
+                    // Save stayback movement
+                    if (m.type === '잔류' && mainPassStart && mainPassEnd) {
+                        const docRef = doc(collection(db, 'movements'));
+                        addBatch.set(docRef, {
+                            name: cleanName,
+                            type: 'stay',
+                            startDate: mainPassStart,
+                            endDate: mainPassEnd,
+                            reason: m.detail || '잔류',
+                            createdAt: serverTimestamp()
+                        });
+                        shouldCommitAdd = true;
                     }
 
                     // Save vacation movement
