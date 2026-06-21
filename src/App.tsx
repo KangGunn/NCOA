@@ -45,6 +45,7 @@ function App() {
   const [blcBatches, setBlcBatches] = useState<{ batch: string, startDate: string, memo?: string }[]>([]);
   const [blcTemplate, setBlcTemplate] = useState<any>(null);
   const [holidays, setHolidays] = useState<{startDate: string, endDate: string}[]>([]);
+  const [dutyHolidays, setDutyHolidays] = useState<{startDate: string, endDate: string}[]>([]);
 
 
   useEffect(() => {
@@ -73,6 +74,7 @@ function App() {
       const kBatches: { batch: string, startDate: string, ktaType?: 'A' | 'B', memo?: string }[] = [];
       const bBatches: { batch: string, startDate: string, memo?: string }[] = [];
       const hDays: {startDate: string, endDate: string}[] = [];
+      const dHolidays: {startDate: string, endDate: string}[] = [];
 
       snap.docs.forEach(doc => {
         const data = doc.data();
@@ -80,13 +82,18 @@ function App() {
           if (data.batch && data.startDate) kBatches.push({ batch: data.batch, startDate: data.startDate, ktaType: data.ktaType });
         } else if (data.type === 'blc') {
           if (data.batch && data.startDate) bBatches.push({ batch: data.batch, startDate: data.startDate, memo: data.memo });
-        } else if (data.type === 'holiday' && data.holidayType !== 'duty') {
-          if (data.startDate) hDays.push({ startDate: data.startDate, endDate: data.endDate || data.startDate });
+        } else if (data.type === 'holiday') {
+          if (data.holidayType === 'duty') {
+            if (data.startDate) dHolidays.push({ startDate: data.startDate, endDate: data.endDate || data.startDate });
+          } else {
+            if (data.startDate) hDays.push({ startDate: data.startDate, endDate: data.endDate || data.startDate });
+          }
         }
       });
       setKtaBatches(kBatches);
       setBlcBatches(bBatches);
       setHolidays(hDays);
+      setDutyHolidays(dHolidays);
     });
 
     const unsubKtaTemplate = onSnapshot(doc(db, 'settings', 'ktaTemplate'), (snap) => {
@@ -111,9 +118,11 @@ function App() {
     const tomorrowDay = tomorrow.getDay();
     // 일~목(0~4)에 점호를 하면 내일이 월~금(1~5)이므로 PT가 있음
     const isTomorrowWeekday = tomorrowDay >= 1 && tomorrowDay <= 5;
+    const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
+    const isDutyHoliday = dutyHolidays.some((h: any) => tomorrowStr >= h.startDate && tomorrowStr <= h.endDate);
 
     let scheduleLines: string[] = [];
-    if (isTomorrowWeekday) {
+    if (isTomorrowWeekday && !isDutyHoliday) {
       scheduleLines.push('0620 HQ PT');
     }
 
@@ -206,7 +215,7 @@ function App() {
 
     // 강제 업데이트
     setScheduleText(sortedSchedule);
-  }, [baseDate, ktaBatches, ktaTemplate, blcBatches, blcTemplate, holidays]);
+  }, [baseDate, ktaBatches, ktaTemplate, blcBatches, blcTemplate, holidays, dutyHolidays]);
 
   if (loading) {
     return (
