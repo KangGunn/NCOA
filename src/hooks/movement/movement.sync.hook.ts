@@ -237,7 +237,7 @@ export function useMovementSync(baseDate?: Date) {
                         const m = parseInt(parts[1]);
                         const d = parseInt(parts[2]);
                         const dateStr = `${m}.${d}`;
-                        
+
                         if (seenDates.has(dateStr)) continue;
                         seenDates.add(dateStr);
 
@@ -638,7 +638,7 @@ export function useMovementSync(baseDate?: Date) {
 
         try {
             const isLocal = window.location.hostname === 'localhost';
-            const baseUrl = import.meta.env.VITE_BACKEND_URL 
+            const baseUrl = import.meta.env.VITE_BACKEND_URL
                 || (isLocal
                     ? 'http://127.0.0.1:5001/seniorkatusa-aa594/asia-northeast3'
                     : 'https://asia-northeast3-seniorkatusa-aa594.cloudfunctions.net');

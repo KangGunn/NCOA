@@ -11,6 +11,27 @@ import type { User } from 'firebase/auth';
 import { useRollCallSchedule } from './hooks/rollcall/rollcall.schedule.hook';
 import DutySchedulerWorkspace from './components/duty/DutySchedulerWorkspace';
 
+function formatDateStr(dateStr: any): string | null {
+  if (!dateStr || typeof dateStr !== 'string') return null;
+  const parts = dateStr.trim().split(/[-./]/);
+  if (parts.length >= 3) {
+    const y = parts[0];
+    const m = parts[1].padStart(2, '0');
+    const d = parts[2].substring(0, 2).padStart(2, '0');
+    if (y.length === 4 && m.length === 2 && d.length === 2) {
+      return `${y}-${m}-${d}`;
+    }
+  }
+  const date = new Date(dateStr);
+  if (!isNaN(date.getTime())) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  return null;
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState(() => {
     const savedTab = localStorage.getItem('ncoa_active_tab');
@@ -79,14 +100,20 @@ function App() {
       snap.docs.forEach(doc => {
         const data = doc.data();
         if (data.type === 'kta' && data.memo && data.memo.startsWith('Day 0')) {
-          if (data.batch && data.startDate) kBatches.push({ batch: data.batch, startDate: data.startDate, ktaType: data.ktaType });
+          const sDate = formatDateStr(data.startDate);
+          if (data.batch && sDate) kBatches.push({ batch: data.batch, startDate: sDate, ktaType: data.ktaType });
         } else if (data.type === 'blc') {
-          if (data.batch && data.startDate) bBatches.push({ batch: data.batch, startDate: data.startDate, memo: data.memo });
+          const sDate = formatDateStr(data.startDate);
+          if (data.batch && sDate) bBatches.push({ batch: data.batch, startDate: sDate, memo: data.memo });
         } else if (data.type === 'holiday') {
-          if (data.holidayType === 'duty') {
-            if (data.startDate) dHolidays.push({ startDate: data.startDate, endDate: data.endDate || data.startDate });
-          } else {
-            if (data.startDate) hDays.push({ startDate: data.startDate, endDate: data.endDate || data.startDate });
+          const sDate = formatDateStr(data.startDate);
+          const eDate = formatDateStr(data.endDate || data.startDate);
+          if (sDate && eDate) {
+            if (data.holidayType === 'duty') {
+              dHolidays.push({ startDate: sDate, endDate: eDate });
+            } else {
+              hDays.push({ startDate: sDate, endDate: eDate });
+            }
           }
         }
       });

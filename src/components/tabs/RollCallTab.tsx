@@ -89,7 +89,7 @@ export default function RollCallTab({
     const labelBase = "text-sm font-bold text-gray-700 mb-1.5 block ml-1";
 
     return (
-        <div className="pt-8 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32">
+        <div className="pt-8 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
             <RollCallHeader 
                 baseDate={baseDate} 
                 setBaseDate={setBaseDate} 

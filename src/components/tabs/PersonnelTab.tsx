@@ -26,7 +26,7 @@ export default function PersonnelTab({ baseDate }: PersonnelTabProps) {
     const dateStr = `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, '0')}-${String(baseDate.getDate()).padStart(2, '0')}`;
 
     return (
-        <div className="pt-8 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32">
+        <div className="pt-8 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
             <PersonnelHeader
                 regularMembersCount={activeRegularCount}
                 onAddClick={() => {
