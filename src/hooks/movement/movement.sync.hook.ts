@@ -637,11 +637,10 @@ export function useMovementSync(baseDate?: Date) {
         setSuccess(null);
 
         try {
-            const isLocal = window.location.hostname === 'localhost';
-            const baseUrl = import.meta.env.VITE_BACKEND_URL
-                || (isLocal
-                    ? 'http://127.0.0.1:5001/seniorkatusa-aa594/asia-northeast3'
-                    : 'https://asia-northeast3-seniorkatusa-aa594.cloudfunctions.net');
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const baseUrl = isLocal
+                ? (import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:5001/seniorkatusa-aa594/asia-northeast3')
+                : 'https://asia-northeast3-seniorkatusa-aa594.cloudfunctions.net';
 
             const movementsToSync = targetData.map(m => {
                 const resolvedName = resolutions[m.name] || m.name;
