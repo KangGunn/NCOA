@@ -643,6 +643,7 @@ export function MovementSheetView({
                 dbMembers={dbMembers}
                 baseDate={baseDate}
                 movements={movements}
+                sheetWeeks={sheetWeeks}
             />
         </div>
     );
