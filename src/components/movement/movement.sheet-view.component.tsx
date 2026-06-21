@@ -306,7 +306,7 @@ export function MovementSheetView({
 
                 // Find a matching movement that overlaps with the dates in this remarks block
                 let reason = '';
-                let matchedMov = memberMovements.find(mov => {
+                const matchedMov = memberMovements.find(mov => {
                     const reasonLower = (mov.reason || '').trim().toLowerCase();
                     const isExcluded = !mov.reason ||
                         reasonLower === '' ||

@@ -78,6 +78,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
             {sortedEntries.map((member, idx) => {
                 const cleanName = member.name.replace(/^(병장|상병|일병|이병)\s*/, '');
                 
+                if (!timeline || timeline.length === 0) return null;
                 const [firstM, firstD] = timeline[0].split('.').map(Number);
                 const timelineStartIso = `${currentYear}-${String(firstM).padStart(2, '0')}-${String(firstD).padStart(2, '0')}`;
 

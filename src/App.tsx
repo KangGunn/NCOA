@@ -11,7 +11,7 @@ import type { User } from 'firebase/auth';
 import { useRollCallSchedule } from './hooks/rollcall/rollcall.schedule.hook';
 import DutySchedulerWorkspace from './components/duty/DutySchedulerWorkspace';
 
-function formatDateStr(dateStr: any): string | null {
+function formatDateStr(dateStr: unknown): string | null {
   if (!dateStr || typeof dateStr !== 'string') return null;
   const parts = dateStr.trim().split(/[-./]/);
   if (parts.length >= 3) {

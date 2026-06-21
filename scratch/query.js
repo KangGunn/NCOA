@@ -15,13 +15,16 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 async function run() {
+    const isVerbose = process.argv.includes('--verbose') || process.env.VERBOSE === 'true';
     console.log("Querying all movements...");
     const q = query(collection(db, "movements"));
     const snap = await getDocs(q);
     console.log("Total movements found:", snap.size);
     snap.forEach(doc => {
         const data = doc.data();
-        console.log(doc.id, "=> name:", data.name, "type:", data.type, "dates:", data.startDate, "~", data.endDate, "reason:", data.reason);
+        const displayName = isVerbose ? data.name : "[MASKED]";
+        const displayReason = isVerbose ? data.reason : "[MASKED]";
+        console.log(doc.id, "=> name:", displayName, "type:", data.type, "dates:", data.startDate, "~", data.endDate, "reason:", displayReason);
     });
 }
 

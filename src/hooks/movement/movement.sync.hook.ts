@@ -748,6 +748,10 @@ export function useMovementSync(baseDate?: Date) {
                     const [startStr, endStr] = mainPassPeriod.split('~').map((s: string) => s.trim());
                     mainPassStart = toISODate(startStr);
                     mainPassEnd = endStr ? toISODate(endStr) : mainPassStart;
+                    if (mainPassStart && mainPassEnd && mainPassEnd < mainPassStart) {
+                        const [y, m, d] = mainPassEnd.split('-').map(Number);
+                        mainPassEnd = `${y + 1}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    }
                 }
                 if (!mainPassStart && minDate !== '9999-12-31' && maxDate !== '0000-01-01') {
                     mainPassStart = minDate;
