@@ -298,7 +298,7 @@ function App() {
       </div>
 
       <main className="w-full max-w-md min-h-screen bg-white shadow-2xl relative">
-        <div className="min-h-full safe-area-top pb-4 px-4 sm:px-6 pt-4">
+        <div className="min-h-full safe-area-top pb-12 px-4 sm:px-6 pt-4">
           {activeTab === 'rollcall' && (
             <RollCallTab 
               healthNote={healthNote}
