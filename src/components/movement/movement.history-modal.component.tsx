@@ -192,7 +192,7 @@ export function MovementHistoryModal({
                                                 isThisWeek && "bg-blue-50/70 border-l-4 border-l-blue-500 rounded-r-xl"
                                             )}
                                         >
-                                            <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-y-2 gap-x-3 flex-1 min-w-0">
+                                            <div className="flex flex-row flex-wrap items-center gap-2 flex-1 min-w-0">
                                                 <div className="flex items-center gap-2">
                                                     <span className="px-1.5 py-0.5 rounded text-[9px] font-bold text-white shrink-0 bg-gray-500">
                                                         잔류
@@ -201,16 +201,10 @@ export function MovementHistoryModal({
                                                         {startFormatted} ~ {endFormatted}
                                                     </span>
                                                 </div>
-                                                <span className="text-xs sm:text-sm text-slate-800 font-extrabold sm:pl-2 sm:border-l sm:border-gray-200 block sm:inline break-all">
+                                                <span className="text-xs sm:text-sm text-slate-800 font-extrabold pl-2 border-l border-gray-200 inline break-all">
                                                     잔류
                                                 </span>
                                             </div>
-
-                                            {isThisWeek && (
-                                                <span className="text-[9px] sm:text-[10px] font-black text-blue-600 self-start sm:self-center shrink-0 bg-blue-100/50 px-1.5 py-0.5 rounded">
-                                                    이번주
-                                                </span>
-                                            )}
                                         </div>
                                     );
                                 }
@@ -237,9 +231,9 @@ export function MovementHistoryModal({
                                             isThisWeek && "bg-blue-50/70 border-l-4 border-l-blue-500 rounded-r-xl"
                                         )}
                                     >
-                                        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-y-2 gap-x-3 flex-1 min-w-0">
+                                        <div className="flex flex-row flex-wrap items-center gap-2 flex-1 min-w-0">
                                             {items.map((item, idx) => (
-                                                <div key={idx} className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                                                <div key={idx} className="flex flex-row flex-wrap items-center gap-1.5 sm:gap-2">
                                                     {idx > 0 && <span className="text-gray-300 font-black hidden sm:inline">+</span>}
                                                     <div className="flex items-center gap-2">
                                                         <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold text-white shrink-0 ${
@@ -250,7 +244,10 @@ export function MovementHistoryModal({
                                                              item.type === 'pass' ? '외박' : '잔류'}
                                                         </span>
                                                         <span className="font-bold shrink-0 text-gray-900 text-xs sm:text-sm">
-                                                            {formatDate(item.startDate)} ~ {formatDate(item.endDate)}
+                                                            {item.startDate === item.endDate
+                                                                ? formatDate(item.startDate)
+                                                                : `${formatDate(item.startDate)} ~ ${formatDate(item.endDate)}`
+                                                            }
                                                         </span>
                                                     </div>
                                                     {(() => {
@@ -258,7 +255,7 @@ export function MovementHistoryModal({
                                                         const displayReason = item.reason || (isStayType ? '잔류' : '');
                                                         if (!displayReason) return null;
                                                         return (
-                                                            <span className="text-xs sm:text-sm text-slate-800 font-extrabold sm:pl-2 sm:border-l sm:border-gray-200 block sm:inline break-all">
+                                                            <span className="text-xs sm:text-sm text-slate-800 font-extrabold pl-2 border-l border-gray-200 inline break-all">
                                                                 {displayReason}
                                                             </span>
                                                         );
@@ -266,12 +263,6 @@ export function MovementHistoryModal({
                                                 </div>
                                             ))}
                                         </div>
-
-                                        {isThisWeek && (
-                                            <span className="text-[9px] sm:text-[10px] font-black text-blue-600 self-start sm:self-center shrink-0 bg-blue-100/50 px-1.5 py-0.5 rounded">
-                                                이번주
-                                            </span>
-                                        )}
                                     </div>
                                 );
                             })}

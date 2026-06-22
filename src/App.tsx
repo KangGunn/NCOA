@@ -275,7 +275,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex justify-center items-center relative overflow-x-hidden">
+    <div className="min-h-screen bg-gray-50 flex justify-center items-start sm:items-center relative overflow-x-hidden">
       {/* 데스크톱 전용 모바일 프레임 외곽 플로팅 위젯 카드 */}
       <div className="hidden lg:flex flex-col gap-4 fixed left-[calc(50%+240px)] top-1/2 -translate-y-1/2 p-6 bg-white rounded-xl border border-gray-100 shadow-lg max-w-xs z-10">
         <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-650">
@@ -298,7 +298,7 @@ function App() {
       </div>
 
       <main className="w-full max-w-md min-h-screen bg-white shadow-2xl relative">
-        <div className="h-full safe-area-top pb-6 px-6 pt-4">
+        <div className="min-h-full safe-area-top pb-28 sm:pb-6 px-4 sm:px-6 pt-4">
           {activeTab === 'rollcall' && (
             <RollCallTab 
               healthNote={healthNote}

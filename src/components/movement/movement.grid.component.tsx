@@ -112,10 +112,10 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                 return (
                     <div 
                         key={idx} 
-                        className="bg-white border border-gray-100 rounded-xl px-3 py-0 shadow-sm transition-all flex items-center gap-4 relative h-[56px]"
+                        className="bg-white border border-gray-100 rounded-xl px-2 sm:px-3 py-0 shadow-sm transition-all flex items-center gap-2 sm:gap-4 relative h-[56px]"
                     >
-                        <div className="w-24 shrink-0 flex items-center">
-                            <span className="text-sm font-black text-gray-900 truncate block">{member.name}</span>
+                        <div className="w-20 sm:w-24 shrink-0 flex items-center">
+                            <span className="text-xs sm:text-sm font-black text-gray-900 truncate block">{member.name}</span>
                         </div>
 
                         <div className="flex-1 flex items-stretch overflow-visible pb-1 no-scrollbar pt-3 h-full">
@@ -134,7 +134,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                 {hasReason && (
                                     <div className={cn(
                                         "absolute bottom-full left-1/2 -translate-x-1/2 mb-2 flex-col items-center z-50 animate-in fade-in zoom-in-95 duration-100 pointer-events-none",
-                                        activeCardIndex === idx ? "flex" : "hidden group-hover/timeline:flex"
+                                        activeCardIndex === idx ? "flex" : "hidden"
                                     )}>
                                         <div className="bg-gray-950 text-white text-[11px] font-medium rounded-lg py-1.5 px-2.5 whitespace-nowrap shadow-xl leading-tight text-center border border-gray-800 space-y-1">
                                             {memberMovements.filter(m => m.reason).map((mov, mIdx) => (
@@ -195,6 +195,17 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                             const isMonthStart = d === 1;
                                             const today = baseDate || new Date();
                                             const isToday = today.getMonth() === m - 1 && today.getDate() === d;
+
+                                            // Find index of Today in the timeline
+                                            const todayIdx = timeline.findIndex(tStr => {
+                                                const [tm, td] = tStr.split('.').map(Number);
+                                                return today.getMonth() === tm - 1 && today.getDate() === td;
+                                            });
+
+                                            // Hide non-today labels if they are adjacent (within 1 day) to Today to prevent overlapping text (e.g. 6.21 and 6.22)
+                                            if (!isToday && todayIdx !== -1 && Math.abs(tIdx - todayIdx) <= 1) {
+                                                return null;
+                                            }
 
                                             if (isFirst || isLast || isSunday || isMonthStart || isToday) {
                                                 return (
