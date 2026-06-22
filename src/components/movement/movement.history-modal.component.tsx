@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { X, Calendar, ClipboardList } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { MovementRecord } from '../../types/movement/movement.type';
@@ -22,6 +23,16 @@ export function MovementHistoryModal({
     timeline = []
 }: MovementHistoryModalProps) {
     const currentYear = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
+
+    // Prevent background scrolling when modal is open
+    useEffect(() => {
+        document.body.style.overflow = 'hidden';
+        document.documentElement.style.overflow = 'hidden';
+        return () => {
+            document.body.style.overflow = '';
+            document.documentElement.style.overflow = '';
+        };
+    }, []);
 
     // Filter and sort movements for this member
     const memberMovements = movements
