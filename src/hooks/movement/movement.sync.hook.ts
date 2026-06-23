@@ -6,7 +6,7 @@ import axios from 'axios';
 import { doc, onSnapshot, setDoc, serverTimestamp, collection, getDoc, writeBatch, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import type { MovementRecord } from '../../types/movement/movement.type';
-import { extractDayCountFromText } from '../../utils/movement.utils';
+
 
 const SPREADSHEET_URLS = {
     test: "https://docs.google.com/spreadsheets/d/1eyiNzyvJ1BguGzzpkYDnVegi-4U-zuCacCvy9bOW8R8/export?format=csv&gid=1529486829",
@@ -468,8 +468,8 @@ export function useMovementSync(baseDate?: Date) {
                                         vReason = vReason.replace(/\([^\)]+\)/g, '');
                                         vReason = vReason.trim();
 
-                                        const vDays = Math.round((vEndDate.getTime() - vStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-                                        const vacationDayCount = extractDayCountFromText(vReason);
+                                        // const vDays = Math.round((vEndDate.getTime() - vStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                                        // const vacationDayCount = extractDayCountFromText(vReason);
                                         let warning: string | null = null;
                                         // Warning removed: vDays from Excel might be clipped, comparing with full vacationDayCount causes false positives
 
@@ -507,8 +507,8 @@ export function useMovementSync(baseDate?: Date) {
                                         // Parse vacation first if vacationRaw exists to check for linkage
                                         const vacation = vacationRaw ? parseVacation(vacationRaw, `${endM}.${endD}`) : null;
 
-                                        const days = Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-                                        const passDayCount = extractDayCountFromText(passReason);
+                                        // const days = Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                                        // const passDayCount = extractDayCountFromText(passReason);
                                         let warning: string | null = null;
                                         // Warning removed: days from Excel might be clipped
 
@@ -545,8 +545,8 @@ export function useMovementSync(baseDate?: Date) {
                                             if (hasStayKeyword && !isDayOff) {
                                                 extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: '당직/업무 등으로 인한 잔류' });
                                             } else {
-                                                const days = 1;
-                                                const passDayCount = extractDayCountFromText(passReason);
+                                                // const days = 1;
+                                                // const passDayCount = extractDayCountFromText(passReason);
                                                 let warning: string | null = null;
                                                 // Warning removed: Excel data may not reflect the full pass period
 
@@ -851,12 +851,12 @@ export function useMovementSync(baseDate?: Date) {
                                     const mergedEnd = mEnd > existEnd ? mEnd : existEnd;
 
                                     if (m.type === '외박' && m.period) {
-                                        const [y1, mo1, d1] = mergedStart.split('-');
-                                        const [y2, mo2, d2] = mergedEnd.split('-');
+                                        const [, mo1, d1] = mergedStart.split('-');
+                                        const [, mo2, d2] = mergedEnd.split('-');
                                         m.period = `${parseInt(mo1)}.${parseInt(d1)}~${parseInt(mo2)}.${parseInt(d2)}`;
                                     } else if (m.vacation) {
-                                        const [y1, mo1, d1] = mergedStart.split('-');
-                                        const [y2, mo2, d2] = mergedEnd.split('-');
+                                        const [, mo1, d1] = mergedStart.split('-');
+                                        const [, mo2, d2] = mergedEnd.split('-');
                                         m.vacation.depart = `${parseInt(mo1)}.${parseInt(d1)}`;
                                         m.vacation.return = `${parseInt(mo2)}.${parseInt(d2)}`;
                                     }
