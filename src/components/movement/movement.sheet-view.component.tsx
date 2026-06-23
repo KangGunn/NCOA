@@ -273,74 +273,61 @@ export function MovementSheetView({
                     }
                 }
 
-                // Collect contiguous date blocks (PASS only)
-                const activeDates = timeline.filter((dateStr: string) => {
-                    const status = member.dayStatuses[dateStr] || 'none';
-                    return ['pass', 'pass-depart', 'recovery-pass-depart'].includes(status);
-                });
+                const memberMovements = movements.filter(mov => mov.name === cleanName);
+                const coreTimeline = timeline.slice(0, 7); // Wed ~ Tue
+                const remarksList: string[] = [];
 
-                const yearVal = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
-                const blocks: Date[][] = [];
-                let currentBlock: Date[] = [];
-                activeDates.forEach((dateStr: string) => {
-                    const [m, d] = dateStr.split('.').map(Number);
-                    const dateObj = new Date(yearVal, m - 1, d, 12, 0, 0, 0);
-                    if (currentBlock.length === 0) {
-                        currentBlock.push(dateObj);
-                    } else {
-                        const prevDate = currentBlock[currentBlock.length - 1];
-                        const diffDays = Math.round((dateObj.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24));
-                        if (diffDays === 1) {
-                            currentBlock.push(dateObj);
-                        } else {
-                            blocks.push(currentBlock);
-                            currentBlock = [dateObj];
+                memberMovements.forEach(mov => {
+                    const movStart = new Date(mov.startDate);
+                    const movEnd = new Date(mov.endDate);
+
+                    if (mov.type === 'vacation') {
+                        const startM = movStart.getMonth() + 1;
+                        const startD = movStart.getDate();
+                        const startStr = `${startM}.${startD}`;
+                        if (coreTimeline.includes(startStr)) {
+                            const endM = movEnd.getMonth() + 1;
+                            const endD = movEnd.getDate();
+                            const totalDays = Math.round((movEnd.getTime() - movStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                            if (totalDays === 1) {
+                                remarksList.push(`1 DAY VACATION (${startM}.${startD})`);
+                            } else {
+                                remarksList.push(`${totalDays} DAY VACATION (${startM}.${startD}-${endM}.${endD})`);
+                            }
+                        }
+                    } else if (mov.type === 'pass' && isEligibleReason(mov.reason)) {
+                        const overlapDates: Date[] = [];
+                        let curr = new Date(movStart);
+                        while (curr <= movEnd) {
+                            const m = curr.getMonth() + 1;
+                            const d = curr.getDate();
+                            const dStr = `${m}.${d}`;
+                            if (coreTimeline.includes(dStr)) {
+                                overlapDates.push(new Date(curr));
+                            }
+                            curr.setDate(curr.getDate() + 1);
+                        }
+
+                        if (overlapDates.length > 0) {
+                            const start = overlapDates[0];
+                            const end = overlapDates[overlapDates.length - 1];
+                            const count = overlapDates.length;
+                            const sM = start.getMonth() + 1;
+                            const sD = start.getDate();
+                            const eM = end.getMonth() + 1;
+                            const eD = end.getDate();
+                            if (count === 1) {
+                                remarksList.push(`1 DAY PASS (${sM}.${sD})`);
+                            } else {
+                                remarksList.push(`${count} DAY PASS (${sM}.${sD}-${eM}.${eD})`);
+                            }
                         }
                     }
                 });
-                if (currentBlock.length > 0) {
-                    blocks.push(currentBlock);
-                }
 
-                const remarksBlocks = blocks.filter(block => {
-                    return block.some(d => {
-                        const day = d.getDay();
-                        return day === 0 || day === 6; // Sunday or Saturday
-                    });
-                });
+                const remarks = remarksList.join(', ');
 
-                if (remarksBlocks.length === 0) return null;
-
-                const remarks = remarksBlocks.slice(0, 1).map(block => {
-                    const isVacation = block.some(d => {
-                        const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
-                        const status = member.dayStatuses[dStr] || '';
-                        return status === 'vacation' || status === 'linked';
-                    });
-
-                    // For PASS blocks, exclude departure days (pass-depart and recovery-pass-depart)
-                    const finalBlock = isVacation
-                        ? block
-                        : block.filter(d => {
-                            const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
-                            const status = member.dayStatuses[dStr] || '';
-                            return status !== 'pass-depart' && status !== 'recovery-pass-depart';
-                        });
-
-                    if (finalBlock.length === 0) return null;
-
-                    const count = finalBlock.length;
-                    const start = finalBlock[0];
-                    const end = finalBlock[finalBlock.length - 1];
-                    const startStr = `${start.getMonth() + 1}.${start.getDate()}`;
-                    const endStr = `${end.getMonth() + 1}.${end.getDate()}`;
-                    const typeLabel = isVacation ? 'VACATION' : 'PASS';
-                    if (count === 1) {
-                        return `1 DAY ${typeLabel} (${startStr})`;
-                    } else {
-                        return `${count} DAY ${typeLabel} (${startStr}-${endStr})`;
-                    }
-                }).filter(Boolean).join(', ');
+                if (!remarks) return null;
 
                 return {
                     no: 0,
