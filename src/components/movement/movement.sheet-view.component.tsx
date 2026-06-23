@@ -281,21 +281,7 @@ export function MovementSheetView({
                     const movStart = new Date(mov.startDate);
                     const movEnd = new Date(mov.endDate);
 
-                    if (mov.type === 'vacation') {
-                        const startM = movStart.getMonth() + 1;
-                        const startD = movStart.getDate();
-                        const startStr = `${startM}.${startD}`;
-                        if (coreTimeline.includes(startStr)) {
-                            const endM = movEnd.getMonth() + 1;
-                            const endD = movEnd.getDate();
-                            const totalDays = Math.round((movEnd.getTime() - movStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-                            if (totalDays === 1) {
-                                remarksList.push(`1 DAY VACATION (${startM}.${startD})`);
-                            } else {
-                                remarksList.push(`${totalDays} DAY VACATION (${startM}.${startD}-${endM}.${endD})`);
-                            }
-                        }
-                    } else if (mov.type === 'pass' && isEligibleReason(mov.reason)) {
+                    if (mov.type === 'pass') {
                         const overlapDates: Date[] = [];
                         let curr = new Date(movStart);
                         while (curr <= movEnd) {
