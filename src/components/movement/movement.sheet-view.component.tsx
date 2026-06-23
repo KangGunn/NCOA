@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState } from 'react';
-import { ChevronLeft, ChevronRight, Copy } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, AlertTriangle } from 'lucide-react';
 import { MovementGrid } from './movement.grid.component';
 import { MovementPreviewModal } from './movement.preview-modal.component';
+import { extractDayCountFromText } from '../../utils/movement.utils';
 
 interface MovementSheetViewProps {
     sheetWeeks: any[];
@@ -26,11 +27,187 @@ export function MovementSheetView({
     if (sheetWeeks.length === 0) return null;
 
     const currentWeek = sheetWeeks[currentWeekIndex];
+    const timeline = currentWeek ? (currentWeek.timeline || []) : [];
+
+    // Helper to check if a reason is eligible (has @@ reward type and is not excluded)
+    const isEligibleReason = (reasonStr: string | undefined | null): boolean => {
+        if (!reasonStr) return false;
+        const trimmed = reasonStr.trim();
+        const trimmedLower = trimmed.toLowerCase();
+
+        // Explicitly exclude "잔류" or empty
+        if (trimmedLower === '' || trimmedLower === '잔류' || trimmedLower.includes('잔류')) {
+            return false;
+        }
+
+        let target = trimmed;
+        const targetPhrase = '으로 인한';
+        const index = trimmed.lastIndexOf(targetPhrase);
+        if (index !== -1) {
+            target = trimmed.substring(index + targetPhrase.length).trim();
+        }
+
+        // Regex for N데이 / N일 at the end of the target string
+        const dayPattern = /(\d+(\.\d+)?\s*(데이|일)|(원|투|쓰리|포|파이브|식스|세븐|에잇|나인|텐)\s*데이)$/i;
+
+        const match = target.match(dayPattern);
+        if (!match) {
+            return false;
+        }
+
+        const remaining = target.substring(0, target.length - match[0].length).trim().toLowerCase();
+
+        // If remaining is empty, or is just '일반' or '일반투데이', then @@ is missing or invalid
+        if (remaining.length === 0 || remaining === '일반' || remaining === '일반투데이') {
+            return false;
+        }
+
+        return true;
+    };
+
+    const extractRewardType = (reasonStr: string): string => {
+        let target = reasonStr.trim();
+        const targetPhrase = '으로 인한';
+        const index = target.lastIndexOf(targetPhrase);
+        if (index !== -1) {
+            target = target.substring(index + targetPhrase.length).trim();
+        }
+
+        const dayPattern = /(\d+(\.\d+)?\s*(데이|일)|(원|투|쓰리|포|파이브|식스|세븐|에잇|나인|텐)\s*데이)$/i;
+        const match = target.match(dayPattern);
+        if (!match) {
+            return target;
+        }
+
+        const cleaned = target.substring(0, target.length - match[0].length).trim();
+        return cleaned || '포상';
+    };
+
+    // Helper to collect contiguous date blocks overlapping with weekend
+    const getWeekendBlocks = (memberObj: any, allowedStatuses: string[]) => {
+        const activeDates = timeline.filter((dateStr: string) => {
+            const status = memberObj.dayStatuses[dateStr] || 'none';
+            return allowedStatuses.includes(status);
+        });
+
+        const yearVal = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
+        const blocks: Date[][] = [];
+        let currentBlock: Date[] = [];
+        activeDates.forEach((dateStr: string) => {
+            const [m, d] = dateStr.split('.').map(Number);
+            const dateObj = new Date(yearVal, m - 1, d, 12, 0, 0, 0);
+            if (currentBlock.length === 0) {
+                currentBlock.push(dateObj);
+            } else {
+                const prevDate = currentBlock[currentBlock.length - 1];
+                const diffDays = Math.round((dateObj.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24));
+                if (diffDays === 1) {
+                    currentBlock.push(dateObj);
+                } else {
+                    blocks.push(currentBlock);
+                    currentBlock = [dateObj];
+                }
+            }
+        });
+        if (currentBlock.length > 0) {
+            blocks.push(currentBlock);
+        }
+
+        return blocks;
+    };
+
+    // Helper to find overlapping movement with eligible reason
+    const findMatchingMovement = (memberMovements: any[], block: Date[], expectedType: 'pass' | 'vacation') => {
+        if (block.length === 0) return null;
+        const yearVal = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
+        const startD = block[0];
+        const endD = block[block.length - 1];
+
+        const startM = startD.getMonth() + 1;
+        const startDay = startD.getDate();
+        const endM = endD.getMonth() + 1;
+        const endDay = endD.getDate();
+
+        const blockStartIso = `${yearVal}-${String(startM).padStart(2, '0')}-${String(startDay).padStart(2, '0')}`;
+        const blockEndIso = `${yearVal}-${String(endM).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`;
+
+        return memberMovements.find(mov => {
+            if (mov.type !== expectedType) return false;
+            if (expectedType === 'pass' && !isEligibleReason(mov.reason)) return false;
+            return (mov.startDate <= blockEndIso && mov.endDate >= blockStartIso);
+        });
+    };
+
+    const isInCoreTimeline = (dateIsoStr: string, coreTimelineList: string[]) => {
+        if (!dateIsoStr) return false;
+        const parts = dateIsoStr.split('-');
+        if (parts.length < 3) return false;
+        const m = parseInt(parts[1]);
+        const d = parseInt(parts[2]);
+        const mDStr = `${m}.${d}`;
+        return coreTimelineList.includes(mDStr);
+    };
+
+    // Validate day counts for the active week
+    const activeWeekWarnings: { name: string; message: string }[] = [];
+    if (currentWeek && currentWeek.data) {
+        const dataList = currentWeek.data || [];
+        dataList.forEach((member: any) => {
+            const cleanName = member.name.replace(/^(병장|상병|일병|이병)\s*/, '');
+            const memberMovements = movements.filter(mov => mov.name === cleanName);
+
+            // 1. Check Pass blocks
+            const coreTimeline = timeline.slice(0, 7);
+            const passBlocks = getWeekendBlocks(member, ['pass', 'pass-depart', 'recovery-pass-depart']);
+            if (passBlocks.length > 0) {
+                const block = passBlocks[0];
+                const passDays = block.filter(d => {
+                    const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
+                    const status = member.dayStatuses[dStr] || '';
+                    return status !== 'pass-depart' && status !== 'recovery-pass-depart';
+                });
+
+                if (passDays.length > 0) {
+                    const matchedMov = findMatchingMovement(memberMovements, passDays, 'pass');
+                    if (matchedMov && isInCoreTimeline(matchedMov.startDate, coreTimeline)) {
+                        const passDayCount = extractDayCountFromText(matchedMov.reason);
+                        const movStart = new Date(matchedMov.startDate);
+                        const movEnd = new Date(matchedMov.endDate);
+                        const totalMovDays = Math.round((movEnd.getTime() - movStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                        if (passDayCount !== null && passDayCount !== totalMovDays) {
+                            activeWeekWarnings.push({
+                                name: cleanName,
+                                message: `외박 사유(${passDayCount}일)와 입력된 기간(${totalMovDays}일)이 일치하지 않습니다.`
+                            });
+                        }
+                    }
+                }
+            }
+
+            // 2. Check Vacation blocks
+            const vacationBlocks = getWeekendBlocks(member, ['vacation', 'linked']);
+            if (vacationBlocks.length > 0) {
+                const block = vacationBlocks[0];
+                const matchedMov = findMatchingMovement(memberMovements, block, 'vacation');
+                if (matchedMov && isInCoreTimeline(matchedMov.startDate, coreTimeline)) {
+                    const vacationDayCount = extractDayCountFromText(matchedMov.reason);
+                    const movStart = new Date(matchedMov.startDate);
+                    const movEnd = new Date(matchedMov.endDate);
+                    const totalMovDays = Math.round((movEnd.getTime() - movStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                    if (vacationDayCount !== null && vacationDayCount !== totalMovDays) {
+                        activeWeekWarnings.push({
+                            name: cleanName,
+                            message: `휴가 사유(${vacationDayCount}일)와 입력된 기간(${totalMovDays}일)이 일치하지 않습니다.`
+                        });
+                    }
+                }
+            }
+        });
+    }
 
     const handleCopyTable = async () => {
         try {
             const dataList = currentWeek.data || [];
-            const timeline = currentWeek.timeline || [];
 
             // Sort logic matching MovementGrid
             const sortedEntries = [...dataList].sort((a, b) => {
@@ -96,74 +273,61 @@ export function MovementSheetView({
                     }
                 }
 
-                // Collect contiguous date blocks
-                const activeDates = timeline.filter((dateStr: string) => {
-                    const status = member.dayStatuses[dateStr] || 'none';
-                    return ['pass', 'pass-depart', 'vacation', 'linked', 'recovery-pass-depart'].includes(status);
-                });
+                const memberMovements = movements.filter(mov => mov.name === cleanName);
+                const coreTimeline = timeline.slice(0, 7); // Wed ~ Tue
+                const remarksList: string[] = [];
 
-                const yearVal = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
-                const blocks: Date[][] = [];
-                let currentBlock: Date[] = [];
-                activeDates.forEach((dateStr: string) => {
-                    const [m, d] = dateStr.split('.').map(Number);
-                    const dateObj = new Date(yearVal, m - 1, d, 12, 0, 0, 0);
-                    if (currentBlock.length === 0) {
-                        currentBlock.push(dateObj);
-                    } else {
-                        const prevDate = currentBlock[currentBlock.length - 1];
-                        const diffDays = Math.round((dateObj.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24));
-                        if (diffDays === 1) {
-                            currentBlock.push(dateObj);
-                        } else {
-                            blocks.push(currentBlock);
-                            currentBlock = [dateObj];
+                memberMovements.forEach(mov => {
+                    const movStart = new Date(mov.startDate);
+                    const movEnd = new Date(mov.endDate);
+
+                    if (mov.type === 'vacation') {
+                        const startM = movStart.getMonth() + 1;
+                        const startD = movStart.getDate();
+                        const startStr = `${startM}.${startD}`;
+                        if (coreTimeline.includes(startStr)) {
+                            const endM = movEnd.getMonth() + 1;
+                            const endD = movEnd.getDate();
+                            const totalDays = Math.round((movEnd.getTime() - movStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                            if (totalDays === 1) {
+                                remarksList.push(`1 DAY VACATION (${startM}.${startD})`);
+                            } else {
+                                remarksList.push(`${totalDays} DAY VACATION (${startM}.${startD}-${endM}.${endD})`);
+                            }
+                        }
+                    } else if (mov.type === 'pass' && isEligibleReason(mov.reason)) {
+                        const overlapDates: Date[] = [];
+                        let curr = new Date(movStart);
+                        while (curr <= movEnd) {
+                            const m = curr.getMonth() + 1;
+                            const d = curr.getDate();
+                            const dStr = `${m}.${d}`;
+                            if (coreTimeline.includes(dStr)) {
+                                overlapDates.push(new Date(curr));
+                            }
+                            curr.setDate(curr.getDate() + 1);
+                        }
+
+                        if (overlapDates.length > 0) {
+                            const start = overlapDates[0];
+                            const end = overlapDates[overlapDates.length - 1];
+                            const count = overlapDates.length;
+                            const sM = start.getMonth() + 1;
+                            const sD = start.getDate();
+                            const eM = end.getMonth() + 1;
+                            const eD = end.getDate();
+                            if (count === 1) {
+                                remarksList.push(`1 DAY PASS (${sM}.${sD})`);
+                            } else {
+                                remarksList.push(`${count} DAY PASS (${sM}.${sD}-${eM}.${eD})`);
+                            }
                         }
                     }
                 });
-                if (currentBlock.length > 0) {
-                    blocks.push(currentBlock);
-                }
 
-                const remarksBlocks = blocks.filter(block => {
-                    return block.some(d => {
-                        const day = d.getDay();
-                        return day === 0 || day === 6; // Sunday or Saturday
-                    });
-                });
+                const remarks = remarksList.join(', ');
 
-                if (remarksBlocks.length === 0) return null;
-
-                const remarks = remarksBlocks.slice(0, 1).map(block => {
-                    const isVacation = block.some(d => {
-                        const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
-                        const status = member.dayStatuses[dStr] || '';
-                        return status === 'vacation' || status === 'linked';
-                    });
-
-                    // For PASS blocks, exclude departure days (pass-depart and recovery-pass-depart)
-                    const finalBlock = isVacation
-                        ? block
-                        : block.filter(d => {
-                            const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
-                            const status = member.dayStatuses[dStr] || '';
-                            return status !== 'pass-depart' && status !== 'recovery-pass-depart';
-                        });
-
-                    if (finalBlock.length === 0) return null;
-
-                    const count = finalBlock.length;
-                    const start = finalBlock[0];
-                    const end = finalBlock[finalBlock.length - 1];
-                    const startStr = `${start.getMonth() + 1}.${start.getDate()}`;
-                    const endStr = `${end.getMonth() + 1}.${end.getDate()}`;
-                    const typeLabel = isVacation ? 'VACATION' : 'PASS';
-                    if (count === 1) {
-                        return `1 DAY ${typeLabel} (${startStr})`;
-                    } else {
-                        return `${count} DAY ${typeLabel} (${startStr}-${endStr})`;
-                    }
-                }).filter(Boolean).join(', ');
+                if (!remarks) return null;
 
                 return {
                     no: 0,
@@ -229,6 +393,24 @@ export function MovementSheetView({
                 i += count;
             }
 
+            // Precompute subSec rowspans for HQ rows
+            const subSecRowSpans = new Array(finalRows.length).fill(0);
+            let j = 0;
+            while (j < finalRows.length) {
+                if (finalRows[j].mainSec === 'HQ') {
+                    let count = 1;
+                    while (j + count < finalRows.length &&
+                           finalRows[j + count].mainSec === 'HQ' &&
+                           finalRows[j + count].subSec === finalRows[j].subSec) {
+                        count++;
+                    }
+                    subSecRowSpans[j] = count;
+                    j += count;
+                } else {
+                    j++;
+                }
+            }
+
             // Build HTML table string
             let html = `<table style="border-collapse: collapse; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-size: 10pt; width: 16.29cm; text-align: center; font-weight: normal; margin: 0 auto;">
   <thead>
@@ -245,8 +427,9 @@ export function MovementSheetView({
 
             let spanIndex = 0;
             let spanRemaining = 0;
+            let subSecRemaining = 0;
 
-            finalRows.forEach((row) => {
+            finalRows.forEach((row, rowIndex) => {
                 html += `\n    <tr style="height: 0.53cm; font-weight: normal;">`;
                 html += `\n      <td style="border: 1px solid #000; height: 0.53cm; width: 0.87cm; text-align: center; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif;">${row.no}</td>`;
                 html += `\n      <td style="border: 1px solid #000; height: 0.53cm; width: 4.02cm; text-align: center; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif;">${row.englishName}</td>`;
@@ -259,16 +442,20 @@ export function MovementSheetView({
 
                     if (row.mainSec === 'HQ') {
                         html += `\n      <td rowspan="${span}" style="border: 1px solid #000; width: 1.11cm; font-weight: normal; vertical-align: middle; text-align: center; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif;">${row.mainSec}</td>`;
-                        html += `\n      <td style="border: 1px solid #000; width: 1.11cm; height: 0.53cm; text-align: center; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif;">${row.subSec}</td>`;
                     } else {
                         html += `\n      <td colspan="2" rowspan="${span}" style="border: 1px solid #000; width: 2.22cm; font-weight: normal; vertical-align: middle; text-align: center; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif;">${row.mainSec}</td>`;
                     }
-                } else {
-                    if (row.mainSec === 'HQ') {
-                        html += `\n      <td style="border: 1px solid #000; width: 1.11cm; height: 0.53cm; text-align: center; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif;">${row.subSec}</td>`;
-                    }
                 }
                 spanRemaining--;
+
+                if (row.mainSec === 'HQ') {
+                    if (subSecRemaining === 0) {
+                        const subSpan = subSecRowSpans[rowIndex];
+                        subSecRemaining = subSpan;
+                        html += `\n      <td rowspan="${subSpan}" style="border: 1px solid #000; width: 1.11cm; height: 0.53cm; vertical-align: middle; text-align: center; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif;">${row.subSec}</td>`;
+                    }
+                    subSecRemaining--;
+                }
 
                 html += `\n      <td style="border: 1px solid #000; height: 0.53cm; width: 4.52cm; text-align: center; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif;">${row.remarks}</td>`;
                 html += `\n      <td style="border: 1px solid #000; height: 0.53cm; width: 3.31cm; text-align: center; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif;">${row.phoneNumber}</td>`;
@@ -283,86 +470,143 @@ export function MovementSheetView({
                 return `${row.no}\t${row.englishName}\t${row.rankEnglish}\t${sec}\t${row.remarks}\t${row.phoneNumber}`;
             }).join('\n');
 
-            // Generate Enclosure content (Sorted by Seniority / 짬순)
+            const allRemarksDates: Date[] = [];
+
+            // Helper to format date range to Korean style for remarks using DB movement
+            const formatRemarksDateRange = (matchedMov: any) => {
+                const startD = new Date(matchedMov.startDate);
+                const endD = new Date(matchedMov.endDate);
+
+                allRemarksDates.push(new Date(startD));
+                allRemarksDates.push(new Date(endD));
+
+                const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+                const startDayKo = dayNames[startD.getDay()];
+                const endDayKo = dayNames[endD.getDay()];
+
+                const sm = startD.getMonth() + 1;
+                const sd = startD.getDate();
+                const em = endD.getMonth() + 1;
+                const ed = endD.getDate();
+
+                if (matchedMov.startDate === matchedMov.endDate) {
+                    return `${sm}/${sd}(${startDayKo})`;
+                } else {
+                    return `${sm}/${sd}(${startDayKo})~${em}/${ed}(${endDayKo})`;
+                }
+            };
+
             const enclosureItems: any[] = [];
+            const remarksPassItems: any[] = [];
+            const remarksVacationItems: any[] = [];
 
-            finalRows.forEach((row) => {
-                // If this row has no remarks, it doesn't belong in Enclosure
-                if (!row.remarks || row.remarks === '—') return;
+            sortedEntries.forEach((member) => {
+                const cleanName = member.name.replace(/^(병장|상병|일병|이병)\s*/, '');
+                const dbMember = dbMembers.find(m => m.name === cleanName);
 
-                // Enclosure is generated based on the EXACT same block selected for Remarks.
-                // Remarks string format: "4 DAY PASS (6.19-6.22), 2 DAY VACATION (6.20-6.21)" etc.
-                // We parse the very first block as it represents the main/only eligible weekend-containing block.
-                const firstPart = row.remarks.split(',')[0].trim(); // e.g., "4 DAY PASS (6.19-6.22)"
-                const match = firstPart.match(/^(\d+)\s+DAY\s+(PASS|VACATION)\s*\(([^)]+)\)$/i);
-                if (!match) return;
+                const enlistmentDate = dbMember?.enlistmentDate || '9999-12-31';
+                const englishName = dbMember?.englishName || cleanName;
+                const formattedEnglishName = englishName.toLowerCase().replace(/\b[a-z]/g, (letter: string) => letter.toUpperCase());
 
-                const count = parseInt(match[1], 10);
-                const typeStr = match[2].toUpperCase(); // PASS or VACATION
-                const dateRangeStr = match[3]; // e.g., "6.19-6.22" or "6.19"
+                const rankMap: Record<string, string> = {
+                    '병장': 'SGT', '상병': 'CPL', '일병': 'PFC', '이병': 'PV2',
+                    'SGT': 'SGT', 'CPL': 'CPL', 'PFC': 'PFC', 'PV2': 'PV2', 'PVT': 'PVT'
+                };
+                const dbRankStr = dbMember?.rank || '';
+                const matchedRankKey = Object.keys(rankMap).find(key => dbRankStr.startsWith(key)) || '';
+                const rankEnglish = rankMap[matchedRankKey] || (Object.keys(rankMap).find(key => member.name.startsWith(key)) ? rankMap[Object.keys(rankMap).find(key => member.name.startsWith(key))!] : 'PFC');
 
-                // Find corresponding movement to get the reason
-                const memberMovements = movements.filter(mov => mov.name === row.koreanName);
+                const rankMapKo: Record<string, string> = {
+                    'SGT': '병장', 'CPL': '상병', 'PFC': '일병', 'PV2': '이병', 'PVT': '이병'
+                };
+                const rankKo = rankMapKo[rankEnglish] || '일병';
 
-                // Find a matching movement that overlaps with the dates in this remarks block
-                let reason = '';
-                const matchedMov = memberMovements.find(mov => {
-                    const reasonLower = (mov.reason || '').trim().toLowerCase();
-                    const isExcluded = !mov.reason ||
-                        reasonLower === '' ||
-                        reasonLower.includes('일반 투데이') ||
-                        reasonLower.includes('일반투데이') ||
-                        reasonLower.includes('원데이') ||
-                        reasonLower.includes('잔류');
-                    if (isExcluded) return false;
+                const memberMovements = movements.filter(mov => mov.name === cleanName);
 
-                    // Check if this movement overlaps with the dates of the remarks block
-                    // dateRangeStr can be "6.19-6.22" or "6.19"
-                    const parts = dateRangeStr.split('-');
-                    const startStr = parts[0];
-                    const endStr = parts[1] || parts[0];
+                // 1. Process PASS blocks
+                const coreTimeline = timeline.slice(0, 7);
+                const passBlocks = getWeekendBlocks(member, ['pass', 'pass-depart', 'recovery-pass-depart']);
+                if (passBlocks.length > 0) {
+                    const block = passBlocks[0];
+                    const passDays = block.filter(d => {
+                        const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
+                        const status = member.dayStatuses[dStr] || '';
+                        return status !== 'pass-depart' && status !== 'recovery-pass-depart';
+                    });
 
-                    // Determine year dynamically from baseDate
-                    const yearVal = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
+                    if (passDays.length > 0) {
+                        const matchedMov = findMatchingMovement(memberMovements, passDays, 'pass');
 
-                    const [sm, sd] = startStr.split('.').map(Number);
-                    const [em, ed] = endStr.split('.').map(Number);
+                        if (matchedMov && isInCoreTimeline(matchedMov.startDate, coreTimeline)) {
+                            const reason = matchedMov.reason;
+                            const rewardType = extractRewardType(reason);
+                            const dateRangeKo = formatRemarksDateRange(matchedMov);
+                            const movStart = new Date(matchedMov.startDate);
+                            const movEnd = new Date(matchedMov.endDate);
+                            const totalMovDays = Math.round((movEnd.getTime() - movStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
 
-                    const blockStartIso = `${yearVal}-${String(sm).padStart(2, '0')}-${String(sd).padStart(2, '0')}`;
-                    const blockEndIso = `${yearVal}-${String(em).padStart(2, '0')}-${String(ed).padStart(2, '0')}`;
+                            enclosureItems.push({
+                                enlistmentDate,
+                                koreanName: cleanName,
+                                rankEnglish,
+                                formattedName: formattedEnglishName,
+                                count: totalMovDays,
+                                typeStr: 'PASS',
+                                reason: rewardType
+                            });
 
-                    // Overlap check
-                    return (mov.startDate <= blockEndIso && mov.endDate >= blockStartIso);
-                });
-
-                if (matchedMov) {
-                    reason = matchedMov.reason;
+                            remarksPassItems.push({
+                                enlistmentDate,
+                                koreanName: cleanName,
+                                rankKo,
+                                dateRangeKo,
+                                reason: rewardType,
+                                count: totalMovDays,
+                                typeStr: 'PASS'
+                            });
+                        }
+                    }
                 }
 
-                // If no eligible reason is found, exclude from Enclosure (since reasons like "일반 투데이", "잔류" are excluded)
-                if (!reason) return;
+                // 2. Process VACATION blocks (only for remarks, excluded from enclosure)
+                const vacationBlocks = getWeekendBlocks(member, ['vacation', 'linked']);
+                if (vacationBlocks.length > 0) {
+                    const block = vacationBlocks[0];
+                    const matchedMov = findMatchingMovement(memberMovements, block, 'vacation');
 
-                // Format English name to Title Case
-                const formattedName = row.englishName.toLowerCase().replace(/\b[a-z]/g, (letter: string) => letter.toUpperCase());
+                    if (matchedMov && isInCoreTimeline(matchedMov.startDate, coreTimeline)) {
+                        const reason = matchedMov.reason;
+                        const rewardType = extractRewardType(reason);
+                        const dateRangeKo = formatRemarksDateRange(matchedMov);
+                        const movStart = new Date(matchedMov.startDate);
+                        const movEnd = new Date(matchedMov.endDate);
+                        const totalMovDays = Math.round((movEnd.getTime() - movStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
 
-                enclosureItems.push({
-                    enlistmentDate: row.dbMember?.enlistmentDate || '9999-12-31',
-                    koreanName: row.koreanName,
-                    rankEnglish: row.rankEnglish,
-                    formattedName,
-                    count,
-                    typeStr,
-                    reason
-                });
-            });
-            // Sort strictly by enlistmentDate ascending (Seniority: earliest enlistment date first)
-            // If enlistmentDate is identical, sort alphabetically by koreanName (가나다 순)
-            enclosureItems.sort((a, b) => {
-                if (a.enlistmentDate !== b.enlistmentDate) {
-                    return a.enlistmentDate.localeCompare(b.enlistmentDate);
+                        remarksVacationItems.push({
+                            enlistmentDate,
+                            koreanName: cleanName,
+                            rankKo,
+                            dateRangeKo,
+                            reason: rewardType,
+                            count: totalMovDays,
+                            typeStr: 'VACATION'
+                        });
+                    }
                 }
-                return a.koreanName.localeCompare(b.koreanName, 'ko');
             });
+
+            const sortItems = (items: any[]) => {
+                items.sort((a, b) => {
+                    if (a.enlistmentDate !== b.enlistmentDate) {
+                        return a.enlistmentDate.localeCompare(b.enlistmentDate);
+                    }
+                    return a.koreanName.localeCompare(b.koreanName, 'ko');
+                });
+            };
+
+            sortItems(enclosureItems);
+            sortItems(remarksPassItems);
+            sortItems(remarksVacationItems);
 
             let enclosureText = 'ENCLOSURE\n\n';
             let enclosureHtml = '<div style="font-family: Arial, \'Malgun Gothic\', \'맑은 고딕\', sans-serif; font-size: 12pt; line-height: 1.15; font-weight: normal;">ENCLOSURE</div><br>';
@@ -383,86 +627,6 @@ export function MovementSheetView({
                 enclosureHtml += `</table>`;
             }
 
-            // Generate '출타 특이사항' (remarks) content
-            // Group by Pass vs Vacation
-            const remarksPassItems: any[] = [];
-            const remarksVacationItems: any[] = [];
-
-            // Track all dates in remarks to calculate overall min/max bounds for the title
-            const allRemarksDates: Date[] = [];
-            const yearVal = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
-
-            enclosureItems.forEach(item => {
-                // Determine raw Korean rank from rankEnglish or dbMember
-                // e.g. SGT = 병장, CPL = 상병, PFC = 일병, PV2 = 이병, PVT = 이병
-                const rankMapKo: Record<string, string> = {
-                    'SGT': '병장', 'CPL': '상병', 'PFC': '일병', 'PV2': '이병', 'PVT': '이병'
-                };
-                const rankKo = rankMapKo[item.rankEnglish] || '일병';
-
-                // Retrieve original date range string from row.remarks
-                const matchedRow = finalRows.find(r => r.koreanName === item.koreanName);
-                let dateRangeStr = '';
-                if (matchedRow && matchedRow.remarks) {
-                    const firstPart = matchedRow.remarks.split(',')[0].trim();
-                    const dateMatch = firstPart.match(/\(([^)]+)\)/);
-                    if (dateMatch) {
-                        dateRangeStr = dateMatch[1]; // e.g. "6.25-6.29"
-                    }
-                }
-
-                // Format dateRangeStr to Korean style: "6.25(목)~6.29(월)"
-                let formattedDateRange = '';
-                if (dateRangeStr) {
-                    const parts = dateRangeStr.split('-');
-                    const startStr = parts[0];
-                    const endStr = parts[1] || parts[0];
-
-                    const [sm, sd] = startStr.split('.').map(Number);
-                    const [em, ed] = endStr.split('.').map(Number);
-
-                    let startD = new Date(yearVal, sm - 1, sd);
-                    const endD = new Date(yearVal, em - 1, ed);
-
-                    // For PASS items, the departure date is 1 day before the pass starts.
-                    // Include the departure date in the range.
-                    if (item.typeStr === 'PASS') {
-                        startD.setDate(startD.getDate() - 1);
-                    }
-
-                    allRemarksDates.push(new Date(startD));
-                    allRemarksDates.push(new Date(endD));
-
-                    const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
-                    const startDayKo = dayNames[startD.getDay()];
-                    const endDayKo = dayNames[endD.getDay()];
-
-                    const correctedSm = startD.getMonth() + 1;
-                    const correctedSd = startD.getDate();
-
-                    if (parts[1] || item.typeStr === 'PASS') {
-                        formattedDateRange = `${correctedSm}/${correctedSd}(${startDayKo})~${em}/${ed}(${endDayKo})`;
-                    } else {
-                        formattedDateRange = `${correctedSm}/${correctedSd}(${startDayKo})`;
-                    }
-                }
-
-                const remarksItem = {
-                    koreanName: item.koreanName,
-                    rankKo,
-                    dateRangeKo: formattedDateRange,
-                    reason: item.reason,
-                    count: item.count,
-                    typeStr: item.typeStr // PASS or VACATION
-                };
-
-                if (item.typeStr === 'PASS') {
-                    remarksPassItems.push(remarksItem);
-                } else {
-                    remarksVacationItems.push(remarksItem);
-                }
-            });
-
             // Calculate overall min/max date range of remarks list
             let weekRangeStr = `(${currentWeek.startDate.replace('.', '/')}-${currentWeek.endDate.replace('.', '/')})`;
             if (allRemarksDates.length > 0) {
@@ -471,23 +635,22 @@ export function MovementSheetView({
                 weekRangeStr = `(${minDate.getMonth() + 1}/${minDate.getDate()}~${maxDate.getMonth() + 1}/${maxDate.getDate()})`;
             }
 
-            // Helper to format reason string to: "(사유) 컴펜으로 인한 N 데이"
             const formatReasonStr = (reason: string, count: number) => {
                 let cleanReason = reason.trim();
+                if (cleanReason.includes('으로 인한')) {
+                    return cleanReason;
+                }
                 if (!cleanReason.includes('컴펜') && !cleanReason.toLowerCase().includes('compensation')) {
                     cleanReason = `${cleanReason} 컴펜`;
                 }
                 return `${cleanReason}으로 인한 ${count} 데이`;
             };
 
-            // Helper to format name and rank: "강동민 병장" (length 3), "강건   상병" (length 2) to align ranks vertically
             const formatRankName = (name: string, rank: string, isHtml: boolean) => {
                 const clean = name.replace(/\s+/g, '');
                 if (clean.length === 2) {
-                    // 2-letter name: add extra spacing to push rank to match 3-letter name alignment
                     return isHtml ? `${clean}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${rank}` : `${clean}   ${rank}`;
                 }
-                // 3-letter (or more) name: 1 space gap
                 return isHtml ? `${clean}&nbsp;&nbsp;${rank}` : `${clean} ${rank}`;
             };
 
@@ -500,7 +663,7 @@ export function MovementSheetView({
                 remarksPassItems.forEach((item, index) => {
                     const num = index + 1;
                     const rankName = formatRankName(item.koreanName, item.rankKo, false);
-                    const rankNameColon = `${rankName}:`; // Colon right after rank
+                    const rankNameColon = `${rankName}:`;
                     const reasonStr = formatReasonStr(item.reason, item.count);
                     remarksText += `${num}.\t${rankNameColon}\t ${item.dateRangeKo}\t${reasonStr}\n`;
                 });
@@ -513,20 +676,12 @@ export function MovementSheetView({
                 remarksVacationItems.forEach((item, index) => {
                     const num = index + 1;
                     const rankName = formatRankName(item.koreanName, item.rankKo, false);
-                    const rankNameColon = `${rankName}:`; // Colon right after rank
+                    const rankNameColon = `${rankName}:`;
                     const reasonStr = formatReasonStr(item.reason, item.count);
                     remarksText += `${num}.\t${rankNameColon}\t ${item.dateRangeKo}\t${reasonStr}\n`;
                 });
             }
 
-            // Format HTML Remarks (Arial, Titles 12pt, items 11pt) using an HTML Table for Word Copy-Paste Compatibility
-            // Columns align with the requested layout:
-            // Total Table Width: 16.51cm
-            // Col 1: Index (width 1.05cm)
-            // Col 2: Name & Rank with colon (width 2.59cm)
-            // Col 3: Date range (width 4.16cm)
-            // Col 4: Reason (width 8.71cm)
-            // All cells height: 0.53cm
             let remarksHtml = `<div style="font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-size: 11pt; line-height: 1.15; font-weight: normal;">`;
             remarksHtml += `<p align="center" style="font-size: 12pt; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; text-align: center; font-weight: normal; margin: 0 0 12pt 0; width: 100%;">출타 특이사항 ${weekRangeStr}</p>`;
             remarksHtml += `<div style="font-size: 12pt; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal; margin-bottom: 6pt;">외박</div>`;
@@ -589,6 +744,22 @@ export function MovementSheetView({
 
     return (
         <div className="space-y-4 animate-in zoom-in-95 duration-300">
+            {activeWeekWarnings.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-amber-800 space-y-2 animate-in slide-in-from-top-2">
+                    <div className="flex items-center gap-2 font-bold text-amber-900">
+                        <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                        <span>근무표 출타 기간과 등록된 사유의 일수가 일치하지 않는 항목이 있습니다:</span>
+                    </div>
+                    <ul className="list-disc pl-5 text-xs sm:text-sm space-y-1 text-amber-700">
+                        {activeWeekWarnings.map((warning, idx) => (
+                            <li key={idx}>
+                                <span className="font-bold">{warning.name}</span>: {warning.message}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+
             <div className="flex flex-row items-center justify-between bg-white border border-gray-200 rounded-2xl p-2 sm:p-3 shadow-sm gap-2 sm:gap-4 overflow-visible">
                 {/* Left: Copy Table button */}
                 <div className="flex gap-2 shrink-0">

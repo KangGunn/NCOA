@@ -1,5 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { CheckCircle2, Send } from 'lucide-react';
+import { CheckCircle2, Send, AlertTriangle } from 'lucide-react';
 import { MovementGrid } from './movement.grid.component';
 import type { MovementRecord } from '../../types/movement/movement.type';
 
@@ -105,6 +104,22 @@ export function MovementExcelView({
                     </button>
                 </div>
             </div>
+
+            {parsedData.some((item: any) => item.warning) && (
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-amber-800 space-y-2 animate-in slide-in-from-top-2">
+                    <div className="flex items-center gap-2 font-bold text-amber-900">
+                        <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                        <span>기간과 사유의 일수가 일치하지 않는 항목이 있습니다:</span>
+                    </div>
+                    <ul className="list-disc pl-5 text-xs sm:text-sm space-y-1 text-amber-700">
+                        {parsedData.filter((item: any) => item.warning).map((item: any, idx: number) => (
+                            <li key={idx}>
+                                <span className="font-bold">{item.name}</span>: {item.warning}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
 
             {success && (
                 <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 flex items-center gap-3 text-blue-600 animate-in slide-in-from-top-2">

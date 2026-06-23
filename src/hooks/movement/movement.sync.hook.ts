@@ -7,6 +7,7 @@ import { doc, onSnapshot, setDoc, serverTimestamp, collection, getDoc, writeBatc
 import { db } from '../../lib/firebase';
 import type { MovementRecord } from '../../types/movement/movement.type';
 
+
 const SPREADSHEET_URLS = {
     test: "https://docs.google.com/spreadsheets/d/1eyiNzyvJ1BguGzzpkYDnVegi-4U-zuCacCvy9bOW8R8/export?format=csv&gid=1529486829",
     prod: "https://docs.google.com/spreadsheets/d/1WBJXIzLbbtRxt09KOaJeXKXtgbht-GDjX3N4DyDztOY/export?format=csv&gid=1529486829"
@@ -467,13 +468,19 @@ export function useMovementSync(baseDate?: Date) {
                                         vReason = vReason.replace(/\([^\)]+\)/g, '');
                                         vReason = vReason.trim();
 
+                                        // const vDays = Math.round((vEndDate.getTime() - vStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                                        // const vacationDayCount = extractDayCountFromText(vReason);
+                                        let warning: string | null = null;
+                                        // Warning removed: vDays from Excel might be clipped, comparing with full vacationDayCount causes false positives
+
                                         return {
                                             period: vRangeMatch ? `${vM1}.${vD1}~${vM2}.${vD2}` : `${vM1}.${vD1}`,
                                             depart: vStartStr,
                                             isLinked,
                                             return: vEndStr,
                                             stayDays: getDatesBetween(vStartDate, vEndDate, false),
-                                            reason: vReason
+                                            reason: vReason,
+                                            warning
                                         };
                                     };
 
@@ -497,6 +504,14 @@ export function useMovementSync(baseDate?: Date) {
                                         departDate.setDate(startDate.getDate() - 1);
                                         departDate.setHours(12, 0, 0, 0);
 
+                                        // Parse vacation first if vacationRaw exists to check for linkage
+                                        const vacation = vacationRaw ? parseVacation(vacationRaw, `${endM}.${endD}`) : null;
+
+                                        // const days = Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                                        // const passDayCount = extractDayCountFromText(passReason);
+                                        let warning: string | null = null;
+                                        // Warning removed: days from Excel might be clipped
+
                                         const passData = {
                                             name: `${rank} ${name}`,
                                             type: '외박',
@@ -504,16 +519,12 @@ export function useMovementSync(baseDate?: Date) {
                                             depart: `${departDate.getMonth() + 1}.${departDate.getDate()}`,
                                             return: `${endM}.${endD}`,
                                             stayDays: getDatesBetween(startDate, endDate, true),
-                                            reason: passReason
+                                            reason: passReason,
+                                            warning
                                         };
 
-                                        if (vacationRaw) {
-                                            const vacation = parseVacation(vacationRaw, passData.return);
-                                            if (vacation) {
-                                                extractedData.push({ ...passData, vacation });
-                                            } else {
-                                                extractedData.push(passData);
-                                            }
+                                        if (vacation) {
+                                            extractedData.push({ ...passData, vacation, warning: warning || vacation.warning });
                                         } else {
                                             extractedData.push(passData);
                                         }
@@ -534,6 +545,11 @@ export function useMovementSync(baseDate?: Date) {
                                             if (hasStayKeyword && !isDayOff) {
                                                 extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: '당직/업무 등으로 인한 잔류' });
                                             } else {
+                                                // const days = 1;
+                                                // const passDayCount = extractDayCountFromText(passReason);
+                                                let warning: string | null = null;
+                                                // Warning removed: Excel data may not reflect the full pass period
+
                                                 const passData = {
                                                     name: `${rank} ${name}`,
                                                     type: '외박',
@@ -541,13 +557,14 @@ export function useMovementSync(baseDate?: Date) {
                                                     depart: `${departDate.getMonth() + 1}.${departDate.getDate()}`,
                                                     return: `${m}.${d}`,
                                                     stayDays: [] as string[],
-                                                    reason: passReason
+                                                    reason: passReason,
+                                                    warning
                                                 };
 
                                                 if (vacationRaw) {
                                                     const vacation = parseVacation(vacationRaw, passData.return);
                                                     if (vacation) {
-                                                        extractedData.push({ ...passData, vacation });
+                                                        extractedData.push({ ...passData, vacation, warning: warning || vacation.warning });
                                                     } else {
                                                         extractedData.push(passData);
                                                     }
@@ -567,7 +584,8 @@ export function useMovementSync(baseDate?: Date) {
                                                     return: vacation.return,
                                                     stayDays: [] as string[],
                                                     reason: '',
-                                                    vacation
+                                                    vacation,
+                                                    warning: vacation.warning
                                                 });
                                             } else {
                                                 // 연가 날짜도 없으면 잔류 처리
@@ -694,37 +712,6 @@ export function useMovementSync(baseDate?: Date) {
                     }
                 });
 
-                // 1. Delete existing movements for these names that overlap with this range
-                if (namesToSync.size > 0 && minDate !== '9999-12-31' && maxDate !== '0000-01-01') {
-                    const namesArray = Array.from(namesToSync);
-                    const chunkSize = 30;
-                    const existingDocs: any[] = [];
-
-                    for (let i = 0; i < namesArray.length; i += chunkSize) {
-                        const chunk = namesArray.slice(i, i + chunkSize);
-                        const qExisting = query(
-                            collection(db, 'movements'),
-                            where('name', 'in', chunk)
-                        );
-                        const snapExisting = await getDocs(qExisting);
-                        existingDocs.push(...snapExisting.docs);
-                    }
-
-                    const deleteBatch = writeBatch(db);
-                    let shouldCommitDelete = false;
-
-                    existingDocs.forEach(docSnap => {
-                        const data = docSnap.data();
-                        if (data.startDate <= maxDate && data.endDate >= minDate) {
-                            deleteBatch.delete(docSnap.ref);
-                            shouldCommitDelete = true;
-                        }
-                    });
-                    if (shouldCommitDelete) {
-                        await deleteBatch.commit();
-                    }
-                }
-
                 // Determine the main pass dates of this synced batch (most frequent pass period)
                 const passPeriods: Record<string, number> = {};
                 movementsToSync.forEach(m => {
@@ -755,6 +742,142 @@ export function useMovementSync(baseDate?: Date) {
                 if (!mainPassStart && minDate !== '9999-12-31' && maxDate !== '0000-01-01') {
                     mainPassStart = minDate;
                     mainPassEnd = maxDate;
+                }
+
+                // Build specific intervals being synced for each member to prevent deleting outside ranges
+                const intervalsByMember = new Map<string, { start: string, end: string }[]>();
+                movementsToSync.forEach(m => {
+                    const cleanName = m.name.replace(/^(병장|상병|일병|이병)\s*/, '');
+                    if (!intervalsByMember.has(cleanName)) {
+                        intervalsByMember.set(cleanName, []);
+                    }
+                    const list = intervalsByMember.get(cleanName)!;
+
+                    if (m.period && m.type === '외박') {
+                        const [startStr, endStr] = m.period.split('~').map((s: string) => s.trim());
+                        const startDate = toISODate(startStr);
+                        const endDate = endStr ? toISODate(endStr) : startDate;
+                        if (startDate && endDate) {
+                            list.push({ start: startDate, end: endDate });
+                        }
+                    }
+                    if (m.type === '잔류' && mainPassStart && mainPassEnd) {
+                        list.push({ start: mainPassStart, end: mainPassEnd });
+                    }
+                    if (m.vacation) {
+                        const startDate = toISODate(m.vacation.depart);
+                        const endDate = toISODate(m.vacation.return);
+                        if (startDate && endDate) {
+                            list.push({ start: startDate, end: endDate });
+                        }
+                    }
+                });
+
+                // 1. Delete existing movements for these names that overlap with this range
+                if (namesToSync.size > 0 && minDate !== '9999-12-31' && maxDate !== '0000-01-01') {
+                    const namesArray = Array.from(namesToSync);
+                    const chunkSize = 30;
+                    const existingDocs: any[] = [];
+
+                    for (let i = 0; i < namesArray.length; i += chunkSize) {
+                        const chunk = namesArray.slice(i, i + chunkSize);
+                        const qExisting = query(
+                            collection(db, 'movements'),
+                            where('name', 'in', chunk)
+                        );
+                        const snapExisting = await getDocs(qExisting);
+                        existingDocs.push(...snapExisting.docs);
+                    }
+
+                    const deleteBatch = writeBatch(db);
+                    let shouldCommitDelete = false;
+
+                    existingDocs.forEach(docSnap => {
+                        const data = docSnap.data();
+                        const cleanName = data.name;
+                        const existStart = data.startDate;
+                        const existEnd = data.endDate;
+
+                        // Find overlapping movements in the Excel data
+                        const matchingSyncMovs = movementsToSync.filter(m => {
+                            const mCleanName = m.name.replace(/^(병장|상병|일병|이병)\s*/, '');
+                            if (mCleanName !== cleanName) return false;
+
+                            let mStart = '';
+                            let mEnd = '';
+                            if (m.type === '외박' && m.period) {
+                                const [s, e] = m.period.split('~').map((x: string) => x.trim());
+                                mStart = toISODate(s);
+                                mEnd = e ? toISODate(e) : mStart;
+                            } else if (m.vacation) {
+                                mStart = toISODate(m.vacation.depart);
+                                mEnd = toISODate(m.vacation.return);
+                            } else if (m.type === '잔류' && m.detail) {
+                                // For stay, we rely on the pass dates which are handled above, but here we can just use the Excel date if needed.
+                                // Actually stay is generated alongside pass.
+                                return false; 
+                            }
+
+                            if (mStart && mEnd) {
+                                return existStart <= mEnd && existEnd >= mStart;
+                            }
+                            return false;
+                        });
+
+                        if (matchingSyncMovs.length > 0) {
+                            deleteBatch.delete(docSnap.ref);
+                            shouldCommitDelete = true;
+
+                            matchingSyncMovs.forEach(m => {
+                                let mStart = '';
+                                let mEnd = '';
+                                let reason = '';
+                                if (m.type === '외박' && m.period) {
+                                    const [s, e] = m.period.split('~').map((x: string) => x.trim());
+                                    mStart = toISODate(s);
+                                    mEnd = e ? toISODate(e) : mStart;
+                                    reason = m.reason || '';
+                                } else if (m.vacation) {
+                                    mStart = toISODate(m.vacation.depart);
+                                    mEnd = toISODate(m.vacation.return);
+                                    reason = m.vacation.reason || '';
+                                }
+
+                                const cleanDBReason = (data.reason || '').replace(/\s+/g, '');
+                                const cleanExcelReason = reason.replace(/\s+/g, '');
+
+                                if (cleanDBReason && cleanExcelReason && (cleanDBReason.includes(cleanExcelReason) || cleanExcelReason.includes(cleanDBReason))) {
+                                    const mergedStart = mStart < existStart ? mStart : existStart;
+                                    const mergedEnd = mEnd > existEnd ? mEnd : existEnd;
+
+                                    if (m.type === '외박' && m.period) {
+                                        const [, mo1, d1] = mergedStart.split('-');
+                                        const [, mo2, d2] = mergedEnd.split('-');
+                                        m.period = `${parseInt(mo1)}.${parseInt(d1)}~${parseInt(mo2)}.${parseInt(d2)}`;
+                                    } else if (m.vacation) {
+                                        const [, mo1, d1] = mergedStart.split('-');
+                                        const [, mo2, d2] = mergedEnd.split('-');
+                                        m.vacation.depart = `${parseInt(mo1)}.${parseInt(d1)}`;
+                                        m.vacation.return = `${parseInt(mo2)}.${parseInt(d2)}`;
+                                    }
+                                }
+                            });
+                        } else {
+                            // Check stay overlaps
+                            const list = intervalsByMember.get(cleanName) || [];
+                            const overlaps = list.some(interval => {
+                                return existStart <= interval.end && existEnd >= interval.start;
+                            });
+                            if (overlaps) {
+                                deleteBatch.delete(docSnap.ref);
+                                shouldCommitDelete = true;
+                            }
+                        }
+                    });
+
+                    if (shouldCommitDelete) {
+                        await deleteBatch.commit();
+                    }
                 }
 
                 // 2. Add new movements to Firestore
