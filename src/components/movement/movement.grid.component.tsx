@@ -88,6 +88,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                     if (mov.name !== cleanName) return false;
                     if (mov.startDate < timelineStartIso) return false;
                     
+                    const coreTimeline = timeline.slice(0, 7);
                     return timeline.some(dateStr => {
                         const [m, d] = dateStr.split('.').map(Number);
                         const isoDate = `${currentYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -95,12 +96,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                         if (!isOverlapping) return false;
                         
                         if (mov.type === 'pass') {
-                            const gridStatus = member.dayStatuses[dateStr] || '';
-                            const isGridVacation = gridStatus === 'vacation' || gridStatus === 'linked';
-                            if (!isGridVacation) {
-                                const isWeekend = new Date(currentYear, m - 1, d, 12, 0, 0, 0).getDay() % 6 === 0;
-                                return isWeekend;
-                            }
+                            return coreTimeline.includes(dateStr);
                         }
                         
                         return true;
