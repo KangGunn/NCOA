@@ -1,4 +1,4 @@
-# 🎖️ NCOA (Non-Commissioned Officers Association) Management System
+# 🎖️ NCOA (Non-Commissioned Officer Academy) Management System
 
 **NCOA Management System**은 KATUSA 및 대한민국 육군 부대 내에서 대원들의 **점호(Roll Call), 당직(Duty Plan), 유동병력(Movement Registry), 신상 정보(Personnel Directory)**를 효율적으로 관리하고 자동화하기 위해 설계된 통합 관리 솔루션입니다. 
 
@@ -118,7 +118,7 @@ NCOA Management System은 모바일에 최적화된 **4개의 메인 탭**과 PC
     *   구글 스프레드시트의 주간 유동병력 현황을 웹 화면에 테이블 형태로 직접 표시합니다.
     *   주차별 이동 버튼(`이전 주` / `다음 주`)을 사용하여 과거나 미래의 유동병력 배치 현황을 바로 조회할 수 있습니다.
 *   **엑셀 업로드 및 동기화 프로세스:**
-    *   행정계통이나 국방망에서 다운로드한 유동병력 현황 엑셀 파일을 가져와 드래그 앤 드롭하거나 파일 선택기로 업로드합니다.
+    *   NCOA 밴드에서 외특 수합 글의 댓글 파일을 가져와 드래그 앤 드롭하거나 파일 선택기로 업로드합니다.
     *   업로드된 엑셀 내부의 대원 성명, 유동 구분(휴가, 외박 등), 기간 정보를 브라우저 내에서 가공해 예비 타임라인 화면으로 보여줍니다.
     *   "구글 시트 동기화" 버튼을 클릭하여 백엔드(Firebase Functions)를 거쳐 구글 스프레드시트에 직접 동기화합니다.
 *   **동명이인 및 미등록 대원 매칭 모달:**
