@@ -13,10 +13,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: npm ci && npm run build
+      - run: |
+          npm ci
+          npm run build
+          echo "<!-- Build: \$(date +%s) -->" >> dist/index.html
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SENIORKATUSA_AA594 }}
           projectId: seniorkatusa-aa594
-          firebaseToolsVersion: 13.15.4
