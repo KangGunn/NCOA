@@ -24,10 +24,7 @@ jobs:
       # Front-End (FE) Deploy
       # ----------------------------------------------------
       - name: Install Frontend Dependencies & Build
-        run: |
-          npm ci
-          npm run build
-          echo "<!-- Build: $(date +%s) -->" >> dist/index.html
+        run: npm ci && npm run build
 
       - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
@@ -36,7 +33,6 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SENIORKATUSA_AA594 }}
           channelId: live
           projectId: seniorkatusa-aa594
-          firebaseToolsVersion: 15.22.1
 
       # ----------------------------------------------------
       # Back-End (BE) Deploy
