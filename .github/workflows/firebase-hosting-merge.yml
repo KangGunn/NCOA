@@ -20,40 +20,15 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      - name: Check Branch Prefix
-        id: branch_check
-        run: |
-          BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
-          echo "Merged branch: $BRANCH_NAME"
-          
-          DEPLOY_FE="false"
-          DEPLOY_BE="false"
-          
-          if [[ "$BRANCH_NAME" =~ ^FE/ ]]; then
-            DEPLOY_FE="true"
-          elif [[ "$BRANCH_NAME" =~ ^BE/ ]]; then
-            DEPLOY_BE="true"
-          elif [[ "$BRANCH_NAME" =~ ^FS/ ]]; then
-            DEPLOY_FE="true"
-            DEPLOY_BE="true"
-          else
-            echo "Branch name does not start with FE/, BE/, or FS/. Skipping deployment."
-          fi
-          
-          echo "deploy_fe=$DEPLOY_FE" >> $GITHUB_OUTPUT
-          echo "deploy_be=$DEPLOY_BE" >> $GITHUB_OUTPUT
-
       # ----------------------------------------------------
       # Front-End (FE) Deploy
       # ----------------------------------------------------
       - name: Install Frontend Dependencies & Build
-        if: steps.branch_check.outputs.deploy_fe == 'true'
         run: |
           npm ci
           npm run build
 
       - name: Deploy to Firebase Hosting
-        if: steps.branch_check.outputs.deploy_fe == 'true'
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
@@ -65,17 +40,14 @@ jobs:
       # Back-End (BE) Deploy
       # ----------------------------------------------------
       - name: Install Backend Dependencies
-        if: steps.branch_check.outputs.deploy_be == 'true'
         run: |
           cd functions
           npm ci
 
       - name: Authenticate to Google Cloud
-        if: steps.branch_check.outputs.deploy_be == 'true'
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SENIORKATUSA_AA594 }}
 
       - name: Deploy to Firebase Functions
-        if: steps.branch_check.outputs.deploy_be == 'true'
         run: npx firebase-tools deploy --only functions --project seniorkatusa-aa594
