@@ -1,8 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export function calculateRankFromEnlistment(enlistmentDate: Date, earlyPromotionMonths = 0): string {
-    const now = new Date();
-    const baseMonths = (now.getFullYear() - enlistmentDate.getFullYear()) * 12
-        + now.getMonth() - enlistmentDate.getMonth();
+export function calculateRankFromEnlistment(enlistmentDate: Date, earlyPromotionMonths = 0, asOfDate: Date = new Date()): string {
+    const baseMonths = (asOfDate.getFullYear() - enlistmentDate.getFullYear()) * 12
+        + asOfDate.getMonth() - enlistmentDate.getMonth();
     const m = baseMonths + earlyPromotionMonths;
     const isFirstDay = enlistmentDate.getDate() === 1;
 
@@ -21,11 +20,12 @@ export function calculateRankFromEnlistment(enlistmentDate: Date, earlyPromotion
     return tier;
 }
 
-export function getMemberDisplayName(member: any): string {
+export function getMemberDisplayName(member: any, asOfDate: Date = new Date()): string {
     if (member.role !== "runner" && member.enlistmentDate) {
         const rank = calculateRankFromEnlistment(
             new Date(member.enlistmentDate),
-            member.earlyPromotion || 0
+            member.earlyPromotion || 0,
+            asOfDate
         );
         return `${member.name} ${rank}`;
     }

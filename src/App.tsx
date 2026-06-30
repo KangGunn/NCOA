@@ -299,7 +299,7 @@ function App() {
 
       <main className="w-full max-w-md min-h-screen bg-white shadow-2xl relative">
         <div className="min-h-full safe-area-top pb-12 px-4 sm:px-6 pt-4">
-          {activeTab === 'rollcall' && (
+          <div className={activeTab === 'rollcall' ? '' : 'hidden'}>
             <RollCallTab 
               healthNote={healthNote}
               setHealthNote={setHealthNote}
@@ -315,10 +315,16 @@ function App() {
               removeCustomSchedule={removeCustomSchedule}
               toggleMember={toggleMember}
             />
-          )}
-          {activeTab === 'calendar' && <CalendarTab baseDate={baseDate} />}
-          {activeTab === 'movement' && <MovementTab baseDate={baseDate} />}
-          {activeTab === 'personnel' && <PersonnelTab baseDate={baseDate} />}
+          </div>
+          <div className={activeTab === 'calendar' ? '' : 'hidden'}>
+            <CalendarTab baseDate={baseDate} />
+          </div>
+          <div className={activeTab === 'movement' ? '' : 'hidden'}>
+            <MovementTab baseDate={baseDate} />
+          </div>
+          <div className={activeTab === 'personnel' ? '' : 'hidden'}>
+            <PersonnelTab baseDate={baseDate} />
+          </div>
         </div>
 
         <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />

@@ -52,20 +52,25 @@ export async function processRollCallData(dateStr: string) {
         (e) => e.startDate === tomorrowStr && e.isDepartDay && e.type === "vacation"
     );
 
-    const getDisplayName = (memoName: string) => {
+    const getEveningDisplayName = (memoName: string) => {
         const member = activeMembers.find((m) => m.name === memoName);
-        return member ? getMemberDisplayName(member) : memoName;
+        return member ? getMemberDisplayName(member, baseDate) : memoName;
+    };
+
+    const getMorningDisplayName = (memoName: string) => {
+        const member = activeMembers.find((m) => m.name === memoName);
+        return member ? getMemberDisplayName(member, tomorrow) : memoName;
     };
 
     return {
         stats: { total: totalCount, present: presentCount, absent: offCount, dutyCount, vacationCount, passCount },
         evening: {
-            duties: todayDuties.map((d) => getDisplayName(d.memo)),
-            recoveries: todayDuties.map((d) => getDisplayName(d.memo)),
-            tomorrowDuties: tomorrowDuties.map((d) => getDisplayName(d.memo)),
-            tomorrowDeparts: tomorrowDeparts.map((e) => getDisplayName(e.memo)),
+            duties: todayDuties.map((d) => getEveningDisplayName(d.memo)),
+            recoveries: todayDuties.map((d) => getEveningDisplayName(d.memo)),
+            tomorrowDuties: tomorrowDuties.map((d) => getEveningDisplayName(d.memo)),
+            tomorrowDeparts: tomorrowDeparts.map((e) => getEveningDisplayName(e.memo)),
             vacations: todayVacations.map((e) => ({
-                name: getDisplayName(e.memo),
+                name: getEveningDisplayName(e.memo),
                 dateText: e.dateText || (() => {
                     const ps = e.startDate?.split("-"); const pe = e.endDate?.split("-");
                     if (!ps || !pe) return "";
@@ -73,7 +78,7 @@ export async function processRollCallData(dateStr: string) {
                 })(),
             })),
             passes: todayPasses.map((e) => ({
-                name: getDisplayName(e.memo),
+                name: getEveningDisplayName(e.memo),
                 dateText: e.dateText || (() => {
                     const ps = e.startDate?.split("-"); const pe = e.endDate?.split("-");
                     if (!ps || !pe) return "";
@@ -83,17 +88,17 @@ export async function processRollCallData(dateStr: string) {
         },
         morning: {
             tomorrowStr,
-            duties: tomorrowDuties.map((d) => getDisplayName(d.memo)),
-            recoveries: todayDuties.map((d) => getDisplayName(d.memo)),
+            duties: tomorrowDuties.map((d) => getMorningDisplayName(d.memo)),
+            recoveries: todayDuties.map((d) => getMorningDisplayName(d.memo)),
             vacations: [
                 ...schedules.filter((e: any) => e.type === "vacation" && e.startDate <= tomorrowStr && e.endDate >= tomorrowStr),
                 ...sheetEvents.filter((e: any) => e.type === "vacation" && e.startDate === tomorrowStr && !e.isDepartDay),
-            ].filter((e: any) => activeMembers.find((m) => m.name === e.memo)?.role !== "runner").map((e: any) => getDisplayName(e.memo)),
+            ].filter((e: any) => activeMembers.find((m) => m.name === e.memo)?.role !== "runner").map((e: any) => getMorningDisplayName(e.memo)),
             passes: [
                 ...schedules.filter((e: any) => e.type === "pass" && e.startDate <= tomorrowStr && e.endDate >= tomorrowStr),
                 ...sheetEvents.filter((e: any) => e.type === "pass" && e.startDate === tomorrowStr && !e.isDepartDay),
                 ...sheetEvents.filter((e: any) => e.type === "vacation" && e.startDate === tomorrowStr && e.isDepartDay && e.isConsecutive),
-            ].filter((e: any) => activeMembers.find((m) => m.name === e.memo)?.role !== "runner").map((e: any) => getDisplayName(e.memo)),
+            ].filter((e: any) => activeMembers.find((m) => m.name === e.memo)?.role !== "runner").map((e: any) => getMorningDisplayName(e.memo)),
             presentMembers: nonRunnerMembers
                 .filter((m) => {
                     const name = m.name;
@@ -111,7 +116,7 @@ export async function processRollCallData(dateStr: string) {
                     return !isDuty && !isRecovery && !isVacation && !isPass;
                 })
                 .sort((a, b) => (a.enlistmentDate || "").localeCompare(b.enlistmentDate || "") || a.name.localeCompare(b.name))
-                .map((m) => getMemberDisplayName(m)),
+                .map((m) => getMemberDisplayName(m, tomorrow)),
         },
         sheetEvents,
     };

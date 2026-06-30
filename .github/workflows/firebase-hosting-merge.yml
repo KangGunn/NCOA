@@ -24,9 +24,7 @@ jobs:
       # Front-End (FE) Deploy
       # ----------------------------------------------------
       - name: Install Frontend Dependencies & Build
-        run: |
-          npm ci
-          npm run build
+        run: npm ci && npm run build
 
       - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
