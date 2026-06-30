@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { onRequest } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
-import { corsHandler } from "../config/firebase.config";
+import axios from "axios";
+import { corsHandler, db } from "../config/firebase.config";
 import { getKakaoRollCallStatus } from "../services/kakao.service";
 import { processTelegramMessage } from "../services/telegram.service";
 import { getKSTDateStr } from "../utils/date.util";
@@ -47,6 +48,30 @@ export const kakaoBot = onRequest((req, res) => {
 export const telegramBot = onRequest((req, res) => {
     return corsHandler(req, res, async () => {
         try {
+            const isEmulator = process.env.FUNCTIONS_EMULATOR === "true";
+
+            // If running on production, check if local dev forwarding is active
+            if (!isEmulator) {
+                const devSettingSnap = await db.collection("settings").doc("telegramDev").get();
+                if (devSettingSnap.exists) {
+                    const devData = devSettingSnap.data();
+                    if (devData && devData.enabled && devData.tunnelUrl) {
+                        try {
+                            logger.info("Forwarding Telegram request to local tunnel", { url: devData.tunnelUrl });
+                            const response = await axios.post(devData.tunnelUrl, req.body, { 
+                                timeout: 10000,
+                                headers: {
+                                    "Bypass-Tunnel-Reminder": "true"
+                                }
+                            });
+                            return res.status(response.status).send(response.data);
+                        } catch (forwardError: any) {
+                            logger.warn("Failed to forward to local tunnel, falling back to production", { error: forwardError.message });
+                        }
+                    }
+                }
+            }
+
             await processTelegramMessage(req.body);
             return res.status(200).send("OK");
         } catch (globalError: any) {
