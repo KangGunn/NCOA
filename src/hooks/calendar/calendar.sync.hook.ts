@@ -84,19 +84,21 @@ export function useCalendarSync() {
                         const data = docSnap.data();
                         const savedSchedules = data.schedules || [];
                         setBlcDayLabels(data.dayLabels || {});
+                        const daysList = [-1, ...Array.from({ length: 31 }, (_, i) => i)];
                         setBlcScheduleTemplate(
-                            Array.from({ length: 23 }, (_, i) => {
-                                const found = savedSchedules.find((s: any) => s.day === i);
+                            daysList.map((d) => {
+                                const found = savedSchedules.find((s: any) => s.day === d);
                                 if (found) {
                                     const events = Array.isArray(found.events) ? found.events : (found.memo ? [found.memo] : []);
-                                    return { day: i, events };
+                                    return { day: d, events };
                                 }
-                                return { day: i, events: [] };
+                                return { day: d, events: [] };
                             })
                         );
                     } else {
                         setBlcDayLabels({});
-                        setBlcScheduleTemplate(Array.from({ length: 23 }, (_, i) => ({ day: i, events: [] })));
+                        const daysList = [-1, ...Array.from({ length: 31 }, (_, i) => i)];
+                        setBlcScheduleTemplate(daysList.map(d => ({ day: d, events: [] })));
                     }
                 });
             } else {
@@ -105,7 +107,8 @@ export function useCalendarSync() {
                 setKtaDayLabels({});
                 setBlcDayLabels({});
                 setKtaScheduleTemplate(Array.from({ length: 21 }, (_, i) => ({ day: i, events: [] })));
-                setBlcScheduleTemplate(Array.from({ length: 23 }, (_, i) => ({ day: i, events: [] })));
+                const daysList = [-1, ...Array.from({ length: 31 }, (_, i) => i)];
+                setBlcScheduleTemplate(daysList.map(d => ({ day: d, events: [] })));
             }
         });
 

@@ -97,7 +97,7 @@ export function exportCalendarImage({
             let current = new Date(start);
             while (current < target) {
                 current.setDate(current.getDate() + 1);
-                if (dayCount < 22) {
+                if (dayCount < 30) {
                     const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
                     const isSunday = current.getDay() === 0;
                     const isHoliday = events.some((e: CalendarEvent) => e.type === 'holiday' && e.holidayType !== 'duty' && currentStr >= e.startDate && currentStr <= e.endDate);

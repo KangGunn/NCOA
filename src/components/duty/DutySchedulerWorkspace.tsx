@@ -189,14 +189,14 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                 ktaBlcEvents.push({ id: `blc-day0-${day0.id}`, type: 'blc', startDate: day0.startDate, endDate: day0.startDate, memo: `Day 0 (${batch})`, batch });
             }
 
-            while (dayCount < 22) {
+            while (dayCount < 30) {
                 current.setDate(current.getDate() + 1);
                 const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
                 const isSunday = current.getDay() === 0;
 
                 if (!isSunday && !isHolidayDate(currentStr)) {
                     dayCount++;
-                    if (dayCount === 22 && currentStr === dateStr) {
+                    if (dayCount === 30 && currentStr === dateStr) {
                         const isDuringPoday = currentStr >= '2026-06-19' && currentStr <= '2026-06-22';
                         if (!isDuringPoday) {
                             ktaBlcEvents.push({ id: `dynamic-blc-grad-${batch}`, type: 'blc', startDate: currentStr, endDate: currentStr, memo: `Graduation (${batch})`, batch });
@@ -209,7 +209,16 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
         const ktaEvents = events.filter((e: CalendarEvent) => e.type === 'kta');
         ktaEvents.forEach((e: CalendarEvent) => {
             if (e.startDate === dateStr) {
-                if (e.memo?.includes('Day 0') || e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓')) {
+                if (e.memo?.includes('Day 0') || e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓') || e.memo?.includes('수료포데이')) {
+                    ktaBlcEvents.push(e);
+                }
+            }
+        });
+
+        const baseBlcEvents = events.filter((e: CalendarEvent) => e.type === 'blc');
+        baseBlcEvents.forEach((e: CalendarEvent) => {
+            if (e.startDate <= dateStr && e.endDate >= dateStr) {
+                if (e.memo?.includes('수료포데이')) {
                     ktaBlcEvents.push(e);
                 }
             }

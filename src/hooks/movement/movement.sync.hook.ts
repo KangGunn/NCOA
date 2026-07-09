@@ -310,7 +310,7 @@ export function useMovementSync(baseDate?: Date) {
                                     }
                                 }
 
-                                if (status !== 'none' && status !== 'duty' && status !== 'recovery') {
+                                if (status !== 'none') {
                                     hasActivity = true;
                                 }
                                 dayStatuses[c.dateStr] = status;
@@ -439,6 +439,11 @@ export function useMovementSync(baseDate?: Date) {
                                     const singleRegex = /(\d{1,2})[./](\d{1,2})/;
                                     const rangeMatch = passPart.match(rangeRegex);
 
+                                    const extractStayDetail = (part: string): string => {
+                                        let clean = part.replace(/^(병장|상병|일병|이병)\s+[가-힣]+\s*/, '').trim();
+                                         return clean || '잔류';
+                                    };
+
                                     // 연가 파싱 헬퍼: vacationPart에서 날짜 추출 후 vacation 객체 생성
                                     const parseVacation = (vacationPart: string, passReturn?: string) => {
                                         const vRangeMatch = vacationPart.match(rangeRegex);
@@ -543,7 +548,7 @@ export function useMovementSync(baseDate?: Date) {
                                             const hasStayKeyword = passPart.includes('잔류');
 
                                             if (hasStayKeyword && !isDayOff) {
-                                                extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: '당직/업무 등으로 인한 잔류' });
+                                                extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: extractStayDetail(passPart) });
                                             } else {
                                                 // const days = 1;
                                                 // const passDayCount = extractDayCountFromText(passReason);
@@ -589,10 +594,10 @@ export function useMovementSync(baseDate?: Date) {
                                                 });
                                             } else {
                                                 // 연가 날짜도 없으면 잔류 처리
-                                                extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: '잔류' });
+                                                extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: extractStayDetail(passPart) });
                                             }
                                         } else if (passPart.includes('잔류')) {
-                                            extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: '잔류' });
+                                            extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: extractStayDetail(passPart) });
                                         } else {
                                             extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: '날짜 데이터 없음' });
                                         }
@@ -827,41 +832,6 @@ export function useMovementSync(baseDate?: Date) {
                         if (matchingSyncMovs.length > 0) {
                             deleteBatch.delete(docSnap.ref);
                             shouldCommitDelete = true;
-
-                            matchingSyncMovs.forEach(m => {
-                                let mStart = '';
-                                let mEnd = '';
-                                let reason = '';
-                                if (m.type === '외박' && m.period) {
-                                    const [s, e] = m.period.split('~').map((x: string) => x.trim());
-                                    mStart = toISODate(s);
-                                    mEnd = e ? toISODate(e) : mStart;
-                                    reason = m.reason || '';
-                                } else if (m.vacation) {
-                                    mStart = toISODate(m.vacation.depart);
-                                    mEnd = toISODate(m.vacation.return);
-                                    reason = m.vacation.reason || '';
-                                }
-
-                                const cleanDBReason = (data.reason || '').replace(/\s+/g, '');
-                                const cleanExcelReason = reason.replace(/\s+/g, '');
-
-                                if (cleanDBReason && cleanExcelReason && (cleanDBReason.includes(cleanExcelReason) || cleanExcelReason.includes(cleanDBReason))) {
-                                    const mergedStart = mStart < existStart ? mStart : existStart;
-                                    const mergedEnd = mEnd > existEnd ? mEnd : existEnd;
-
-                                    if (m.type === '외박' && m.period) {
-                                        const [, mo1, d1] = mergedStart.split('-');
-                                        const [, mo2, d2] = mergedEnd.split('-');
-                                        m.period = `${parseInt(mo1)}.${parseInt(d1)}~${parseInt(mo2)}.${parseInt(d2)}`;
-                                    } else if (m.vacation) {
-                                        const [, mo1, d1] = mergedStart.split('-');
-                                        const [, mo2, d2] = mergedEnd.split('-');
-                                        m.vacation.depart = `${parseInt(mo1)}.${parseInt(d1)}`;
-                                        m.vacation.return = `${parseInt(mo2)}.${parseInt(d2)}`;
-                                    }
-                                }
-                            });
                         } else {
                             // Check stay overlaps
                             const list = intervalsByMember.get(cleanName) || [];

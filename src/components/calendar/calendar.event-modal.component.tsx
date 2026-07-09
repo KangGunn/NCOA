@@ -17,7 +17,7 @@ interface EventModalProps {
     setEditingBatch: (val: { oldBatch: string; value: string; oldType?: 'A' | 'B'; ktaType?: 'A' | 'B' } | null) => void;
     editingHoliday: { id: string; name: string; startDate: string; endDate: string } | null;
     setEditingHoliday: (val: { id: string; name: string; startDate: string; endDate: string } | null) => void;
-    
+
     isHolidayNaming: boolean;
     setIsHolidayNaming: (val: boolean) => void;
     holidayName: string;
@@ -32,13 +32,14 @@ interface EventModalProps {
     handleUpdateHoliday: (id: string) => void;
     handleAutoKtaDay0: () => void;
     handleAutoBlcDay0: () => void;
+    handleAutoBlcGradFourDay: () => void;
     handleAddDuty: (date: string, name: string) => void;
     handleDeleteEvent: (id: string) => void;
     handleUpdateBatch: (oldBatch: string, newBatch: string, newType?: 'A' | 'B') => void;
     handleUpdateBlcBatch: (oldBatch: string, newBatch: string) => void;
     handleReplace: (eventId: string, newName: string) => void;
     handleRealSwap: (id1: string, name1: string, id2: string, name2: string) => void;
-    
+
     isKTASaving: boolean;
     isBLCSaving: boolean;
     calendarMode: 'schedule' | 'duty';
@@ -57,14 +58,30 @@ export function EventModal(props: EventModalProps) {
         blcDay0s.forEach(day0 => {
             const start = new Date(day0.startDate);
             const batch = day0.batch || "";
-            let dayCount = 0;
-            let current = new Date(start);
 
             const isHolidayDateLocal = (dStr: string) => {
                 return props.events.some(e => e.type === 'holiday' && e.holidayType !== 'duty' && dStr >= e.startDate && dStr <= e.endDate);
             };
 
-            while (dayCount < 22) {
+            // Check BLC Day -1 (1 calendar day before Day 0)
+            const dayMinus1 = new Date(start);
+            dayMinus1.setDate(dayMinus1.getDate() - 1);
+            const dayMinus1Str = `${dayMinus1.getFullYear()}-${String(dayMinus1.getMonth() + 1).padStart(2, '0')}-${String(dayMinus1.getDate()).padStart(2, '0')}`;
+            if (dayMinus1Str === dateStr) {
+                dynamicBlcEvents.push({
+                    id: `dynamic-blc-${batch}--1`,
+                    type: 'blc',
+                    startDate: dayMinus1Str,
+                    endDate: dayMinus1Str,
+                    memo: `Day -1 (${batch})`,
+                    batch: batch
+                });
+            }
+
+            let dayCount = 0;
+            let current = new Date(start);
+
+            while (dayCount < 30) {
                 current.setDate(current.getDate() + 1);
                 const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
                 const isSunday = current.getDay() === 0;
@@ -77,7 +94,7 @@ export function EventModal(props: EventModalProps) {
                             type: 'blc',
                             startDate: currentStr,
                             endDate: currentStr,
-                            memo: dayCount === 22 ? `Graduation (${batch})` : `Day ${dayCount} (${batch})`,
+                            memo: dayCount === 30 ? `Graduation (${batch})` : `Day ${dayCount} (${batch})`,
                             batch: batch
                         });
                     }
@@ -86,7 +103,7 @@ export function EventModal(props: EventModalProps) {
         });
 
         const allEvents = [
-            ...baseEvents.filter(e => !(e.type === 'blc' && !e.memo?.includes('Day 0'))),
+            ...baseEvents.filter(e => !(e.type === 'blc' && !e.memo?.includes('Day 0') && !e.memo?.includes('수료포데이'))),
             ...dynamicBlcEvents
         ];
 
@@ -97,7 +114,7 @@ export function EventModal(props: EventModalProps) {
                     return true;
                 }
                 if (e.type === 'kta' || e.type === 'blc') {
-                    return e.memo?.includes('Day 0') || e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓');
+                    return e.memo?.includes('Day 0') || e.memo?.includes('Graduation') || (e.memo?.includes('수료') && !e.memo?.includes('수료포데이')) || e.memo?.includes('🎓');
                 }
                 return false;
             });
@@ -152,7 +169,7 @@ export function EventModal(props: EventModalProps) {
 
                                     {/* Edit Modals for Event */}
                                     <div className="mt-2">
-                                        {e.type === 'holiday' && props.editingHoliday?.id === e.id ? (
+                                        {(e.type === 'holiday' || (e.type === 'blc' && e.memo?.includes('수료포데이'))) && props.editingHoliday?.id === e.id ? (
                                             <div className="space-y-2 mt-1">
                                                 <input
                                                     type="text"
@@ -259,12 +276,21 @@ export function EventModal(props: EventModalProps) {
                                             </button>
                                         )}
                                         {e.type === 'blc' && e.batch && !props.editingBatch && (
-                                            <button
-                                                onClick={() => props.setEditingBatch({ oldBatch: e.batch!, value: e.batch!, oldType: 'A', ktaType: 'A' })}
-                                                className="px-2 py-1.5 bg-white border border-blue-100 text-blue-600 rounded-lg text-[10px] font-black hover:bg-blue-50 transition-all"
-                                            >
-                                                기수 수정
-                                            </button>
+                                            e.memo?.includes('수료포데이') ? (
+                                                <button
+                                                    onClick={() => props.setEditingHoliday({ id: e.id, name: e.memo, startDate: e.startDate, endDate: e.endDate })}
+                                                    className="px-2 py-1.5 bg-white border border-indigo-100 text-indigo-600 rounded-lg text-[10px] font-black hover:bg-indigo-50 transition-all"
+                                                >
+                                                    기간/이름 수정
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    onClick={() => props.setEditingBatch({ oldBatch: e.batch!, value: e.batch!, oldType: 'A', ktaType: 'A' })}
+                                                    className="px-2 py-1.5 bg-white border border-blue-100 text-blue-600 rounded-lg text-[10px] font-black hover:bg-blue-50 transition-all"
+                                                >
+                                                    기수 수정
+                                                </button>
+                                            )
                                         )}
                                         {e.type === 'duty' && (
                                             <>
@@ -334,8 +360,8 @@ export function EventModal(props: EventModalProps) {
                                                     return otherDate.getFullYear() === props.currentDate.getFullYear() &&
                                                         otherDate.getMonth() === props.currentDate.getMonth();
                                                 }).length === 0 && (
-                                                    <div className="col-span-2 py-4 text-center text-[10px] text-gray-400 font-medium italic">이달 내 교환 가능한 다른 당직이 없습니다.</div>
-                                                )}
+                                                        <div className="col-span-2 py-4 text-center text-[10px] text-gray-400 font-medium italic">이달 내 교환 가능한 다른 당직이 없습니다.</div>
+                                                    )}
                                             </div>
                                         </div>
                                     )}
@@ -415,7 +441,7 @@ export function EventModal(props: EventModalProps) {
                                 }}
                                 className="flex-1 py-3 bg-purple-50 text-purple-600 rounded-2xl text-xs font-black hover:bg-purple-100 transition-colors"
                             >
-                                {props.calendarMode === 'duty' ? '당직용 휴일 추가' : 'BLC 기수용 휴일 추가'}
+                                {props.calendarMode === 'duty' ? '당직 휴일' : 'BLC 휴일'}
                             </button>
                             {props.calendarMode === 'schedule' && props.selectedDate && new Date(props.selectedDate).getDay() === 4 && (
                                 <button
@@ -430,7 +456,7 @@ export function EventModal(props: EventModalProps) {
                                 <button
                                     onClick={props.handleAutoBlcDay0}
                                     disabled={props.isBLCSaving}
-                                    className="flex-1 py-3 bg-blue-50 text-blue-600 rounded-2xl text-xs font-black hover:bg-blue-100 transition-colors disabled:opacity-50"
+                                    className="flex-1 py-3 bg-blue-50 text-blue-600 rounded-2xl text-xs font-black hover:bg-blue-100 transition-colors disabled:opacity-50 whitespace-nowrap"
                                 >
                                     BLC Day 0
                                 </button>

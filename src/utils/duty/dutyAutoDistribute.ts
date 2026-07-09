@@ -155,7 +155,7 @@ function getBlcActiveDay(day0: string, target: string, isHoliday: (s: string) =>
         const cur = new Date(start);
         while (cur < tgt) {
             cur.setDate(cur.getDate() + 1);
-            if (cnt < 22) {
+            if (cnt < 30) {
                 const cs = toDateStr(cur);
                 const isSunday = cur.getDay() === 0;
                 if (!isSunday && !isHoliday(cs)) {

@@ -58,7 +58,7 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
         isHolidayNaming, setIsHolidayNaming,
         editingHoliday, setEditingHoliday,
 
-        handleAutoKtaDay0, handleAutoBlcDay0, handleAddDuty, handleAddHoliday,
+        handleAutoKtaDay0, handleAutoBlcDay0, handleAutoBlcGradFourDay, handleAddDuty, handleAddHoliday,
         handleUpdateHoliday, handleDeleteEvent, handleUpdateBatch, handleUpdateBlcBatch,
         handleReplace, handleRealSwap, openBatchDutyModal, handleBatchSaveDuties
     } = useCalendarSchedule(events, currentDate, calendarMode);
@@ -134,43 +134,36 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
             <div
                 className="grid grid-cols-2 gap-2 mt-4 shrink-0"
             >
-                {calendarMode === 'schedule' ? (
-                    <>
-                        <button
-                            onClick={() => setIsKTAScheduleAdding(true)}
-                            style={{ height: '44px' }}
-                            className="col-span-1 px-4 bg-red-50 text-red-600 rounded-xl text-sm font-black hover:bg-red-100 transition-colors border border-red-100/50 flex items-center justify-center gap-1.5 whitespace-nowrap"
-                        >
-                            <Settings className="w-3.5 h-3.5" />
-                            <span>KTA 일정 템플릿</span>
-                        </button>
-                        <button
-                            onClick={() => setIsBLCScheduleAdding(true)}
-                            style={{ height: '44px' }}
-                            className="col-span-1 px-4 bg-blue-50 text-blue-600 rounded-xl text-sm font-black hover:bg-blue-100 transition-colors border border-blue-100/50 flex items-center justify-center gap-1.5 whitespace-nowrap"
-                        >
-                            <Settings className="w-3.5 h-3.5" />
-                            <span>BLC 일정 템플릿</span>
-                        </button>
-                    </>
-                ) : (
-                    <>
-                        <button
-                            onClick={() => setIsTrackerOpen(true)}
-                            style={{ height: '44px' }}
-                            className="col-span-1 px-4 bg-amber-50 text-amber-600 rounded-xl text-sm font-black hover:bg-amber-100 transition-colors border border-amber-100/50 flex items-center justify-center whitespace-nowrap"
-                        >
-                            당직 횟수 트래커
-                        </button>
-                        <button
-                            onClick={openBatchDutyModal}
-                            style={{ height: '44px' }}
-                            className="col-span-1 px-4 bg-yellow-50 text-yellow-600 rounded-xl text-sm font-black hover:bg-yellow-100 transition-colors border border-yellow-100/50 flex items-center justify-center whitespace-nowrap"
-                        >
-                            당직 일괄 등록
-                        </button>
-                    </>
-                )}
+                <button
+                    onClick={() => setIsTrackerOpen(true)}
+                    style={{ height: '44px' }}
+                    className="col-span-1 px-4 bg-amber-50 text-amber-600 rounded-xl text-sm font-black hover:bg-amber-100 transition-colors border border-amber-100/50 flex items-center justify-center whitespace-nowrap"
+                >
+                    당직 횟수 트래커
+                </button>
+                <button
+                    onClick={openBatchDutyModal}
+                    style={{ height: '44px' }}
+                    className="col-span-1 px-4 bg-yellow-50 text-yellow-600 rounded-xl text-sm font-black hover:bg-yellow-100 transition-colors border border-yellow-100/50 flex items-center justify-center whitespace-nowrap"
+                >
+                    당직 일괄 등록
+                </button>
+                <button
+                    onClick={() => setIsKTAScheduleAdding(true)}
+                    style={{ height: '44px' }}
+                    className="col-span-1 px-4 bg-red-50 text-red-600 rounded-xl text-sm font-black hover:bg-red-100 transition-colors border border-red-100/50 flex items-center justify-center gap-1.5 whitespace-nowrap"
+                >
+                    <Settings className="w-3.5 h-3.5" />
+                    <span>KTA 일정 템플릿</span>
+                </button>
+                <button
+                    onClick={() => setIsBLCScheduleAdding(true)}
+                    style={{ height: '44px' }}
+                    className="col-span-1 px-4 bg-blue-50 text-blue-600 rounded-xl text-sm font-black hover:bg-blue-100 transition-colors border border-blue-100/50 flex items-center justify-center gap-1.5 whitespace-nowrap"
+                >
+                    <Settings className="w-3.5 h-3.5" />
+                    <span>BLC 일정 템플릿</span>
+                </button>
             </div>
 
             <EventModal
@@ -201,6 +194,7 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
                 handleUpdateHoliday={handleUpdateHoliday}
                 handleAutoKtaDay0={handleAutoKtaDay0}
                 handleAutoBlcDay0={handleAutoBlcDay0}
+                handleAutoBlcGradFourDay={handleAutoBlcGradFourDay}
                 handleAddDuty={handleAddDuty}
                 handleDeleteEvent={handleDeleteEvent}
                 handleUpdateBatch={handleUpdateBatch}

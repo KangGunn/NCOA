@@ -186,7 +186,7 @@ export function BlcTemplateModal({
                                 </span>
                             )}
                         </div>
-                        <p className="text-xs text-gray-500 font-bold mt-1">Day 0부터 Day 22까지의 일정을 미리 설정합니다.</p>
+                        <p className="text-xs text-gray-500 font-bold mt-1">Day -1부터 Day 30까지의 일정을 미리 설정합니다.</p>
                     </div>
                     <button onClick={() => setIsBLCScheduleAdding(false)} className="p-2 bg-gray-50 rounded-full hover:bg-gray-100">
                         <X className="w-5 h-5 text-gray-400" />
@@ -203,11 +203,15 @@ export function BlcTemplateModal({
                                         {(() => {
                                             if (!blcReferenceDate) return null;
                                             let target = new Date(blcReferenceDate);
-                                            let workingDays = 0;
-                                            while (workingDays < item.day) {
-                                                target.setDate(target.getDate() + 1);
-                                                const tStr = target.toISOString().split('T')[0];
-                                                if (target.getDay() !== 0 && !isHolidayDate(tStr)) workingDays++;
+                                            if (item.day < 0) {
+                                                target.setDate(target.getDate() + item.day);
+                                            } else {
+                                                let workingDays = 0;
+                                                while (workingDays < item.day) {
+                                                    target.setDate(target.getDate() + 1);
+                                                    const tStr = target.toISOString().split('T')[0];
+                                                    if (target.getDay() !== 0 && !isHolidayDate(tStr)) workingDays++;
+                                                }
                                             }
                                             const mm = String(target.getMonth() + 1).padStart(2, '0');
                                             const dd = String(target.getDate()).padStart(2, '0');

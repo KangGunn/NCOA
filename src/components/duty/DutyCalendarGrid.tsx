@@ -59,18 +59,18 @@ export function DutyCalendarGrid({
         if (isHolidayBetween) {
             return 'sat';
         }
-        
+
         // 4. 일반적인 주말 및 금요일 판단
         const d = new Date(dateStr + 'T00:00:00');
         const dayOfWeek = d.getDay(); // 0: Sun, 5: Fri, 6: Sat
-        
+
         if (dayOfWeek === 6) {
             return 'sat'; // 토요일 -> 토당
         }
         if (dayOfWeek === 0 || dayOfWeek === 5) {
             return 'friSun'; // 금요일, 일요일 -> 금일당
         }
-        
+
         // 5. 일반 평일 -> 평당 ('weekday')
         return 'weekday';
     };
@@ -109,7 +109,7 @@ export function DutyCalendarGrid({
             {calendarDays.map((cell) => {
                 const duty = getDutyForDate(cell.dateStr);
                 const ktaBlcEvents = getKtaBlcEventsForDate(cell.dateStr);
-                
+
                 // If a member is selected, determine the duty type from their perspective
                 const currentDutyType = selectedMember && cell.isCurrentMonth
                     ? getDutyTypeForMember(cell.dateStr, selectedMember)
@@ -130,9 +130,9 @@ export function DutyCalendarGrid({
                         }
                     }
                 }
-                
+
                 let eligibleMembers: CalendarMember[] = [];
-                
+
                 if (cell.isCurrentMonth) {
                     eligibleMembers = members.filter(m => {
                         if (m.joinDate && cell.dateStr < m.joinDate) return false;
@@ -206,28 +206,26 @@ export function DutyCalendarGrid({
                 });
 
                 return (
-                    <div 
-                        key={cell.dateStr} 
+                    <div
+                        key={cell.dateStr}
                         onClick={() => handleCellClick(cell.dateStr)}
-                        className={`border-r border-b border-slate-850 p-1.5 flex flex-col justify-between select-none relative transition-all group overflow-hidden ${
-                            cell.isCurrentMonth 
-                                ? highlightClass 
+                        className={`border-r border-b border-slate-850 p-1.5 flex flex-col justify-between select-none relative transition-all group overflow-hidden ${cell.isCurrentMonth
+                                ? highlightClass
                                     ? `${highlightClass} cursor-crosshair`
-                                    : 'bg-slate-900/10 hover:bg-slate-800/40 cursor-crosshair' 
+                                    : 'bg-slate-900/10 hover:bg-slate-800/40 cursor-crosshair'
                                 : 'bg-slate-950/40 text-slate-700 pointer-events-none'
-                        }`}
+                            }`}
                     >
                         <div className="flex justify-between items-center shrink-0 w-full gap-1">
                             <div className="flex items-center gap-1.5 min-w-0">
-                                <span className={`text-[11px] font-black tracking-tight shrink-0 ${
-                                    cell.isCurrentMonth
+                                <span className={`text-[11px] font-black tracking-tight shrink-0 ${cell.isCurrentMonth
                                         ? currentDutyType === 'sat'
-                                            ? 'text-rose-500 font-black' 
+                                            ? 'text-rose-500 font-black'
                                             : currentDutyType === 'friSun'
-                                                ? 'text-sky-500 font-black' 
+                                                ? 'text-sky-500 font-black'
                                                 : 'text-slate-100 font-extrabold'
                                         : 'text-slate-700'
-                                 }`}>
+                                    }`}>
                                     {cell.dayNumber}
                                 </span>
                                 {/* Monthly Custom Day Label (Green Badge) immediately to the right of the date */}
@@ -242,19 +240,23 @@ export function DutyCalendarGrid({
                                 {ktaBlcEvents.map(e => {
                                     const isBlc = e.type === 'blc';
                                     const isGraduation = e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓');
-                                    let label = isGraduation ? 'Grad' : (e.memo?.match(/Day \d+/)?.[0] || '');
-                                    
+                                    let label = e.memo?.includes('수료포데이')
+                                        ? '수료포'
+                                        : isGraduation
+                                            ? 'Grad'
+                                            : (e.memo?.match(/Day -?\d+/)?.[0] || '');
+
                                     const isDay0OrGrad = e.memo?.includes('Day 0') || isGraduation;
                                     let batchSuffix = (isDay0OrGrad && e.batch) ? `(${e.batch})` : '';
 
                                     if (!label) return null;
 
                                     const badgeBg = isBlc
-                                        ? 'bg-indigo-950/80 text-indigo-400 border border-indigo-900/35' 
+                                        ? 'bg-indigo-950/80 text-indigo-400 border border-indigo-900/35'
                                         : 'bg-rose-950/80 text-rose-400 border border-rose-900/35';
 
                                     return (
-                                        <span 
+                                        <span
                                             key={e.id}
                                             className={`text-[8.5px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 whitespace-nowrap ${badgeBg}`}
                                             title={e.memo}
@@ -264,7 +266,7 @@ export function DutyCalendarGrid({
                                     );
                                 })}
                                 {customKtaBadges.map(b => (
-                                    <span 
+                                    <span
                                         key={b.id}
                                         className="text-[8.5px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 whitespace-nowrap bg-rose-950/80 text-rose-400 border border-rose-900/35"
                                     >
@@ -272,7 +274,7 @@ export function DutyCalendarGrid({
                                     </span>
                                 ))}
                                 {customBlcBadges.map(b => (
-                                    <span 
+                                    <span
                                         key={b.id}
                                         className="text-[8.5px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 whitespace-nowrap bg-indigo-950/80 text-indigo-400 border border-indigo-900/35"
                                     >
@@ -311,7 +313,7 @@ export function DutyCalendarGrid({
                                 </div>
                             ) : (
                                 cell.isCurrentMonth && (
-                                    <div 
+                                    <div
                                         className="flex-1 overflow-y-auto no-scrollbar flex flex-wrap gap-0.5 content-start w-full pt-0.5"
                                         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
                                     >
@@ -326,7 +328,7 @@ export function DutyCalendarGrid({
                                             eligibleMembers.map(member => {
                                                 const reason = getMemberDutyRestrictionReason(member, cell.dateStr);
                                                 const isDisabled = !!reason;
-                                                
+
                                                 let btnClassName = "";
                                                 let titleText = "";
                                                 if (isDisabled) {
@@ -337,7 +339,7 @@ export function DutyCalendarGrid({
                                                     } else {
                                                         btnClassName = "bg-slate-900/20 border-slate-850 text-slate-600 line-through opacity-50 cursor-not-allowed";
                                                     }
-                                                    
+
                                                     if (reason === '신병보호기간') {
                                                         titleText = reason;
                                                     } else {
@@ -372,7 +374,7 @@ export function DutyCalendarGrid({
                                         )}
                                     </div>
                                 )
-                             )}
+                            )}
                         </div>
                     </div>
                 );

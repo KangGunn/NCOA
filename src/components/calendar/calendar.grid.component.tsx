@@ -80,10 +80,26 @@ export function CalendarGrid({ currentDate, baseDate, events, onDateClick, calen
         blcDay0s.forEach(day0 => {
             const start = new Date(day0.startDate);
             const batch = day0.batch || "";
+
+            // Check BLC Day -1 (1 calendar day before Day 0)
+            const dayMinus1 = new Date(start);
+            dayMinus1.setDate(dayMinus1.getDate() - 1);
+            const dayMinus1Str = `${dayMinus1.getFullYear()}-${String(dayMinus1.getMonth() + 1).padStart(2, '0')}-${String(dayMinus1.getDate()).padStart(2, '0')}`;
+            if (dayMinus1Str === dateStr) {
+                dynamicBlcEvents.push({
+                    id: `dynamic-blc-${batch}--1`,
+                    type: 'blc',
+                    startDate: dayMinus1Str,
+                    endDate: dayMinus1Str,
+                    memo: `Day -1 (${batch})`,
+                    batch: batch
+                });
+            }
+
             let dayCount = 0;
             let current = new Date(start);
 
-            while (dayCount < 22) {
+            while (dayCount < 30) {
                 current.setDate(current.getDate() + 1);
                 const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
                 const isSunday = current.getDay() === 0;
@@ -96,7 +112,7 @@ export function CalendarGrid({ currentDate, baseDate, events, onDateClick, calen
                             type: 'blc',
                             startDate: currentStr,
                             endDate: currentStr,
-                            memo: dayCount === 22 ? `Graduation (${batch})` : `Day ${dayCount} (${batch})`,
+                            memo: dayCount === 30 ? `Graduation (${batch})` : `Day ${dayCount} (${batch})`,
                             batch: batch
                         });
                     }
@@ -105,7 +121,7 @@ export function CalendarGrid({ currentDate, baseDate, events, onDateClick, calen
         });
 
         const finalEvents = [
-            ...baseEvents.filter(e => !(e.type === 'blc' && !e.memo?.includes('Day 0'))),
+            ...baseEvents.filter(e => !(e.type === 'blc' && !e.memo?.includes('Day 0') && !e.memo?.includes('수료포데이'))),
             ...dynamicBlcEvents
         ];
 
@@ -115,7 +131,7 @@ export function CalendarGrid({ currentDate, baseDate, events, onDateClick, calen
                     return true;
                 }
                 if (e.type === 'kta' || e.type === 'blc') {
-                    return e.memo?.includes('Day 0') || e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓');
+                    return e.memo?.includes('Day 0') || e.memo?.includes('Graduation') || (e.memo?.includes('수료') && !e.memo?.includes('수료포데이')) || e.memo?.includes('🎓');
                 }
                 return false;
             });
