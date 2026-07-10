@@ -1,5 +1,5 @@
 import { cn } from '../../lib/utils';
-import type { CalendarEvent } from '../../types/calendar/calendar.type';
+import type { CalendarEvent, CalendarMember } from '../../types/calendar/calendar.type';
 import { isBlc30Days } from '../../utils/calendar.utils';
 
 interface CalendarDate {
@@ -18,14 +18,45 @@ interface CalendarGridProps {
     ktaDayLabels?: Record<number, string>;
     blcDayLabels?: Record<number, string>;
     calendarMode?: 'schedule' | 'duty';
+    members?: CalendarMember[];
 }
 
-export function CalendarGrid({ currentDate, baseDate, events, onDateClick, calendarMode }: CalendarGridProps) {
+export function CalendarGrid({ currentDate, baseDate, events, onDateClick, calendarMode, members }: CalendarGridProps) {
     const daysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
     const firstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
 
     const isHolidayDate = (dateStr: string) => {
         return events.some(e => e.type === 'holiday' && e.holidayType !== 'duty' && dateStr >= e.startDate && dateStr <= e.endDate);
+    };
+
+    const isDateAffectedByDonsa = (dateStr: string, allEvents: CalendarEvent[]): boolean => {
+        const getPrevDateStrLocal = (dStr: string) => {
+            const d = new Date(dStr + 'T00:00:00');
+            d.setDate(d.getDate() - 1);
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        };
+        const donsaHolidays = allEvents.filter(e => e.type === 'holiday' && e.holidayType === 'duty' && e.memo?.toUpperCase().includes('DONSA'));
+        const isDayBeforeDonsaStart = donsaHolidays.some(h => dateStr === getPrevDateStrLocal(h.startDate));
+        const isDonsaLastDay = donsaHolidays.some(h => dateStr === h.endDate);
+        const isDonsaBetween = donsaHolidays.some(h => dateStr >= h.startDate && dateStr < h.endDate);
+        return isDayBeforeDonsaStart || isDonsaLastDay || isDonsaBetween;
+    };
+
+    const isDateDuringKtaPeriod = (dateStr: string, allEvents: CalendarEvent[]): boolean => {
+        const ktaDay0s = allEvents.filter(e => e.type === 'kta' && e.memo?.includes('Day 0'));
+        const ktaGrads = allEvents.filter(e => e.type === 'kta' && (
+            e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓')
+        ));
+        return ktaDay0s.some(day0 => {
+            const grad = ktaGrads.find(g => {
+                if (day0.batch && g.batch) return g.batch === day0.batch && g.startDate >= day0.startDate;
+                const d0t = new Date(day0.startDate + 'T00:00:00').getTime();
+                const gt = new Date(g.startDate + 'T00:00:00').getTime();
+                return gt >= d0t && (gt - d0t) <= 30 * 24 * 60 * 60 * 1000;
+            });
+            if (grad) return dateStr >= day0.startDate && dateStr <= grad.startDate;
+            return false;
+        });
     };
 
     const getDutyType = (dateStr: string): 'weekday' | 'friSun' | 'sat' => {
@@ -62,8 +93,25 @@ export function CalendarGrid({ currentDate, baseDate, events, onDateClick, calen
         return 'weekday';
     };
 
+    const getDutyTypeForMember = (dateStr: string, member: CalendarMember): 'weekday' | 'friSun' | 'sat' => {
+        const isKtaOrMedic = member.sections?.includes('KTA') || member.sections?.includes('MEDIC');
+        if (isKtaOrMedic && isDateDuringKtaPeriod(dateStr, events) && !isDateAffectedByDonsa(dateStr, events)) {
+            const d = new Date(dateStr + 'T00:00:00');
+            const dayOfWeek = d.getDay();
+            if (dayOfWeek === 6) return 'sat';
+            if (dayOfWeek === 0 || dayOfWeek === 5) return 'friSun';
+            return 'weekday';
+        }
+        return getDutyType(dateStr);
+    };
+
     const getDutyColorClass = (dateStr: string, isCurrent: boolean) => {
-        const type = getDutyType(dateStr);
+        const duty = events.find(e => e.type === 'duty' && dateStr >= e.startDate && dateStr <= e.endDate);
+        const assignedMember = duty ? members?.find(m => m.name === duty.memo) : null;
+        const type = duty?.customDutyType || (assignedMember
+            ? getDutyTypeForMember(dateStr, assignedMember)
+            : getDutyType(dateStr));
+
         if (type === 'sat') return isCurrent ? "text-red-600 font-extrabold" : "text-red-300";
         if (type === 'friSun') return isCurrent ? "text-blue-600 font-extrabold" : "text-blue-300";
         return isCurrent ? "text-gray-400" : "text-gray-300";
@@ -257,7 +305,7 @@ export function CalendarGrid({ currentDate, baseDate, events, onDateClick, calen
                                             <div className="p-1 flex items-center justify-between flex-wrap gap-1">
                                                 <span className={cn(
                                                     "text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full shrink-0",
-                                                    isToday ? "text-blue-600 font-black" :
+                                                    (isToday && calendarMode !== 'duty') ? "text-blue-600 font-black" :
                                                         calendarMode === 'duty'
                                                             ? getDutyColorClass(cell.dateStr, cell.isCurrentMonth)
                                                             : cell.isCurrentMonth ? "text-gray-400" : "text-gray-300"

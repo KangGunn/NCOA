@@ -129,6 +129,7 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
                 ktaDayLabels={ktaDayLabels}
                 blcDayLabels={blcDayLabels}
                 calendarMode={calendarMode}
+                members={members}
             />
 
             <div

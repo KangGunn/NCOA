@@ -132,6 +132,25 @@ export function getActiveSectionsFor(member: CalendarMember, dateStr: string, al
     return active;
 }
 
+function isDateAffectedByDonsa(dateStr: string, allEvents: CalendarEvent[]): boolean {
+    const getOffsetDateStr = (dStr: string, offset: number) => {
+        const [y, m, d] = dStr.split('-').map(Number);
+        const dateObj = new Date(y, m - 1, d);
+        dateObj.setDate(dateObj.getDate() + offset);
+        const year = dateObj.getFullYear();
+        const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const day = String(dateObj.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+    const getPrevDateStr = (dStr: string) => getOffsetDateStr(dStr, -1);
+    
+    const donsaHolidays = allEvents.filter(e => e.type === 'holiday' && e.holidayType === 'duty' && e.memo?.toUpperCase().includes('DONSA'));
+    const isDayBeforeDonsaStart = donsaHolidays.some(h => dateStr === getPrevDateStr(h.startDate));
+    const isDonsaLastDay = donsaHolidays.some(h => dateStr === h.endDate);
+    const isDonsaBetween = donsaHolidays.some(h => dateStr >= h.startDate && dateStr < h.endDate);
+    return isDayBeforeDonsaStart || isDonsaLastDay || isDonsaBetween;
+}
+
 function getDutyTypeForMember(
     dateStr: string,
     member: CalendarMember,
@@ -139,7 +158,7 @@ function getDutyTypeForMember(
     allEvents: CalendarEvent[]
 ): DutyType {
     const isKtaOrMedic = member.sections?.includes('KTA') || member.sections?.includes('MEDIC');
-    if (isKtaOrMedic && isDateDuringKtaPeriod(dateStr, allEvents)) {
+    if (isKtaOrMedic && isDateDuringKtaPeriod(dateStr, allEvents) && !isDateAffectedByDonsa(dateStr, allEvents)) {
         const dow = parseLocalDate(dateStr).getDay();
         if (dow === 6) return 'sat';
         if (dow === 0 || dow === 5) return 'friSun';

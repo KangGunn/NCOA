@@ -95,9 +95,17 @@ export function DutyCalendarGrid({
         });
     };
 
+    const isDateAffectedByDonsa = (dateStr: string, allEvents: CalendarEvent[]): boolean => {
+        const donsaHolidays = allEvents.filter(e => e.type === 'holiday' && e.holidayType === 'duty' && e.memo?.toUpperCase().includes('DONSA'));
+        const isDayBeforeDonsaStart = donsaHolidays.some(h => dateStr === getPrevDateStr(h.startDate));
+        const isDonsaLastDay = donsaHolidays.some(h => dateStr === h.endDate);
+        const isDonsaBetween = donsaHolidays.some(h => dateStr >= h.startDate && dateStr < h.endDate);
+        return isDayBeforeDonsaStart || isDonsaLastDay || isDonsaBetween;
+    };
+
     const getDutyTypeForMember = (dateStr: string, member: CalendarMember): 'weekday' | 'friSun' | 'sat' => {
         const isKtaOrMedic = member.sections?.includes('KTA') || member.sections?.includes('MEDIC');
-        if (isKtaOrMedic && isDateDuringKtaPeriod(dateStr, events)) {
+        if (isKtaOrMedic && isDateDuringKtaPeriod(dateStr, events) && !isDateAffectedByDonsa(dateStr, events)) {
             const d = new Date(dateStr + 'T00:00:00');
             const dayOfWeek = d.getDay(); // 0: Sun, 5: Fri, 6: Sat
             if (dayOfWeek === 6) return 'sat';
@@ -113,10 +121,13 @@ export function DutyCalendarGrid({
                 const duty = getDutyForDate(cell.dateStr);
                 const ktaBlcEvents = getKtaBlcEventsForDate(cell.dateStr);
 
-                // If a member is selected, determine the duty type from their perspective
-                const currentDutyType = selectedMember && cell.isCurrentMonth
-                    ? getDutyTypeForMember(cell.dateStr, selectedMember)
-                    : getDutyType(cell.dateStr);
+                // Determine current duty type based on the assigned member if exists, or selected member, or default date
+                const assignedMember = duty ? members.find(m => m.name === duty.memo) : null;
+                const currentDutyType = duty?.customDutyType || (assignedMember
+                    ? getDutyTypeForMember(cell.dateStr, assignedMember)
+                    : (selectedMember && cell.isCurrentMonth
+                        ? getDutyTypeForMember(cell.dateStr, selectedMember)
+                        : getDutyType(cell.dateStr)));
 
                 let highlightClass = "";
                 if (selectedMember && cell.isCurrentMonth) {
@@ -227,7 +238,7 @@ export function DutyCalendarGrid({
                                             ? 'text-rose-500 font-black'
                                             : currentDutyType === 'friSun'
                                                 ? 'text-sky-500 font-black'
-                                                : 'text-slate-100 font-extrabold'
+                                                : 'text-slate-400 font-extrabold'
                                         : 'text-slate-700'
                                     }`}>
                                     {cell.dayNumber}

@@ -1,6 +1,8 @@
 import { createPortal } from 'react-dom';
 import { X, Trash2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { db } from '../../lib/firebase';
+import { doc, updateDoc } from 'firebase/firestore';
 import type { CalendarEvent, CalendarMember } from '../../types/calendar/calendar.type';
 import { isBlc30Days } from '../../utils/calendar.utils';
 
@@ -48,6 +50,83 @@ interface EventModalProps {
 
 export function EventModal(props: EventModalProps) {
     if (!props.isAdding) return null;
+
+    const getOffsetDateStr = (dateStr: string, offset: number) => {
+        const d = new Date(dateStr + 'T00:00:00');
+        d.setDate(d.getDate() + offset);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    };
+
+    const getPrevDateStr = (dateStr: string) => getOffsetDateStr(dateStr, -1);
+
+    const isDateDuringKtaPeriod = (dateStr: string, allEvents: CalendarEvent[]): boolean => {
+        const ktaDay0s = allEvents.filter(e => e.type === 'kta' && e.memo?.includes('Day 0'));
+        const ktaGrads = allEvents.filter(e => e.type === 'kta' && (
+            e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓')
+        ));
+        return ktaDay0s.some(day0 => {
+            const grad = ktaGrads.find(g => {
+                if (day0.batch && g.batch) return g.batch === day0.batch && g.startDate >= day0.startDate;
+                const d0t = new Date(day0.startDate + 'T00:00:00').getTime();
+                const gt = new Date(g.startDate + 'T00:00:00').getTime();
+                return gt >= d0t && (gt - d0t) <= 30 * 24 * 60 * 60 * 1000;
+            });
+            if (grad) return dateStr >= day0.startDate && dateStr <= grad.startDate;
+            return false;
+        });
+    };
+
+    const getDutyType = (dateStr: string): 'weekday' | 'friSun' | 'sat' => {
+        const dutyHolidays = props.events.filter(e => e.type === 'holiday' && e.holidayType === 'duty');
+        const isDayBeforeHolidayStart = dutyHolidays.some(h => dateStr === getPrevDateStr(h.startDate));
+        if (isDayBeforeHolidayStart) return 'friSun';
+
+        const isHolidayLastDay = dutyHolidays.some(h => dateStr === h.endDate);
+        if (isHolidayLastDay) return 'friSun';
+
+        const isHolidayBetween = dutyHolidays.some(h => dateStr >= h.startDate && dateStr < h.endDate);
+        if (isHolidayBetween) return 'sat';
+
+        const d = new Date(dateStr + 'T00:00:00');
+        const dayOfWeek = d.getDay();
+        if (dayOfWeek === 6) return 'sat';
+        if (dayOfWeek === 0 || dayOfWeek === 5) return 'friSun';
+        return 'weekday';
+    };
+
+    const isDateAffectedByDonsa = (dateStr: string, allEvents: CalendarEvent[]): boolean => {
+        const donsaHolidays = allEvents.filter(e => e.type === 'holiday' && e.holidayType === 'duty' && e.memo?.toUpperCase().includes('DONSA'));
+        const isDayBeforeDonsaStart = donsaHolidays.some(h => dateStr === getPrevDateStr(h.startDate));
+        const isDonsaLastDay = donsaHolidays.some(h => dateStr === h.endDate);
+        const isDonsaBetween = donsaHolidays.some(h => dateStr >= h.startDate && dateStr < h.endDate);
+        return isDayBeforeDonsaStart || isDonsaLastDay || isDonsaBetween;
+    };
+
+    const getDutyTypeForMember = (dateStr: string, member: CalendarMember): 'weekday' | 'friSun' | 'sat' => {
+        const isKtaOrMedic = member.sections?.includes('KTA') || member.sections?.includes('MEDIC');
+        if (isKtaOrMedic && isDateDuringKtaPeriod(dateStr, props.events) && !isDateAffectedByDonsa(dateStr, props.events)) {
+            const d = new Date(dateStr + 'T00:00:00');
+            const dayOfWeek = d.getDay();
+            if (dayOfWeek === 6) return 'sat';
+            if (dayOfWeek === 0 || dayOfWeek === 5) return 'friSun';
+            return 'weekday';
+        }
+        return getDutyType(dateStr);
+    };
+
+    const handleUpdateCustomDutyType = async (eventId: string, value: 'weekday' | 'friSun' | 'sat' | '') => {
+        try {
+            await updateDoc(doc(db, "schedules", eventId), {
+                customDutyType: value || null
+            });
+        } catch (error) {
+            console.error("Error updating custom duty type:", error);
+            alert("당직 종류 수정 중 오류가 발생했습니다.");
+        }
+    };
 
     const isDateInRange = (dateStr: string, start: string, end: string) => dateStr >= start && dateStr <= end;
 
@@ -238,8 +317,42 @@ export function EventModal(props: EventModalProps) {
                                                 </button>
                                             </div>
                                         ) : (
-                                            <div className="text-[10px] text-gray-500 font-bold mt-1 bg-gray-100 px-2 py-0.5 rounded-md inline-block">
-                                                {e.memo}
+                                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                                <div className="text-[10px] text-gray-500 font-bold bg-gray-100 px-2 py-0.5 rounded-md inline-block">
+                                                    {e.memo}
+                                                </div>
+                                                {e.type === 'duty' && (() => {
+                                                    const assignedMember = props.members.find(m => m.name === e.memo);
+                                                    const defaultType = assignedMember
+                                                        ? getDutyTypeForMember(e.startDate, assignedMember)
+                                                        : getDutyType(e.startDate);
+                                                    const defaultLabel = defaultType === 'sat' ? '토당' : defaultType === 'friSun' ? '금일당' : '평당';
+                                                    const currentVal = e.customDutyType || '';
+                                                    const activeType = e.customDutyType || defaultType;
+
+                                                    let badgeStyles = "bg-amber-100 text-amber-800 border-amber-200";
+                                                    if (activeType === 'sat') {
+                                                        badgeStyles = "bg-rose-100 text-rose-800 border-rose-200";
+                                                    } else if (activeType === 'friSun') {
+                                                        badgeStyles = "bg-sky-100 text-sky-800 border-sky-200";
+                                                    }
+
+                                                    return (
+                                                        <select
+                                                            value={currentVal}
+                                                            onChange={(ev) => handleUpdateCustomDutyType(e.id, ev.target.value as any)}
+                                                            className={cn(
+                                                                "border px-1.5 py-0.5 rounded-md text-[9px] font-black cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all",
+                                                                badgeStyles
+                                                            )}
+                                                        >
+                                                            <option value="" className="bg-white text-gray-700">자동 판정 ({defaultLabel})</option>
+                                                            <option value="weekday" className="bg-white text-gray-700">평당</option>
+                                                            <option value="friSun" className="bg-white text-gray-700">금일당</option>
+                                                            <option value="sat" className="bg-white text-gray-700">토당</option>
+                                                        </select>
+                                                    );
+                                                })()}
                                             </div>
                                         )}
                                     </div>

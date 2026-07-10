@@ -149,6 +149,14 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
         return 'weekday';
     };
 
+    const isDateAffectedByDonsa = (dateStr: string, allEvents: CalendarEvent[]): boolean => {
+        const donsaHolidays = allEvents.filter(e => e.type === 'holiday' && e.holidayType === 'duty' && e.memo?.toUpperCase().includes('DONSA'));
+        const isDayBeforeDonsaStart = donsaHolidays.some(h => dateStr === getPrevDateStr(h.startDate));
+        const isDonsaLastDay = donsaHolidays.some(h => dateStr === h.endDate);
+        const isDonsaBetween = donsaHolidays.some(h => dateStr >= h.startDate && dateStr < h.endDate);
+        return isDayBeforeDonsaStart || isDonsaLastDay || isDonsaBetween;
+    };
+
     const isDateDuringKtaPeriod = (dateStr: string, eventsList: CalendarEvent[]) => {
         const ktaDay0s = eventsList.filter(e => e.type === 'kta' && e.memo?.includes('Day 0'));
         const ktaGrads = eventsList.filter(e => e.type === 'kta' && (e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓')));
@@ -212,8 +220,8 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
 
             if (eventYear === 2026 && eventMonth >= 4 && eventMonth < targetMonth) {
                 const isKtaOrMedicMember = member.sections?.includes('KTA') || member.sections?.includes('MEDIC');
-                let dutyType = getDutyType(d.startDate);
-                if (isKtaOrMedicMember && isDateDuringKtaPeriod(d.startDate, events)) {
+                let dutyType = d.customDutyType || getDutyType(d.startDate);
+                if (!d.customDutyType && isKtaOrMedicMember && isDateDuringKtaPeriod(d.startDate, events) && !isDateAffectedByDonsa(d.startDate, events)) {
                     const dObj = new Date(d.startDate + 'T00:00:00');
                     const dayOfWeek = dObj.getDay();
                     if (dayOfWeek === 6) {
@@ -237,8 +245,8 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
 
         currentMonthDutiesLocal.forEach((d: CalendarEvent) => {
             const isKtaOrMedicMember = member.sections?.includes('KTA') || member.sections?.includes('MEDIC');
-            let dutyType = getDutyType(d.startDate);
-            if (isKtaOrMedicMember && isDateDuringKtaPeriod(d.startDate, events)) {
+            let dutyType = d.customDutyType || getDutyType(d.startDate);
+            if (!d.customDutyType && isKtaOrMedicMember && isDateDuringKtaPeriod(d.startDate, events) && !isDateAffectedByDonsa(d.startDate, events)) {
                 const dObj = new Date(d.startDate + 'T00:00:00');
                 const dayOfWeek = dObj.getDay();
                 if (dayOfWeek === 6) {

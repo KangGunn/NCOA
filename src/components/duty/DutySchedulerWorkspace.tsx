@@ -548,13 +548,13 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
 
                 {viewMode !== 'blc-template' && (
                     <div className="grid grid-cols-7 border-b border-slate-850 bg-slate-900/20 text-center py-3.5 text-xs font-black tracking-wide text-slate-400 shrink-0">
-                        {(viewMode === 'kta-template' ? ["월", "화", "수", "목", "금", "토", "일"] : ["일", "월", "화", "수", "목", "금", "토"]).map((name, i) => {
-                            const isSunday = viewMode === 'kta-template' ? i === 6 : i === 0;
-                            const isSaturday = viewMode === 'kta-template' ? i === 5 : i === 6;
+                        {(viewMode === 'kta-template' ? ["월", "화", "수", "목", "금", "토", "일"] : ["일", "월", "화", "수", "목", "금", "토"]).map((name) => {
+                            const isBlue = name === "금" || name === "일";
+                            const isRed = name === "토";
                             return (
                                 <div
                                     key={name}
-                                    className={isSunday ? 'text-rose-500 font-black' : isSaturday ? 'text-sky-500 font-black' : ''}
+                                    className={isBlue ? 'text-sky-400 font-black' : isRed ? 'text-rose-400 font-black' : ''}
                                 >
                                     {name}요일
                                 </div>
