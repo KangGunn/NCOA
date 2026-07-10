@@ -195,8 +195,7 @@ export function MovementSheetView({
                                 name: cleanName,
                                 message: `입력된 기간(${passDays.length}일)과 실제로 저장된 기간(${totalMovDays}일)이 일치하지 않습니다.`
                             });
-                        }
-                        if (passDayCount !== null && passDayCount !== totalMovDays) {
+                        } else if (passDayCount !== null && passDayCount !== totalMovDays) {
                             activeWeekWarnings.push({
                                 name: cleanName,
                                 message: `외박 사유(${passDayCount}일)와 실제로 저장된 기간(${totalMovDays}일)이 일치하지 않습니다.`
@@ -228,8 +227,7 @@ export function MovementSheetView({
                             name: cleanName,
                             message: `입력된 기간(${block.length}일)과 실제로 저장된 기간(${totalMovDays}일)이 일치하지 않습니다.`
                         });
-                    }
-                    if (vacationDayCount !== null && vacationDayCount !== totalMovDays) {
+                    } else if (vacationDayCount !== null && vacationDayCount !== totalMovDays) {
                         activeWeekWarnings.push({
                             name: cleanName,
                             message: `휴가 사유(${vacationDayCount}일)와 실제로 저장된 기간(${totalMovDays}일)이 일치하지 않습니다.`

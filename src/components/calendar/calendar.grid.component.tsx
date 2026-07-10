@@ -267,14 +267,24 @@ export function CalendarGrid({ currentDate, baseDate, events, onDateClick, calen
     return (
         <div className="bg-white rounded-[2.5rem] border-2 border-gray-50 p-4 shadow-sm overflow-hidden">
             <div className="grid grid-cols-7 mb-2">
-                {['일', '월', '화', '수', '목', '금', '토'].map((day, i) => (
-                    <div key={day} className={cn(
-                        "text-center text-[10px] font-black uppercase tracking-widest pb-2",
-                        i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-gray-300"
-                    )}>
-                        {day}
-                    </div>
-                ))}
+                {['일', '월', '화', '수', '목', '금', '토'].map((day, i) => {
+                    let colorClass = "text-gray-300";
+                    if (calendarMode === 'duty') {
+                        if (i === 0 || i === 5) colorClass = "text-blue-600 font-black";
+                        else if (i === 6) colorClass = "text-red-600 font-black";
+                    } else {
+                        if (i === 0) colorClass = "text-red-400";
+                        else if (i === 6) colorClass = "text-blue-400";
+                    }
+                    return (
+                        <div key={day} className={cn(
+                            "text-center text-[10px] font-black uppercase tracking-widest pb-2",
+                            colorClass
+                        )}>
+                            {day}
+                        </div>
+                    );
+                })}
             </div>
             <div>
                 {weeks.map((week, wi) => {

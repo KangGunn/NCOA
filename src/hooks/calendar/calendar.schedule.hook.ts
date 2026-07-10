@@ -127,13 +127,27 @@ export function useCalendarSchedule(
             .filter(e => e.type === 'blc' && e.memo?.includes('Day 0'))
             .sort((a, b) => b.startDate.localeCompare(a.startDate))[0];
 
-        let nextBatch = "24-01";
+        let nextBatch = "04-26";
         if (lastDay0Event) {
             const lastBatch = lastDay0Event.batch || "";
-            const batchMatch = lastBatch.match(/^(\d+)(.*)$/);
-            if (batchMatch) {
-                const nextNum = String(parseInt(batchMatch[1], 10) + 1).padStart(2, '0');
-                nextBatch = `${nextNum}${batchMatch[2]}`;
+            if (lastBatch.includes('-')) {
+                const parts = lastBatch.split('-');
+                let num = parseInt(parts[0], 10);
+                let year = parseInt(parts[1], 10);
+                if (!isNaN(num) && !isNaN(year)) {
+                    num += 1;
+                    if (num > 12) {
+                        num = 1;
+                        year += 1;
+                    }
+                    nextBatch = `${String(num).padStart(2, '0')}-${String(year).padStart(2, '0')}`;
+                }
+            } else {
+                const batchMatch = lastBatch.match(/^(\d+)(.*)$/);
+                if (batchMatch) {
+                    const nextNum = String(parseInt(batchMatch[1], 10) + 1).padStart(2, '0');
+                    nextBatch = `${nextNum}${batchMatch[2]}`;
+                }
             }
         }
 

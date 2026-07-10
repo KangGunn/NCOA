@@ -86,7 +86,8 @@ export const getBlcReferenceDate = (events: CalendarEvent[]) => {
     const activeBatch = blcBatches.find(b => {
         const start = new Date(b.startDate);
         const end = new Date(start);
-        end.setDate(start.getDate() + 25);
+        const offset = isBlc30Days(b.batch) ? 38 : 25;
+        end.setDate(start.getDate() + offset);
         const endStr = end.toISOString().split('T')[0];
         return todayStr >= b.startDate && todayStr <= endStr;
     });
@@ -110,7 +111,8 @@ export const getBlcReferenceBatch = (events: CalendarEvent[]) => {
     const activeBatch = blcBatches.find(b => {
         const start = new Date(b.startDate);
         const end = new Date(start);
-        end.setDate(start.getDate() + 25);
+        const offset = isBlc30Days(b.batch) ? 38 : 25;
+        end.setDate(start.getDate() + offset);
         const endStr = end.toISOString().split('T')[0];
         return todayStr >= b.startDate && todayStr <= endStr;
     });

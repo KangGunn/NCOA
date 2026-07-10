@@ -207,18 +207,21 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
 
         const targetMonth = currentDate.getMonth() + 1; // 1-indexed selected month in planner
 
+        const CURRENT_YEAR = 2026;
+        const START_MONTH = 4; // April
+
         // 1. 이전 달까지의 누적치는 DB 실제 저장 데이터(events)에서 계산
-        const dbDuties = events.filter((e: CalendarEvent) => e.type === 'duty' && e.memo === member.name && e.startDate.startsWith('2026-'));
+        const dbDuties = events.filter((e: CalendarEvent) => e.type === 'duty' && e.memo === member.name && e.startDate.startsWith(`${CURRENT_YEAR}-`));
 
         // 2. 이번 달(현재 플래너 대상 월)은 로컬 샌드박스 상태(duties)에서 계산
-        const currentMonthDutiesLocal = duties.filter((d: CalendarEvent) => d.memo === member.name && d.startDate.startsWith('2026-') && parseInt(d.startDate.split('-')[1], 10) === targetMonth);
+        const currentMonthDutiesLocal = duties.filter((d: CalendarEvent) => d.memo === member.name && d.startDate.startsWith(`${CURRENT_YEAR}-`) && parseInt(d.startDate.split('-')[1], 10) === targetMonth);
 
         dbDuties.forEach((d: CalendarEvent) => {
             const parts = d.startDate.split('-');
             const eventMonth = parseInt(parts[1], 10);
             const eventYear = parseInt(parts[0], 10);
 
-            if (eventYear === 2026 && eventMonth >= 4 && eventMonth < targetMonth) {
+            if (eventYear === CURRENT_YEAR && eventMonth >= START_MONTH && eventMonth < targetMonth) {
                 const isKtaOrMedicMember = member.sections?.includes('KTA') || member.sections?.includes('MEDIC');
                 let dutyType = d.customDutyType || getDutyType(d.startDate);
                 if (!d.customDutyType && isKtaOrMedicMember && isDateDuringKtaPeriod(d.startDate, events) && !isDateAffectedByDonsa(d.startDate, events)) {
