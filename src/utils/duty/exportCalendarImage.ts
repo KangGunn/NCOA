@@ -1,4 +1,5 @@
 import type { CalendarEvent } from '../../types/calendar/calendar.type';
+import { isBlc30Days } from '../calendar.utils';
 
 export interface DutyHoliday {
     id: string;
@@ -87,7 +88,7 @@ export function exportCalendarImage({
         return new Date(y, m - 1, d);
     };
 
-    const getBlcActiveDay = (day0DateStr: string, targetDateStr: string) => {
+    const getBlcActiveDay = (day0DateStr: string, targetDateStr: string, batch?: string) => {
         const start = parseLocalDate(day0DateStr);
         const target = parseLocalDate(targetDateStr);
         if (start.getTime() === target.getTime()) return 0;
@@ -95,9 +96,10 @@ export function exportCalendarImage({
         if (target > start) {
             let dayCount = 0;
             let current = new Date(start);
+            const limit = isBlc30Days(batch) ? 30 : 22;
             while (current < target) {
                 current.setDate(current.getDate() + 1);
-                if (dayCount < 30) {
+                if (dayCount < limit) {
                     const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
                     const isSunday = current.getDay() === 0;
                     const isHoliday = events.some((e: CalendarEvent) => e.type === 'holiday' && e.holidayType !== 'duty' && currentStr >= e.startDate && currentStr <= e.endDate);
@@ -194,7 +196,7 @@ export function exportCalendarImage({
         // 2. Custom BLC badges from blcDayLabels
         const blcDay0sForCell = events.filter(e => e.type === 'blc' && e.memo?.includes('Day 0'));
         blcDay0sForCell.forEach(day0 => {
-            const diffDays = getBlcActiveDay(day0.startDate, cell.dateStr);
+            const diffDays = getBlcActiveDay(day0.startDate, cell.dateStr, day0.batch);
             const customLabel = blcDayLabels[diffDays];
             if (customLabel) {
                 cellLabels.push(`BLC ${customLabel}`);

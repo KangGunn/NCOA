@@ -136,3 +136,15 @@ export const formatDateWithDay = (baseDate: Date, addDays: number) => {
 export const sortedWithIndex = (evts: string[]) =>
     evts.map((evt, idx) => ({ evt, oi: idx }))
         .sort((a, b) => (a.evt.match(/^\d{4}/)?.[0] || '9999').localeCompare(b.evt.match(/^\d{4}/)?.[0] || '9999'));
+
+export function isBlc30Days(batch?: string): boolean {
+    if (!batch) return false;
+    const match = batch.match(/^(\d+)-(\d+)$/);
+    if (!match) return false;
+    const m = parseInt(match[1], 10);
+    const y = parseInt(match[2], 10);
+    // 08-26 and later is 30 days
+    if (y > 26) return true;
+    if (y === 26 && m >= 8) return true;
+    return false;
+}

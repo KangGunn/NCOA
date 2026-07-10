@@ -1,4 +1,5 @@
 import type { CalendarEvent, CalendarMember } from '../../types/calendar/calendar.type';
+import { isBlc30Days } from '../calendar.utils';
 
 // ── Types ─────────────────────────────────────────────────
 
@@ -113,8 +114,9 @@ export function isDateDuringBlcPeriod(dateStr: string, allEvents: CalendarEvent[
     const isHoliday = (ds: string) => allEvents.some(e => e.type === 'holiday' && ds >= e.startDate && ds <= e.endDate);
     return blcDay0s.some(day0 => {
         if (dateStr < day0.startDate) return false;
-        const diffDays = getBlcActiveDay(day0.startDate, dateStr, isHoliday);
-        return diffDays >= 0 && diffDays <= 22;
+        const diffDays = getBlcActiveDay(day0.startDate, dateStr, isHoliday, day0.batch);
+        const limit = isBlc30Days(day0.batch) ? 30 : 22;
+        return diffDays >= 0 && diffDays <= limit;
     });
 }
 
@@ -146,16 +148,17 @@ function getDutyTypeForMember(
     return getDutyTypeGeneral(dateStr, dutyHolidays);
 }
 
-function getBlcActiveDay(day0: string, target: string, isHoliday: (s: string) => boolean): number {
+function getBlcActiveDay(day0: string, target: string, isHoliday: (s: string) => boolean, batch?: string): number {
     const start = parseLocalDate(day0);
     const tgt = parseLocalDate(target);
     if (start.getTime() === tgt.getTime()) return 0;
     if (tgt > start) {
         let cnt = 0;
         const cur = new Date(start);
+        const limit = isBlc30Days(batch) ? 30 : 22;
         while (cur < tgt) {
             cur.setDate(cur.getDate() + 1);
-            if (cnt < 30) {
+            if (cnt < limit) {
                 const cs = toDateStr(cur);
                 const isSunday = cur.getDay() === 0;
                 if (!isSunday && !isHoliday(cs)) {

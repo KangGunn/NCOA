@@ -2,6 +2,7 @@ import { createPortal } from 'react-dom';
 import { X, Trash2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { CalendarEvent, CalendarMember } from '../../types/calendar/calendar.type';
+import { isBlc30Days } from '../../utils/calendar.utils';
 
 interface EventModalProps {
     events: CalendarEvent[];
@@ -63,25 +64,11 @@ export function EventModal(props: EventModalProps) {
                 return props.events.some(e => e.type === 'holiday' && e.holidayType !== 'duty' && dStr >= e.startDate && dStr <= e.endDate);
             };
 
-            // Check BLC Day -1 (1 calendar day before Day 0)
-            const dayMinus1 = new Date(start);
-            dayMinus1.setDate(dayMinus1.getDate() - 1);
-            const dayMinus1Str = `${dayMinus1.getFullYear()}-${String(dayMinus1.getMonth() + 1).padStart(2, '0')}-${String(dayMinus1.getDate()).padStart(2, '0')}`;
-            if (dayMinus1Str === dateStr) {
-                dynamicBlcEvents.push({
-                    id: `dynamic-blc-${batch}--1`,
-                    type: 'blc',
-                    startDate: dayMinus1Str,
-                    endDate: dayMinus1Str,
-                    memo: `Day -1 (${batch})`,
-                    batch: batch
-                });
-            }
-
             let dayCount = 0;
             let current = new Date(start);
+            const limit = isBlc30Days(batch) ? 30 : 22;
 
-            while (dayCount < 30) {
+            while (dayCount < limit) {
                 current.setDate(current.getDate() + 1);
                 const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
                 const isSunday = current.getDay() === 0;
@@ -94,7 +81,7 @@ export function EventModal(props: EventModalProps) {
                             type: 'blc',
                             startDate: currentStr,
                             endDate: currentStr,
-                            memo: dayCount === 30 ? `Graduation (${batch})` : `Day ${dayCount} (${batch})`,
+                            memo: dayCount === limit ? `Graduation (${batch})` : `Day ${dayCount} (${batch})`,
                             batch: batch
                         });
                     }

@@ -1,5 +1,6 @@
 import { cn } from '../../lib/utils';
 import type { CalendarEvent } from '../../types/calendar/calendar.type';
+import { isBlc30Days } from '../../utils/calendar.utils';
 
 interface CalendarDate {
     d: number;
@@ -81,25 +82,11 @@ export function CalendarGrid({ currentDate, baseDate, events, onDateClick, calen
             const start = new Date(day0.startDate);
             const batch = day0.batch || "";
 
-            // Check BLC Day -1 (1 calendar day before Day 0)
-            const dayMinus1 = new Date(start);
-            dayMinus1.setDate(dayMinus1.getDate() - 1);
-            const dayMinus1Str = `${dayMinus1.getFullYear()}-${String(dayMinus1.getMonth() + 1).padStart(2, '0')}-${String(dayMinus1.getDate()).padStart(2, '0')}`;
-            if (dayMinus1Str === dateStr) {
-                dynamicBlcEvents.push({
-                    id: `dynamic-blc-${batch}--1`,
-                    type: 'blc',
-                    startDate: dayMinus1Str,
-                    endDate: dayMinus1Str,
-                    memo: `Day -1 (${batch})`,
-                    batch: batch
-                });
-            }
-
             let dayCount = 0;
             let current = new Date(start);
+            const limit = isBlc30Days(batch) ? 30 : 22;
 
-            while (dayCount < 30) {
+            while (dayCount < limit) {
                 current.setDate(current.getDate() + 1);
                 const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
                 const isSunday = current.getDay() === 0;
@@ -112,7 +99,7 @@ export function CalendarGrid({ currentDate, baseDate, events, onDateClick, calen
                             type: 'blc',
                             startDate: currentStr,
                             endDate: currentStr,
-                            memo: dayCount === 30 ? `Graduation (${batch})` : `Day ${dayCount} (${batch})`,
+                            memo: dayCount === limit ? `Graduation (${batch})` : `Day ${dayCount} (${batch})`,
                             batch: batch
                         });
                     }
@@ -263,13 +250,14 @@ export function CalendarGrid({ currentDate, baseDate, events, onDateClick, calen
                                             className={cn(
                                                 "h-full cursor-pointer transition-colors hover:bg-blue-50/10",
                                                 !cell.isCurrentMonth && "bg-gray-50/30",
-                                                ci > 0 && "border-l border-gray-50/50"
+                                                ci > 0 && "border-l border-gray-50/50",
+                                                isToday && "ring-1 ring-blue-500/60 ring-inset bg-blue-50/5"
                                             )}
                                         >
                                             <div className="p-1 flex items-center justify-between flex-wrap gap-1">
                                                 <span className={cn(
                                                     "text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full shrink-0",
-                                                    isToday ? "bg-blue-600 text-white" :
+                                                    isToday ? "text-blue-600 font-black" :
                                                         calendarMode === 'duty'
                                                             ? getDutyColorClass(cell.dateStr, cell.isCurrentMonth)
                                                             : cell.isCurrentMonth ? "text-gray-400" : "text-gray-300"

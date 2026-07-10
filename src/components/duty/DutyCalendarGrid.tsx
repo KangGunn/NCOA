@@ -1,6 +1,7 @@
 import { Trash2 } from 'lucide-react';
 import type { CalendarEvent, CalendarMember } from '../../types/calendar/calendar.type';
 import { calculateRank } from '../../lib/rankUtils';
+import { isBlc30Days } from '../../utils/calendar.utils';
 
 interface DutyCalendarGridProps {
     calendarDays: { dayNumber: number; dateStr: string; isCurrentMonth: boolean }[];
@@ -145,7 +146,7 @@ export function DutyCalendarGrid({
                     return new Date(y, m - 1, d);
                 };
 
-                const getBlcActiveDay = (day0DateStr: string, targetDateStr: string) => {
+                const getBlcActiveDay = (day0DateStr: string, targetDateStr: string, batch?: string) => {
                     const start = parseLocalDate(day0DateStr);
                     const target = parseLocalDate(targetDateStr);
 
@@ -154,9 +155,10 @@ export function DutyCalendarGrid({
                     if (target > start) {
                         let dayCount = 0;
                         let current = new Date(start);
+                        const limit = isBlc30Days(batch) ? 30 : 22;
                         while (current < target) {
                             current.setDate(current.getDate() + 1);
-                            if (dayCount < 22) {
+                            if (dayCount < limit) {
                                 const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
                                 const isSunday = current.getDay() === 0;
                                 const isHoliday = events.some((e: CalendarEvent) => e.type === 'holiday' && e.holidayType !== 'duty' && currentStr >= e.startDate && currentStr <= e.endDate);
@@ -195,7 +197,7 @@ export function DutyCalendarGrid({
                 const customBlcBadges: { id: string; label: string }[] = [];
                 const blcDay0s = events.filter(e => e.type === 'blc' && e.memo?.includes('Day 0'));
                 blcDay0s.forEach(day0 => {
-                    const diffDays = getBlcActiveDay(day0.startDate, cell.dateStr);
+                    const diffDays = getBlcActiveDay(day0.startDate, cell.dateStr, day0.batch);
                     const customLabel = blcDayLabels[diffDays];
                     if (customLabel) {
                         customBlcBadges.push({

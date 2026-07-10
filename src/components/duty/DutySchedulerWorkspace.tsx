@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, AlertCircle } from 'lucide-react';
 import { useDutySync } from '../../hooks/duty/useDutySync';
+import { isBlc30Days } from '../../utils/calendar.utils';
 import { useDutyState } from '../../hooks/duty/useDutyState';
 import { useDutyTemplate } from '../../hooks/duty/useDutyTemplate';
 import { DutySidebar } from './DutySidebar';
@@ -189,14 +190,15 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                 ktaBlcEvents.push({ id: `blc-day0-${day0.id}`, type: 'blc', startDate: day0.startDate, endDate: day0.startDate, memo: `Day 0 (${batch})`, batch });
             }
 
-            while (dayCount < 30) {
+            const limit = isBlc30Days(batch) ? 30 : 22;
+            while (dayCount < limit) {
                 current.setDate(current.getDate() + 1);
                 const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
                 const isSunday = current.getDay() === 0;
 
                 if (!isSunday && !isHolidayDate(currentStr)) {
                     dayCount++;
-                    if (dayCount === 30 && currentStr === dateStr) {
+                    if (dayCount === limit && currentStr === dateStr) {
                         const isDuringPoday = currentStr >= '2026-06-19' && currentStr <= '2026-06-22';
                         if (!isDuringPoday) {
                             ktaBlcEvents.push({ id: `dynamic-blc-grad-${batch}`, type: 'blc', startDate: currentStr, endDate: currentStr, memo: `Graduation (${batch})`, batch });

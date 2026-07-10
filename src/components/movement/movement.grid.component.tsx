@@ -136,7 +136,11 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                             {memberMovements.filter(m => m.reason).map((mov, mIdx) => (
                                                 <div key={mIdx} className={mIdx > 0 ? "border-t border-gray-800 pt-1 mt-1" : ""}>
                                                     <div className="text-[9px] text-gray-400 font-bold mb-0.5">
-                                                        {mov.type === 'pass' ? '외박' : '휴가'} ({mov.startDate.slice(5).replace('-', '.')} ~ {mov.endDate.slice(5).replace('-', '.')})
+                                                        {mov.type === 'pass' ? '외박' : '휴가'} ({
+                                                            mov.startDate === mov.endDate
+                                                                ? mov.startDate.slice(5).replace('-', '.')
+                                                                : `${mov.startDate.slice(5).replace('-', '.')} ~ ${mov.endDate.slice(5).replace('-', '.')}`
+                                                        })
                                                     </div>
                                                     <div className="text-gray-100 font-semibold">{mov.reason}</div>
                                                 </div>
