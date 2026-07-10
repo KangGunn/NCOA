@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, ChevronDown, HelpCircle } from 'lucide-react';
 import { db } from '../../lib/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import { cn } from '../../lib/utils';
@@ -41,6 +41,7 @@ const MONTH_LABELS: MonthOption[] = [
 export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate }: DutyTrackerModalProps) {
     const [showCompleted, setShowCompleted] = useState(false);
     const [showCriteriaSettings, setShowCriteriaSettings] = useState(false);
+    const [showInfo, setShowInfo] = useState(false);
 
     const [criteriaWeekday, setCriteriaWeekday] = useState<number>(() => {
         const saved = localStorage.getItem('ncoa_criteria_weekday');
@@ -164,6 +165,19 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
 
     const isBaselineMode = selectedMonthIndex === 0;
 
+    const isDateAffectedByDonsa = (dateStr: string, allEvents: CalendarEvent[]): boolean => {
+        const getPrevDateStrLocal = (dStr: string) => {
+            const d = new Date(dStr + 'T00:00:00');
+            d.setDate(d.getDate() - 1);
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        };
+        const donsaHolidays = allEvents.filter(e => e.type === 'holiday' && e.holidayType === 'duty' && e.memo?.toUpperCase().includes('DONSA'));
+        const isDayBeforeDonsaStart = donsaHolidays.some(h => dateStr === getPrevDateStrLocal(h.startDate));
+        const isDonsaLastDay = donsaHolidays.some(h => dateStr === h.endDate);
+        const isDonsaBetween = donsaHolidays.some(h => dateStr >= h.startDate && dateStr < h.endDate);
+        return isDayBeforeDonsaStart || isDonsaLastDay || isDonsaBetween;
+    };
+
     const isDateDuringKtaPeriod = (dateStr: string, eventsList: CalendarEvent[]) => {
         const ktaDay0s = eventsList.filter(e => e.type === 'kta' && e.memo?.includes('Day 0'));
         const ktaGrads = eventsList.filter(e => e.type === 'kta' && (e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓')));
@@ -209,8 +223,8 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
 
                 if (eventYear === 2026 && eventMonth >= 4 && eventMonth <= targetMonth) {
                     const isKtaOrMedicMember = member.sections?.includes('KTA') || member.sections?.includes('MEDIC');
-                    let type = getDutyType(d.startDate);
-                    if (isKtaOrMedicMember && isDateDuringKtaPeriod(d.startDate, events)) {
+                    let type = d.customDutyType || getDutyType(d.startDate);
+                    if (!d.customDutyType && isKtaOrMedicMember && isDateDuringKtaPeriod(d.startDate, events) && !isDateAffectedByDonsa(d.startDate, events)) {
                         // KTA 기수 중에는 공휴일이 없었던 것처럼 요일 기준으로만 계산합니다.
                         const dObj = new Date(d.startDate + 'T00:00:00');
                         const dayOfWeek = dObj.getDay();
@@ -457,13 +471,47 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
                 
                 {/* Header */}
                 <div className="flex items-center justify-between shrink-0">
-                    <div>
+                    <div className="flex items-center gap-1.5">
                         <h2 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight">📊 당직 횟수 트래커</h2>
+                        <button
+                            onClick={() => setShowInfo(!showInfo)}
+                            className="p-1 bg-gray-50 text-gray-400 hover:text-gray-600 rounded-full transition-colors cursor-pointer"
+                            title="당직 카운팅 기준 안내"
+                        >
+                            <HelpCircle className="w-4 h-4" />
+                        </button>
                     </div>
-                    <button onClick={onClose} className="p-2 bg-gray-50 rounded-full hover:bg-gray-100 transition-colors">
+                    <button onClick={onClose} className="p-2 bg-gray-50 rounded-full hover:bg-gray-100 transition-colors cursor-pointer">
                         <X className="w-5 h-5 text-gray-400" />
                     </button>
                 </div>
+
+                {showInfo && (
+                    <div className="bg-slate-50 border border-slate-200/60 rounded-2xl p-4 text-[10px] leading-relaxed text-slate-700 shrink-0 space-y-2 shadow-inner relative animate-in fade-in slide-in-from-top-2 duration-200">
+                        <div className="flex items-center justify-between font-black text-slate-900 text-xs">
+                            <span className="flex items-center gap-1">📋 당직 횟수 산정 기준</span>
+                            <button onClick={() => setShowInfo(false)} className="text-slate-400 hover:text-slate-600 font-bold cursor-pointer">닫기</button>
+                        </div>
+                        <div className="space-y-1.5 overflow-y-auto max-h-[160px] custom-scrollbar pr-1">
+                            <div>
+                                <strong className="text-slate-800 font-extrabold">1. 평당</strong>
+                                <p className="text-gray-500 pl-2">일반 평일(월~목요일) 당직. 기수 중인 KTA/MEDIC 대원은 공휴일이라도 평당으로 카운트됩니다 (단, DONSA 연휴 관련일 제외).</p>
+                            </div>
+                            <div>
+                                <strong className="text-slate-800 font-extrabold">2. 금일당</strong>
+                                <p className="text-gray-500 pl-2">금요일, 일요일 및 국가 공휴일 연휴의 시작 전날(이브) & 마지막 날(종료일). KTA/MEDIC 대원도 DONSA 공휴일에는 금일당이 정상 반영됩니다.</p>
+                            </div>
+                            <div>
+                                <strong className="text-slate-800 font-extrabold">3. 토당</strong>
+                                <p className="text-gray-500 pl-2">토요일 및 국가 공휴일 연휴 중간 날짜. KTA/MEDIC 대원도 DONSA 공휴일에는 토당이 정상 반영됩니다.</p>
+                            </div>
+                            <div>
+                                <strong className="text-slate-800 font-extrabold">4. 수동 지정</strong>
+                                <p className="text-gray-500 pl-2">달력 날짜 상세 모달 내의 이름 옆 드롭다운 배지를 통해 임의로 집계 분류를 재지정할 수 있습니다.</p>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Month Switcher Header Capsule */}
                 <div className="flex items-center justify-between bg-gray-50 p-2 rounded-2xl border border-gray-100 shrink-0 select-none">

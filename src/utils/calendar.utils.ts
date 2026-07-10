@@ -86,7 +86,8 @@ export const getBlcReferenceDate = (events: CalendarEvent[]) => {
     const activeBatch = blcBatches.find(b => {
         const start = new Date(b.startDate);
         const end = new Date(start);
-        end.setDate(start.getDate() + 25);
+        const offset = isBlc30Days(b.batch) ? 38 : 25;
+        end.setDate(start.getDate() + offset);
         const endStr = end.toISOString().split('T')[0];
         return todayStr >= b.startDate && todayStr <= endStr;
     });
@@ -110,7 +111,8 @@ export const getBlcReferenceBatch = (events: CalendarEvent[]) => {
     const activeBatch = blcBatches.find(b => {
         const start = new Date(b.startDate);
         const end = new Date(start);
-        end.setDate(start.getDate() + 25);
+        const offset = isBlc30Days(b.batch) ? 38 : 25;
+        end.setDate(start.getDate() + offset);
         const endStr = end.toISOString().split('T')[0];
         return todayStr >= b.startDate && todayStr <= endStr;
     });
@@ -136,3 +138,15 @@ export const formatDateWithDay = (baseDate: Date, addDays: number) => {
 export const sortedWithIndex = (evts: string[]) =>
     evts.map((evt, idx) => ({ evt, oi: idx }))
         .sort((a, b) => (a.evt.match(/^\d{4}/)?.[0] || '9999').localeCompare(b.evt.match(/^\d{4}/)?.[0] || '9999'));
+
+export function isBlc30Days(batch?: string): boolean {
+    if (!batch) return false;
+    const match = batch.match(/^(\d+)-(\d+)$/);
+    if (!match) return false;
+    const m = parseInt(match[1], 10);
+    const y = parseInt(match[2], 10);
+    // 08-26 and later is 30 days
+    if (y > 26) return true;
+    if (y === 26 && m >= 8) return true;
+    return false;
+}

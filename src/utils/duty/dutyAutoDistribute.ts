@@ -1,4 +1,5 @@
 import type { CalendarEvent, CalendarMember } from '../../types/calendar/calendar.type';
+import { isBlc30Days } from '../calendar.utils';
 
 // ── Types ─────────────────────────────────────────────────
 
@@ -113,8 +114,9 @@ export function isDateDuringBlcPeriod(dateStr: string, allEvents: CalendarEvent[
     const isHoliday = (ds: string) => allEvents.some(e => e.type === 'holiday' && ds >= e.startDate && ds <= e.endDate);
     return blcDay0s.some(day0 => {
         if (dateStr < day0.startDate) return false;
-        const diffDays = getBlcActiveDay(day0.startDate, dateStr, isHoliday);
-        return diffDays >= 0 && diffDays <= 22;
+        const diffDays = getBlcActiveDay(day0.startDate, dateStr, isHoliday, day0.batch);
+        const limit = isBlc30Days(day0.batch) ? 30 : 22;
+        return diffDays >= 0 && diffDays <= limit;
     });
 }
 
@@ -130,6 +132,25 @@ export function getActiveSectionsFor(member: CalendarMember, dateStr: string, al
     return active;
 }
 
+function isDateAffectedByDonsa(dateStr: string, allEvents: CalendarEvent[]): boolean {
+    const getOffsetDateStr = (dStr: string, offset: number) => {
+        const [y, m, d] = dStr.split('-').map(Number);
+        const dateObj = new Date(y, m - 1, d);
+        dateObj.setDate(dateObj.getDate() + offset);
+        const year = dateObj.getFullYear();
+        const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const day = String(dateObj.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+    const getPrevDateStr = (dStr: string) => getOffsetDateStr(dStr, -1);
+    
+    const donsaHolidays = allEvents.filter(e => e.type === 'holiday' && e.holidayType === 'duty' && e.memo?.toUpperCase().includes('DONSA'));
+    const isDayBeforeDonsaStart = donsaHolidays.some(h => dateStr === getPrevDateStr(h.startDate));
+    const isDonsaLastDay = donsaHolidays.some(h => dateStr === h.endDate);
+    const isDonsaBetween = donsaHolidays.some(h => dateStr >= h.startDate && dateStr < h.endDate);
+    return isDayBeforeDonsaStart || isDonsaLastDay || isDonsaBetween;
+}
+
 function getDutyTypeForMember(
     dateStr: string,
     member: CalendarMember,
@@ -137,7 +158,7 @@ function getDutyTypeForMember(
     allEvents: CalendarEvent[]
 ): DutyType {
     const isKtaOrMedic = member.sections?.includes('KTA') || member.sections?.includes('MEDIC');
-    if (isKtaOrMedic && isDateDuringKtaPeriod(dateStr, allEvents)) {
+    if (isKtaOrMedic && isDateDuringKtaPeriod(dateStr, allEvents) && !isDateAffectedByDonsa(dateStr, allEvents)) {
         const dow = parseLocalDate(dateStr).getDay();
         if (dow === 6) return 'sat';
         if (dow === 0 || dow === 5) return 'friSun';
@@ -146,16 +167,17 @@ function getDutyTypeForMember(
     return getDutyTypeGeneral(dateStr, dutyHolidays);
 }
 
-function getBlcActiveDay(day0: string, target: string, isHoliday: (s: string) => boolean): number {
+function getBlcActiveDay(day0: string, target: string, isHoliday: (s: string) => boolean, batch?: string): number {
     const start = parseLocalDate(day0);
     const tgt = parseLocalDate(target);
     if (start.getTime() === tgt.getTime()) return 0;
     if (tgt > start) {
         let cnt = 0;
         const cur = new Date(start);
+        const limit = isBlc30Days(batch) ? 30 : 22;
         while (cur < tgt) {
             cur.setDate(cur.getDate() + 1);
-            if (cnt < 30) {
+            if (cnt < limit) {
                 const cs = toDateStr(cur);
                 const isSunday = cur.getDay() === 0;
                 if (!isSunday && !isHoliday(cs)) {
@@ -229,7 +251,7 @@ export async function runAutoDistribute(params: {
     const isHoliday = (ds: string) =>
         allEvents.some(e => e.type === 'holiday' && e.holidayType !== 'duty' && ds >= e.startDate && ds <= e.endDate);
 
-    const blcActiveDayFn = (day0: string, tds: string) => getBlcActiveDay(day0, tds, isHoliday);
+    const blcActiveDayFn = (day0: string, tds: string, batch?: string) => getBlcActiveDay(day0, tds, isHoliday, batch);
 
     const memberByName = new Map<string, CalendarMember>();
     for (const m of members) memberByName.set(m.name, m);
@@ -417,13 +439,29 @@ export async function runAutoDistribute(params: {
         const mBlc = ms.filter(s => blcSections.includes(s));
         if (mBlc.length > 0) {
             for (const ev of blcDay0Events) {
-                const diff = blcActiveDayFn(ev.startDate, dateStr);
-                if (diff >= -1 && diff <= 26) {
+                const diff = blcActiveDayFn(ev.startDate, dateStr, ev.batch);
+                const is30 = ev.batch ? isBlc30Days(ev.batch) : false;
+                const minDay = is30 ? -2 : -1;
+                const maxDay = is30 ? 30 : 26;
+                if (diff >= minDay && diff <= maxDay) {
                     const r = blcRestrictions[diff];
                     if (r && (mBlc.some(s => r[s]) || (mBlc.includes('BLC') && r['blc']) ||
                         (mBlc.includes('S3') && r['s3']) || (mBlc.includes('PAO') && r['pao']))) return true;
                 }
             }
+        }
+
+        // BLC 수료포데이 당직 불가 체크 (13-16 포데이라면 12-16 당직 불가)
+        if (member.sections?.includes('BLC')) {
+            const hasBlcFourDayRestriction = allEvents.some(e => {
+                if (e.type !== 'blc' || !e.memo?.includes('수료포데이')) return false;
+                const start = parseLocalDate(e.startDate);
+                const startMinus1 = new Date(start);
+                startMinus1.setDate(startMinus1.getDate() - 1);
+                const startMinus1Str = toDateStr(startMinus1);
+                return dateStr >= startMinus1Str && dateStr <= e.endDate;
+            });
+            if (hasBlcFourDayRestriction) return true;
         }
 
         return false;
@@ -733,6 +771,21 @@ export async function runAutoDistribute(params: {
                             return `BLC 일정 제한 (Day ${diff})`;
                         }
                     }
+                }
+            }
+
+            // BLC 수료포데이 당직 불가 체크 (13-16 포데이라면 12-16 당직 불가)
+            if (member.sections?.includes('BLC')) {
+                const hasBlcFourDayRestriction = allEvents.some(e => {
+                    if (e.type !== 'blc' || !e.memo?.includes('수료포데이')) return false;
+                    const start = parseLocalDate(e.startDate);
+                    const startMinus1 = new Date(start);
+                    startMinus1.setDate(startMinus1.getDate() - 1);
+                    const startMinus1Str = toDateStr(startMinus1);
+                    return dateStr >= startMinus1Str && dateStr <= e.endDate;
+                });
+                if (hasBlcFourDayRestriction) {
+                    return 'BLC 수료포데이';
                 }
             }
 
@@ -1124,8 +1177,11 @@ export async function runAutoDistribute(params: {
             const mBlc = ms.filter(s => blcSections.includes(s));
             if (mBlc.length > 0) {
                 for (const ev of blcDay0Events) {
-                    const diff = blcActiveDayFn(ev.startDate, a.dateStr);
-                    if (diff >= -1 && diff <= 26) {
+                    const diff = blcActiveDayFn(ev.startDate, a.dateStr, ev.batch);
+                    const is30 = ev.batch ? isBlc30Days(ev.batch) : false;
+                    const minDay = is30 ? -2 : -1;
+                    const maxDay = is30 ? 30 : 26;
+                    if (diff >= minDay && diff <= maxDay) {
                         const r = blcRestrictions[diff];
                         if (r && (mBlc.some(s => r[s]) || (mBlc.includes('BLC') && r['blc']) ||
                             (mBlc.includes('S3') && r['s3']) || (mBlc.includes('PAO') && r['pao']))) {

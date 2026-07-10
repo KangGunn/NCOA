@@ -1,0 +1,926 @@
+commit 66693669b0e2fc70cdc6e7b70904ad79bd0b29cf
+Author: yhtlaeh <102238524+KangGunn@users.noreply.github.com>
+Date:   Fri Jul 10 00:26:34 2026 +0900
+
+    update BLC
+
+diff --git a/src/components/calendar/calendar.event-modal.component.tsx b/src/components/calendar/calendar.event-modal.component.tsx
+index 36923e8..e1348c5 100644
+--- a/src/components/calendar/calendar.event-modal.component.tsx
++++ b/src/components/calendar/calendar.event-modal.component.tsx
+@@ -17,7 +17,7 @@ interface EventModalProps {
+     setEditingBatch: (val: { oldBatch: string; value: string; oldType?: 'A' | 'B'; ktaType?: 'A' | 'B' } | null) => void;
+     editingHoliday: { id: string; name: string; startDate: string; endDate: string } | null;
+     setEditingHoliday: (val: { id: string; name: string; startDate: string; endDate: string } | null) => void;
+-    
++
+     isHolidayNaming: boolean;
+     setIsHolidayNaming: (val: boolean) => void;
+     holidayName: string;
+@@ -32,13 +32,14 @@ interface EventModalProps {
+     handleUpdateHoliday: (id: string) => void;
+     handleAutoKtaDay0: () => void;
+     handleAutoBlcDay0: () => void;
++    handleAutoBlcGradFourDay: () => void;
+     handleAddDuty: (date: string, name: string) => void;
+     handleDeleteEvent: (id: string) => void;
+     handleUpdateBatch: (oldBatch: string, newBatch: string, newType?: 'A' | 'B') => void;
+     handleUpdateBlcBatch: (oldBatch: string, newBatch: string) => void;
+     handleReplace: (eventId: string, newName: string) => void;
+     handleRealSwap: (id1: string, name1: string, id2: string, name2: string) => void;
+-    
++
+     isKTASaving: boolean;
+     isBLCSaving: boolean;
+     calendarMode: 'schedule' | 'duty';
+@@ -57,14 +58,30 @@ export function EventModal(props: EventModalProps) {
+         blcDay0s.forEach(day0 => {
+             const start = new Date(day0.startDate);
+             const batch = day0.batch || "";
+-            let dayCount = 0;
+-            let current = new Date(start);
+ 
+             const isHolidayDateLocal = (dStr: string) => {
+                 return props.events.some(e => e.type === 'holiday' && e.holidayType !== 'duty' && dStr >= e.startDate && dStr <= e.endDate);
+             };
+ 
+-            while (dayCount < 22) {
++            // Check BLC Day -1 (1 calendar day before Day 0)
++            const dayMinus1 = new Date(start);
++            dayMinus1.setDate(dayMinus1.getDate() - 1);
++            const dayMinus1Str = `${dayMinus1.getFullYear()}-${String(dayMinus1.getMonth() + 1).padStart(2, '0')}-${String(dayMinus1.getDate()).padStart(2, '0')}`;
++            if (dayMinus1Str === dateStr) {
++                dynamicBlcEvents.push({
++                    id: `dynamic-blc-${batch}--1`,
++                    type: 'blc',
++                    startDate: dayMinus1Str,
++                    endDate: dayMinus1Str,
++                    memo: `Day -1 (${batch})`,
++                    batch: batch
++                });
++            }
++
++            let dayCount = 0;
++            let current = new Date(start);
++
++            while (dayCount < 30) {
+                 current.setDate(current.getDate() + 1);
+                 const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
+                 const isSunday = current.getDay() === 0;
+@@ -77,7 +94,7 @@ export function EventModal(props: EventModalProps) {
+                             type: 'blc',
+                             startDate: currentStr,
+                             endDate: currentStr,
+-                            memo: dayCount === 22 ? `Graduation (${batch})` : `Day ${dayCount} (${batch})`,
++                            memo: dayCount === 30 ? `Graduation (${batch})` : `Day ${dayCount} (${batch})`,
+                             batch: batch
+                         });
+                     }
+@@ -86,7 +103,7 @@ export function EventModal(props: EventModalProps) {
+         });
+ 
+         const allEvents = [
+-            ...baseEvents.filter(e => !(e.type === 'blc' && !e.memo?.includes('Day 0'))),
++            ...baseEvents.filter(e => !(e.type === 'blc' && !e.memo?.includes('Day 0') && !e.memo?.includes('수료포데이'))),
+             ...dynamicBlcEvents
+         ];
+ 
+@@ -97,7 +114,7 @@ export function EventModal(props: EventModalProps) {
+                     return true;
+                 }
+                 if (e.type === 'kta' || e.type === 'blc') {
+-                    return e.memo?.includes('Day 0') || e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓');
++                    return e.memo?.includes('Day 0') || e.memo?.includes('Graduation') || (e.memo?.includes('수료') && !e.memo?.includes('수료포데이')) || e.memo?.includes('🎓');
+                 }
+                 return false;
+             });
+@@ -152,7 +169,7 @@ export function EventModal(props: EventModalProps) {
+ 
+                                     {/* Edit Modals for Event */}
+                                     <div className="mt-2">
+-                                        {e.type === 'holiday' && props.editingHoliday?.id === e.id ? (
++                                        {(e.type === 'holiday' || (e.type === 'blc' && e.memo?.includes('수료포데이'))) && props.editingHoliday?.id === e.id ? (
+                                             <div className="space-y-2 mt-1">
+                                                 <input
+                                                     type="text"
+@@ -259,12 +276,21 @@ export function EventModal(props: EventModalProps) {
+                                             </button>
+                                         )}
+                                         {e.type === 'blc' && e.batch && !props.editingBatch && (
+-                                            <button
+-                                                onClick={() => props.setEditingBatch({ oldBatch: e.batch!, value: e.batch!, oldType: 'A', ktaType: 'A' })}
+-                                                className="px-2 py-1.5 bg-white border border-blue-100 text-blue-600 rounded-lg text-[10px] font-black hover:bg-blue-50 transition-all"
+-                                            >
+-                                                기수 수정
+-                                            </button>
++                                            e.memo?.includes('수료포데이') ? (
++                                                <button
++                                                    onClick={() => props.setEditingHoliday({ id: e.id, name: e.memo, startDate: e.startDate, endDate: e.endDate })}
++                                                    className="px-2 py-1.5 bg-white border border-indigo-100 text-indigo-600 rounded-lg text-[10px] font-black hover:bg-indigo-50 transition-all"
++                                                >
++                                                    기간/이름 수정
++                                                </button>
++                                            ) : (
++                                                <button
++                                                    onClick={() => props.setEditingBatch({ oldBatch: e.batch!, value: e.batch!, oldType: 'A', ktaType: 'A' })}
++                                                    className="px-2 py-1.5 bg-white border border-blue-100 text-blue-600 rounded-lg text-[10px] font-black hover:bg-blue-50 transition-all"
++                                                >
++                                                    기수 수정
++                                                </button>
++                                            )
+                                         )}
+                                         {e.type === 'duty' && (
+                                             <>
+@@ -334,8 +360,8 @@ export function EventModal(props: EventModalProps) {
+                                                     return otherDate.getFullYear() === props.currentDate.getFullYear() &&
+                                                         otherDate.getMonth() === props.currentDate.getMonth();
+                                                 }).length === 0 && (
+-                                                    <div className="col-span-2 py-4 text-center text-[10px] text-gray-400 font-medium italic">이달 내 교환 가능한 다른 당직이 없습니다.</div>
+-                                                )}
++                                                        <div className="col-span-2 py-4 text-center text-[10px] text-gray-400 font-medium italic">이달 내 교환 가능한 다른 당직이 없습니다.</div>
++                                                    )}
+                                             </div>
+                                         </div>
+                                     )}
+@@ -415,7 +441,7 @@ export function EventModal(props: EventModalProps) {
+                                 }}
+                                 className="flex-1 py-3 bg-purple-50 text-purple-600 rounded-2xl text-xs font-black hover:bg-purple-100 transition-colors"
+                             >
+-                                {props.calendarMode === 'duty' ? '당직용 휴일 추가' : 'BLC 기수용 휴일 추가'}
++                                {props.calendarMode === 'duty' ? '당직 휴일' : 'BLC 휴일'}
+                             </button>
+                             {props.calendarMode === 'schedule' && props.selectedDate && new Date(props.selectedDate).getDay() === 4 && (
+                                 <button
+@@ -430,7 +456,7 @@ export function EventModal(props: EventModalProps) {
+                                 <button
+                                     onClick={props.handleAutoBlcDay0}
+                                     disabled={props.isBLCSaving}
+-                                    className="flex-1 py-3 bg-blue-50 text-blue-600 rounded-2xl text-xs font-black hover:bg-blue-100 transition-colors disabled:opacity-50"
++                                    className="flex-1 py-3 bg-blue-50 text-blue-600 rounded-2xl text-xs font-black hover:bg-blue-100 transition-colors disabled:opacity-50 whitespace-nowrap"
+                                 >
+                                     BLC Day 0
+                                 </button>
+diff --git a/src/components/calendar/calendar.grid.component.tsx b/src/components/calendar/calendar.grid.component.tsx
+index 751b5e8..db274f4 100644
+--- a/src/components/calendar/calendar.grid.component.tsx
++++ b/src/components/calendar/calendar.grid.component.tsx
+@@ -80,10 +80,26 @@ export function CalendarGrid({ currentDate, baseDate, events, onDateClick, calen
+         blcDay0s.forEach(day0 => {
+             const start = new Date(day0.startDate);
+             const batch = day0.batch || "";
++
++            // Check BLC Day -1 (1 calendar day before Day 0)
++            const dayMinus1 = new Date(start);
++            dayMinus1.setDate(dayMinus1.getDate() - 1);
++            const dayMinus1Str = `${dayMinus1.getFullYear()}-${String(dayMinus1.getMonth() + 1).padStart(2, '0')}-${String(dayMinus1.getDate()).padStart(2, '0')}`;
++            if (dayMinus1Str === dateStr) {
++                dynamicBlcEvents.push({
++                    id: `dynamic-blc-${batch}--1`,
++                    type: 'blc',
++                    startDate: dayMinus1Str,
++                    endDate: dayMinus1Str,
++                    memo: `Day -1 (${batch})`,
++                    batch: batch
++                });
++            }
++
+             let dayCount = 0;
+             let current = new Date(start);
+ 
+-            while (dayCount < 22) {
++            while (dayCount < 30) {
+                 current.setDate(current.getDate() + 1);
+                 const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
+                 const isSunday = current.getDay() === 0;
+@@ -96,7 +112,7 @@ export function CalendarGrid({ currentDate, baseDate, events, onDateClick, calen
+                             type: 'blc',
+                             startDate: currentStr,
+                             endDate: currentStr,
+-                            memo: dayCount === 22 ? `Graduation (${batch})` : `Day ${dayCount} (${batch})`,
++                            memo: dayCount === 30 ? `Graduation (${batch})` : `Day ${dayCount} (${batch})`,
+                             batch: batch
+                         });
+                     }
+@@ -105,7 +121,7 @@ export function CalendarGrid({ currentDate, baseDate, events, onDateClick, calen
+         });
+ 
+         const finalEvents = [
+-            ...baseEvents.filter(e => !(e.type === 'blc' && !e.memo?.includes('Day 0'))),
++            ...baseEvents.filter(e => !(e.type === 'blc' && !e.memo?.includes('Day 0') && !e.memo?.includes('수료포데이'))),
+             ...dynamicBlcEvents
+         ];
+ 
+@@ -115,7 +131,7 @@ export function CalendarGrid({ currentDate, baseDate, events, onDateClick, calen
+                     return true;
+                 }
+                 if (e.type === 'kta' || e.type === 'blc') {
+-                    return e.memo?.includes('Day 0') || e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓');
++                    return e.memo?.includes('Day 0') || e.memo?.includes('Graduation') || (e.memo?.includes('수료') && !e.memo?.includes('수료포데이')) || e.memo?.includes('🎓');
+                 }
+                 return false;
+             });
+diff --git a/src/components/calendar/calendar.template-modals.component.tsx b/src/components/calendar/calendar.template-modals.component.tsx
+index 6f29b56..b99b76b 100644
+--- a/src/components/calendar/calendar.template-modals.component.tsx
++++ b/src/components/calendar/calendar.template-modals.component.tsx
+@@ -186,7 +186,7 @@ export function BlcTemplateModal({
+                                 </span>
+                             )}
+                         </div>
+-                        <p className="text-xs text-gray-500 font-bold mt-1">Day 0부터 Day 22까지의 일정을 미리 설정합니다.</p>
++                        <p className="text-xs text-gray-500 font-bold mt-1">Day -1부터 Day 30까지의 일정을 미리 설정합니다.</p>
+                     </div>
+                     <button onClick={() => setIsBLCScheduleAdding(false)} className="p-2 bg-gray-50 rounded-full hover:bg-gray-100">
+                         <X className="w-5 h-5 text-gray-400" />
+@@ -203,11 +203,15 @@ export function BlcTemplateModal({
+                                         {(() => {
+                                             if (!blcReferenceDate) return null;
+                                             let target = new Date(blcReferenceDate);
+-                                            let workingDays = 0;
+-                                            while (workingDays < item.day) {
+-                                                target.setDate(target.getDate() + 1);
+-                                                const tStr = target.toISOString().split('T')[0];
+-                                                if (target.getDay() !== 0 && !isHolidayDate(tStr)) workingDays++;
++                                            if (item.day < 0) {
++                                                target.setDate(target.getDate() + item.day);
++                                            } else {
++                                                let workingDays = 0;
++                                                while (workingDays < item.day) {
++                                                    target.setDate(target.getDate() + 1);
++                                                    const tStr = target.toISOString().split('T')[0];
++                                                    if (target.getDay() !== 0 && !isHolidayDate(tStr)) workingDays++;
++                                                }
+                                             }
+                                             const mm = String(target.getMonth() + 1).padStart(2, '0');
+                                             const dd = String(target.getDate()).padStart(2, '0');
+diff --git a/src/components/duty/DutyCalendarGrid.tsx b/src/components/duty/DutyCalendarGrid.tsx
+index 4aa98b1..b9ace9a 100644
+--- a/src/components/duty/DutyCalendarGrid.tsx
++++ b/src/components/duty/DutyCalendarGrid.tsx
+@@ -59,18 +59,18 @@ export function DutyCalendarGrid({
+         if (isHolidayBetween) {
+             return 'sat';
+         }
+-        
++
+         // 4. 일반적인 주말 및 금요일 판단
+         const d = new Date(dateStr + 'T00:00:00');
+         const dayOfWeek = d.getDay(); // 0: Sun, 5: Fri, 6: Sat
+-        
++
+         if (dayOfWeek === 6) {
+             return 'sat'; // 토요일 -> 토당
+         }
+         if (dayOfWeek === 0 || dayOfWeek === 5) {
+             return 'friSun'; // 금요일, 일요일 -> 금일당
+         }
+-        
++
+         // 5. 일반 평일 -> 평당 ('weekday')
+         return 'weekday';
+     };
+@@ -109,7 +109,7 @@ export function DutyCalendarGrid({
+             {calendarDays.map((cell) => {
+                 const duty = getDutyForDate(cell.dateStr);
+                 const ktaBlcEvents = getKtaBlcEventsForDate(cell.dateStr);
+-                
++
+                 // If a member is selected, determine the duty type from their perspective
+                 const currentDutyType = selectedMember && cell.isCurrentMonth
+                     ? getDutyTypeForMember(cell.dateStr, selectedMember)
+@@ -130,9 +130,9 @@ export function DutyCalendarGrid({
+                         }
+                     }
+                 }
+-                
++
+                 let eligibleMembers: CalendarMember[] = [];
+-                
++
+                 if (cell.isCurrentMonth) {
+                     eligibleMembers = members.filter(m => {
+                         if (m.joinDate && cell.dateStr < m.joinDate) return false;
+@@ -206,28 +206,26 @@ export function DutyCalendarGrid({
+                 });
+ 
+                 return (
+-                    <div 
+-                        key={cell.dateStr} 
++                    <div
++                        key={cell.dateStr}
+                         onClick={() => handleCellClick(cell.dateStr)}
+-                        className={`border-r border-b border-slate-850 p-1.5 flex flex-col justify-between select-none relative transition-all group overflow-hidden ${
+-                            cell.isCurrentMonth 
+-                                ? highlightClass 
++                        className={`border-r border-b border-slate-850 p-1.5 flex flex-col justify-between select-none relative transition-all group overflow-hidden ${cell.isCurrentMonth
++                                ? highlightClass
+                                     ? `${highlightClass} cursor-crosshair`
+-                                    : 'bg-slate-900/10 hover:bg-slate-800/40 cursor-crosshair' 
++                                    : 'bg-slate-900/10 hover:bg-slate-800/40 cursor-crosshair'
+                                 : 'bg-slate-950/40 text-slate-700 pointer-events-none'
+-                        }`}
++                            }`}
+                     >
+                         <div className="flex justify-between items-center shrink-0 w-full gap-1">
+                             <div className="flex items-center gap-1.5 min-w-0">
+-                                <span className={`text-[11px] font-black tracking-tight shrink-0 ${
+-                                    cell.isCurrentMonth
++                                <span className={`text-[11px] font-black tracking-tight shrink-0 ${cell.isCurrentMonth
+                                         ? currentDutyType === 'sat'
+-                                            ? 'text-rose-500 font-black' 
++                                            ? 'text-rose-500 font-black'
+                                             : currentDutyType === 'friSun'
+-                                                ? 'text-sky-500 font-black' 
++                                                ? 'text-sky-500 font-black'
+                                                 : 'text-slate-100 font-extrabold'
+                                         : 'text-slate-700'
+-                                 }`}>
++                                    }`}>
+                                     {cell.dayNumber}
+                                 </span>
+                                 {/* Monthly Custom Day Label (Green Badge) immediately to the right of the date */}
+@@ -242,19 +240,23 @@ export function DutyCalendarGrid({
+                                 {ktaBlcEvents.map(e => {
+                                     const isBlc = e.type === 'blc';
+                                     const isGraduation = e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓');
+-                                    let label = isGraduation ? 'Grad' : (e.memo?.match(/Day \d+/)?.[0] || '');
+-                                    
++                                    let label = e.memo?.includes('수료포데이')
++                                        ? '수료포'
++                                        : isGraduation
++                                            ? 'Grad'
++                                            : (e.memo?.match(/Day -?\d+/)?.[0] || '');
++
+                                     const isDay0OrGrad = e.memo?.includes('Day 0') || isGraduation;
+                                     let batchSuffix = (isDay0OrGrad && e.batch) ? `(${e.batch})` : '';
+ 
+                                     if (!label) return null;
+ 
+                                     const badgeBg = isBlc
+-                                        ? 'bg-indigo-950/80 text-indigo-400 border border-indigo-900/35' 
++                                        ? 'bg-indigo-950/80 text-indigo-400 border border-indigo-900/35'
+                                         : 'bg-rose-950/80 text-rose-400 border border-rose-900/35';
+ 
+                                     return (
+-                                        <span 
++                                        <span
+                                             key={e.id}
+                                             className={`text-[8.5px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 whitespace-nowrap ${badgeBg}`}
+                                             title={e.memo}
+@@ -264,7 +266,7 @@ export function DutyCalendarGrid({
+                                     );
+                                 })}
+                                 {customKtaBadges.map(b => (
+-                                    <span 
++                                    <span
+                                         key={b.id}
+                                         className="text-[8.5px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 whitespace-nowrap bg-rose-950/80 text-rose-400 border border-rose-900/35"
+                                     >
+@@ -272,7 +274,7 @@ export function DutyCalendarGrid({
+                                     </span>
+                                 ))}
+                                 {customBlcBadges.map(b => (
+-                                    <span 
++                                    <span
+                                         key={b.id}
+                                         className="text-[8.5px] font-black px-1.5 py-0.5 rounded leading-none shrink-0 whitespace-nowrap bg-indigo-950/80 text-indigo-400 border border-indigo-900/35"
+                                     >
+@@ -311,7 +313,7 @@ export function DutyCalendarGrid({
+                                 </div>
+                             ) : (
+                                 cell.isCurrentMonth && (
+-                                    <div 
++                                    <div
+                                         className="flex-1 overflow-y-auto no-scrollbar flex flex-wrap gap-0.5 content-start w-full pt-0.5"
+                                         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                                     >
+@@ -326,7 +328,7 @@ export function DutyCalendarGrid({
+                                             eligibleMembers.map(member => {
+                                                 const reason = getMemberDutyRestrictionReason(member, cell.dateStr);
+                                                 const isDisabled = !!reason;
+-                                                
++
+                                                 let btnClassName = "";
+                                                 let titleText = "";
+                                                 if (isDisabled) {
+@@ -337,7 +339,7 @@ export function DutyCalendarGrid({
+                                                     } else {
+                                                         btnClassName = "bg-slate-900/20 border-slate-850 text-slate-600 line-through opacity-50 cursor-not-allowed";
+                                                     }
+-                                                    
++
+                                                     if (reason === '신병보호기간') {
+                                                         titleText = reason;
+                                                     } else {
+@@ -372,7 +374,7 @@ export function DutyCalendarGrid({
+                                         )}
+                                     </div>
+                                 )
+-                             )}
++                            )}
+                         </div>
+                     </div>
+                 );
+diff --git a/src/components/duty/DutySchedulerWorkspace.tsx b/src/components/duty/DutySchedulerWorkspace.tsx
+index 0388440..f8c1afa 100644
+--- a/src/components/duty/DutySchedulerWorkspace.tsx
++++ b/src/components/duty/DutySchedulerWorkspace.tsx
+@@ -189,14 +189,14 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
+                 ktaBlcEvents.push({ id: `blc-day0-${day0.id}`, type: 'blc', startDate: day0.startDate, endDate: day0.startDate, memo: `Day 0 (${batch})`, batch });
+             }
+ 
+-            while (dayCount < 22) {
++            while (dayCount < 30) {
+                 current.setDate(current.getDate() + 1);
+                 const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
+                 const isSunday = current.getDay() === 0;
+ 
+                 if (!isSunday && !isHolidayDate(currentStr)) {
+                     dayCount++;
+-                    if (dayCount === 22 && currentStr === dateStr) {
++                    if (dayCount === 30 && currentStr === dateStr) {
+                         const isDuringPoday = currentStr >= '2026-06-19' && currentStr <= '2026-06-22';
+                         if (!isDuringPoday) {
+                             ktaBlcEvents.push({ id: `dynamic-blc-grad-${batch}`, type: 'blc', startDate: currentStr, endDate: currentStr, memo: `Graduation (${batch})`, batch });
+@@ -209,7 +209,16 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
+         const ktaEvents = events.filter((e: CalendarEvent) => e.type === 'kta');
+         ktaEvents.forEach((e: CalendarEvent) => {
+             if (e.startDate === dateStr) {
+-                if (e.memo?.includes('Day 0') || e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓')) {
++                if (e.memo?.includes('Day 0') || e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓') || e.memo?.includes('수료포데이')) {
++                    ktaBlcEvents.push(e);
++                }
++            }
++        });
++
++        const baseBlcEvents = events.filter((e: CalendarEvent) => e.type === 'blc');
++        baseBlcEvents.forEach((e: CalendarEvent) => {
++            if (e.startDate <= dateStr && e.endDate >= dateStr) {
++                if (e.memo?.includes('수료포데이')) {
+                     ktaBlcEvents.push(e);
+                 }
+             }
+diff --git a/src/components/tabs/CalendarTab.tsx b/src/components/tabs/CalendarTab.tsx
+index e4daa67..b1a5eee 100644
+--- a/src/components/tabs/CalendarTab.tsx
++++ b/src/components/tabs/CalendarTab.tsx
+@@ -58,7 +58,7 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
+         isHolidayNaming, setIsHolidayNaming,
+         editingHoliday, setEditingHoliday,
+ 
+-        handleAutoKtaDay0, handleAutoBlcDay0, handleAddDuty, handleAddHoliday,
++        handleAutoKtaDay0, handleAutoBlcDay0, handleAutoBlcGradFourDay, handleAddDuty, handleAddHoliday,
+         handleUpdateHoliday, handleDeleteEvent, handleUpdateBatch, handleUpdateBlcBatch,
+         handleReplace, handleRealSwap, openBatchDutyModal, handleBatchSaveDuties
+     } = useCalendarSchedule(events, currentDate, calendarMode);
+@@ -134,43 +134,36 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
+             <div
+                 className="grid grid-cols-2 gap-2 mt-4 shrink-0"
+             >
+-                {calendarMode === 'schedule' ? (
+-                    <>
+-                        <button
+-                            onClick={() => setIsKTAScheduleAdding(true)}
+-                            style={{ height: '44px' }}
+-                            className="col-span-1 px-4 bg-red-50 text-red-600 rounded-xl text-sm font-black hover:bg-red-100 transition-colors border border-red-100/50 flex items-center justify-center gap-1.5 whitespace-nowrap"
+-                        >
+-                            <Settings className="w-3.5 h-3.5" />
+-                            <span>KTA 일정 템플릿</span>
+-                        </button>
+-                        <button
+-                            onClick={() => setIsBLCScheduleAdding(true)}
+-                            style={{ height: '44px' }}
+-                            className="col-span-1 px-4 bg-blue-50 text-blue-600 rounded-xl text-sm font-black hover:bg-blue-100 transition-colors border border-blue-100/50 flex items-center justify-center gap-1.5 whitespace-nowrap"
+-                        >
+-                            <Settings className="w-3.5 h-3.5" />
+-                            <span>BLC 일정 템플릿</span>
+-                        </button>
+-                    </>
+-                ) : (
+-                    <>
+-                        <button
+-                            onClick={() => setIsTrackerOpen(true)}
+-                            style={{ height: '44px' }}
+-                            className="col-span-1 px-4 bg-amber-50 text-amber-600 rounded-xl text-sm font-black hover:bg-amber-100 transition-colors border border-amber-100/50 flex items-center justify-center whitespace-nowrap"
+-                        >
+-                            당직 횟수 트래커
+-                        </button>
+-                        <button
+-                            onClick={openBatchDutyModal}
+-                            style={{ height: '44px' }}
+-                            className="col-span-1 px-4 bg-yellow-50 text-yellow-600 rounded-xl text-sm font-black hover:bg-yellow-100 transition-colors border border-yellow-100/50 flex items-center justify-center whitespace-nowrap"
+-                        >
+-                            당직 일괄 등록
+-                        </button>
+-                    </>
+-                )}
++                <button
++                    onClick={() => setIsTrackerOpen(true)}
++                    style={{ height: '44px' }}
++                    className="col-span-1 px-4 bg-amber-50 text-amber-600 rounded-xl text-sm font-black hover:bg-amber-100 transition-colors border border-amber-100/50 flex items-center justify-center whitespace-nowrap"
++                >
++                    당직 횟수 트래커
++                </button>
++                <button
++                    onClick={openBatchDutyModal}
++                    style={{ height: '44px' }}
++                    className="col-span-1 px-4 bg-yellow-50 text-yellow-600 rounded-xl text-sm font-black hover:bg-yellow-100 transition-colors border border-yellow-100/50 flex items-center justify-center whitespace-nowrap"
++                >
++                    당직 일괄 등록
++                </button>
++                <button
++                    onClick={() => setIsKTAScheduleAdding(true)}
++                    style={{ height: '44px' }}
++                    className="col-span-1 px-4 bg-red-50 text-red-600 rounded-xl text-sm font-black hover:bg-red-100 transition-colors border border-red-100/50 flex items-center justify-center gap-1.5 whitespace-nowrap"
++                >
++                    <Settings className="w-3.5 h-3.5" />
++                    <span>KTA 일정 템플릿</span>
++                </button>
++                <button
++                    onClick={() => setIsBLCScheduleAdding(true)}
++                    style={{ height: '44px' }}
++                    className="col-span-1 px-4 bg-blue-50 text-blue-600 rounded-xl text-sm font-black hover:bg-blue-100 transition-colors border border-blue-100/50 flex items-center justify-center gap-1.5 whitespace-nowrap"
++                >
++                    <Settings className="w-3.5 h-3.5" />
++                    <span>BLC 일정 템플릿</span>
++                </button>
+             </div>
+ 
+             <EventModal
+@@ -201,6 +194,7 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
+                 handleUpdateHoliday={handleUpdateHoliday}
+                 handleAutoKtaDay0={handleAutoKtaDay0}
+                 handleAutoBlcDay0={handleAutoBlcDay0}
++                handleAutoBlcGradFourDay={handleAutoBlcGradFourDay}
+                 handleAddDuty={handleAddDuty}
+                 handleDeleteEvent={handleDeleteEvent}
+                 handleUpdateBatch={handleUpdateBatch}
+diff --git a/src/hooks/calendar/calendar.schedule.hook.ts b/src/hooks/calendar/calendar.schedule.hook.ts
+index c450458..b42d7c9 100644
+--- a/src/hooks/calendar/calendar.schedule.hook.ts
++++ b/src/hooks/calendar/calendar.schedule.hook.ts
+@@ -125,7 +125,7 @@ export function useCalendarSchedule(
+         const selectedStart = new Date(selectedDate);
+         let proposedDayCount = 0;
+         let proposedCurrent = new Date(selectedStart);
+-        while (proposedDayCount < 22) {
++        while (proposedDayCount < 30) {
+             proposedCurrent.setDate(proposedCurrent.getDate() + 1);
+             const currentStr = `${proposedCurrent.getFullYear()}-${String(proposedCurrent.getMonth() + 1).padStart(2, '0')}-${String(proposedCurrent.getDate()).padStart(2, '0')}`;
+             if (proposedCurrent.getDay() !== 0 && !isHolidayDate(currentStr)) {
+@@ -139,7 +139,7 @@ export function useCalendarSchedule(
+             const existingStart = new Date(e.startDate);
+             let dayCount = 0;
+             let current = new Date(existingStart);
+-            while (dayCount < 22) {
++            while (dayCount < 30) {
+                 current.setDate(current.getDate() + 1);
+                 const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
+                 if (current.getDay() !== 0 && !isHolidayDate(currentStr)) {
+@@ -179,6 +179,33 @@ export function useCalendarSchedule(
+                 batch: nextBatch,
+                 createdAt: serverTimestamp()
+             });
++
++            // Automatically calculate and add BLC 수료포데이
++            const gradDayOfWeek = proposedEnd.getDay();
++            const startOfFourDay = new Date(proposedEnd);
++            if (gradDayOfWeek === 4 || gradDayOfWeek === 5) {
++                startOfFourDay.setDate(startOfFourDay.getDate() + 1);
++            } else {
++                const diff = 4 - gradDayOfWeek;
++                startOfFourDay.setDate(startOfFourDay.getDate() + diff);
++            }
++            const endOfFourDay = new Date(startOfFourDay);
++            endOfFourDay.setDate(endOfFourDay.getDate() + 3);
++
++            const formatDate = (d: Date) => {
++                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
++            };
++
++            await addDoc(collection(db, "schedules"), {
++                uid: user.uid,
++                type: 'blc',
++                startDate: formatDate(startOfFourDay),
++                endDate: formatDate(endOfFourDay),
++                memo: `BLC 수료포데이 (${nextBatch})`,
++                batch: nextBatch,
++                createdAt: serverTimestamp()
++            });
++
+             setIsAdding(false);
+             setSelectedDate(null);
+         } catch (error) {
+@@ -187,6 +214,107 @@ export function useCalendarSchedule(
+         }
+     };
+ 
++    const handleAutoBlcGradFourDay = async () => {
++        if (!selectedDate) return;
++        const user = auth.currentUser;
++        if (!user) return;
++
++        const lastDay0Event = [...events]
++            .filter(e => e.type === 'blc' && e.memo?.includes('Day 0'))
++            .sort((a, b) => b.startDate.localeCompare(a.startDate))[0];
++
++        const batch = lastDay0Event ? (lastDay0Event.batch || "24-01") : "24-01";
++
++        const start = new Date(selectedDate);
++        const end = new Date(start);
++        end.setDate(end.getDate() + 3);
++        const endStr = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
++
++        try {
++            await addDoc(collection(db, "schedules"), {
++                uid: user.uid,
++                type: 'blc',
++                startDate: selectedDate,
++                endDate: endStr,
++                memo: `BLC 수료포데이 (${batch})`,
++                batch: batch,
++                createdAt: serverTimestamp()
++            });
++            setIsAdding(false);
++            setSelectedDate(null);
++        } catch (error) {
++            console.error("Error setting BLC Grad Four Day:", error);
++            alert("BLC 수료포데이 등록 중 오류가 발생했습니다.");
++        }
++    };
++
++    const syncBlcFourDays = async () => {
++        try {
++            const snap = await getDocs(collection(db, "schedules"));
++            const allEvents = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
++
++            const holidays = allEvents.filter(e => e.type === 'holiday' && e.holidayType !== 'duty');
++            const isHolidayDateLocal = (dStr: string) => {
++                return holidays.some(e => dStr >= e.startDate && dStr <= e.endDate);
++            };
++
++            const blcDay0s = allEvents.filter(e => e.type === 'blc' && e.memo?.includes('Day 0'));
++            const blcFourDays = allEvents.filter(e => e.type === 'blc' && e.memo?.includes('수료포데이'));
++
++            const formatDate = (d: Date) => {
++                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
++            };
++
++            const updatePromises = blcDay0s.map(async (day0) => {
++                const batch = day0.batch;
++                if (!batch) return;
++
++                // Recalculate Day 30
++                const selectedStart = new Date(day0.startDate);
++                let dayCount = 0;
++                let current = new Date(selectedStart);
++                while (dayCount < 30) {
++                    current.setDate(current.getDate() + 1);
++                    const currentStr = formatDate(current);
++                    if (current.getDay() !== 0 && !isHolidayDateLocal(currentStr)) {
++                        dayCount++;
++                    }
++                }
++                const proposedEnd = current;
++
++                // Calculate Four Day period
++                const gradDayOfWeek = proposedEnd.getDay();
++                const startOfFourDay = new Date(proposedEnd);
++                if (gradDayOfWeek === 4 || gradDayOfWeek === 5) {
++                    startOfFourDay.setDate(startOfFourDay.getDate() + 1);
++                } else {
++                    const diff = 4 - gradDayOfWeek;
++                    startOfFourDay.setDate(startOfFourDay.getDate() + diff);
++                }
++                const endOfFourDay = new Date(startOfFourDay);
++                endOfFourDay.setDate(endOfFourDay.getDate() + 3);
++
++                const newStartStr = formatDate(startOfFourDay);
++                const newEndStr = formatDate(endOfFourDay);
++
++                // Find existing BLC 수료포데이
++                const existingFourDay = blcFourDays.find(e => e.batch === batch);
++                if (existingFourDay) {
++                    if (existingFourDay.startDate !== newStartStr || existingFourDay.endDate !== newEndStr) {
++                        await updateDoc(doc(db, "schedules", existingFourDay.id), {
++                            startDate: newStartStr,
++                            endDate: newEndStr
++                        });
++                    }
++                }
++            });
++
++            await Promise.all(updatePromises);
++        } catch (error) {
++            console.error("Error syncing BLC Four Days:", error);
++        }
++    };
++
+     const handleAddDuty = async (date: string, name: string) => {
+         setIsAdding(false);
+         setSelectedDate(null);
+@@ -221,6 +349,7 @@ export function useCalendarSchedule(
+                 holidayType: calendarMode === 'duty' ? 'duty' : 'blc',
+                 createdAt: serverTimestamp()
+             });
++            await syncBlcFourDays();
+             setHolidayName('');
+             setHolidayStartDate('');
+             setHolidayEndDate('');
+@@ -245,6 +374,7 @@ export function useCalendarSchedule(
+                 startDate: editingHoliday.startDate,
+                 endDate: editingHoliday.endDate
+             });
++            await syncBlcFourDays();
+             setEditingHoliday(null);
+         } catch (error) {
+             console.error("Error updating holiday:", error);
+@@ -268,6 +398,7 @@ export function useCalendarSchedule(
+                 setSelectedDate(null);
+                 try {
+                     await deleteDoc(doc(db, "schedules", id));
++                    await syncBlcFourDays();
+                 } catch (error) {
+                     console.error("Error deleting event:", error);
+                     alert("삭제 중 오류가 발생했습니다.");
+@@ -277,7 +408,7 @@ export function useCalendarSchedule(
+         }
+ 
+         const isKta = eventToDelete.type === 'kta' && eventToDelete.batch;
+-        const isBlc = eventToDelete.type === 'blc' && eventToDelete.batch;
++        const isBlc = eventToDelete.type === 'blc' && eventToDelete.batch && !eventToDelete.memo?.includes('수료포데이');
+ 
+         if (!confirm(isKta ? `해당 기수(${eventToDelete.batch}기)의 모든 KTA 일정을 삭제하시겠습니까?` : isBlc ? `해당 기수(${eventToDelete.batch}기)의 모든 BLC 일정을 삭제하시겠습니까?` : "일정을 삭제하시겠습니까?")) return;
+ 
+@@ -293,6 +424,7 @@ export function useCalendarSchedule(
+                 await Promise.all(linkedEvents.map(e => deleteDoc(doc(db, "schedules", e.id))));
+             } else {
+                 await deleteDoc(doc(db, "schedules", eventToDelete.id));
++                await syncBlcFourDays();
+             }
+         } catch (error) {
+             console.error("Error deleting event:", error);
+@@ -577,6 +709,7 @@ export function useCalendarSchedule(
+         // Handlers
+         handleAutoKtaDay0,
+         handleAutoBlcDay0,
++        handleAutoBlcGradFourDay,
+         handleAddDuty,
+         handleAddHoliday,
+         handleUpdateHoliday,
+diff --git a/src/hooks/calendar/calendar.sync.hook.ts b/src/hooks/calendar/calendar.sync.hook.ts
+index 8b8abe9..81ddbee 100644
+--- a/src/hooks/calendar/calendar.sync.hook.ts
++++ b/src/hooks/calendar/calendar.sync.hook.ts
+@@ -84,19 +84,21 @@ export function useCalendarSync() {
+                         const data = docSnap.data();
+                         const savedSchedules = data.schedules || [];
+                         setBlcDayLabels(data.dayLabels || {});
++                        const daysList = [-1, ...Array.from({ length: 31 }, (_, i) => i)];
+                         setBlcScheduleTemplate(
+-                            Array.from({ length: 23 }, (_, i) => {
+-                                const found = savedSchedules.find((s: any) => s.day === i);
++                            daysList.map((d) => {
++                                const found = savedSchedules.find((s: any) => s.day === d);
+                                 if (found) {
+                                     const events = Array.isArray(found.events) ? found.events : (found.memo ? [found.memo] : []);
+-                                    return { day: i, events };
++                                    return { day: d, events };
+                                 }
+-                                return { day: i, events: [] };
++                                return { day: d, events: [] };
+                             })
+                         );
+                     } else {
+                         setBlcDayLabels({});
+-                        setBlcScheduleTemplate(Array.from({ length: 23 }, (_, i) => ({ day: i, events: [] })));
++                        const daysList = [-1, ...Array.from({ length: 31 }, (_, i) => i)];
++                        setBlcScheduleTemplate(daysList.map(d => ({ day: d, events: [] })));
+                     }
+                 });
+             } else {
+@@ -105,7 +107,8 @@ export function useCalendarSync() {
+                 setKtaDayLabels({});
+                 setBlcDayLabels({});
+                 setKtaScheduleTemplate(Array.from({ length: 21 }, (_, i) => ({ day: i, events: [] })));
+-                setBlcScheduleTemplate(Array.from({ length: 23 }, (_, i) => ({ day: i, events: [] })));
++                const daysList = [-1, ...Array.from({ length: 31 }, (_, i) => i)];
++                setBlcScheduleTemplate(daysList.map(d => ({ day: d, events: [] })));
+             }
+         });
+ 
+diff --git a/src/hooks/movement/movement.sync.hook.ts b/src/hooks/movement/movement.sync.hook.ts
+index 784b43f..02eeda2 100644
+--- a/src/hooks/movement/movement.sync.hook.ts
++++ b/src/hooks/movement/movement.sync.hook.ts
+@@ -310,7 +310,7 @@ export function useMovementSync(baseDate?: Date) {
+                                     }
+                                 }
+ 
+-                                if (status !== 'none' && status !== 'duty' && status !== 'recovery') {
++                                if (status !== 'none') {
+                                     hasActivity = true;
+                                 }
+                                 dayStatuses[c.dateStr] = status;
+@@ -439,6 +439,11 @@ export function useMovementSync(baseDate?: Date) {
+                                     const singleRegex = /(\d{1,2})[./](\d{1,2})/;
+                                     const rangeMatch = passPart.match(rangeRegex);
+ 
++                                    const extractStayDetail = (part: string): string => {
++                                        let clean = part.replace(/^(병장|상병|일병|이병)\s+[가-힣]+\s*/, '').trim();
++                                         return clean || '잔류';
++                                    };
++
+                                     // 연가 파싱 헬퍼: vacationPart에서 날짜 추출 후 vacation 객체 생성
+                                     const parseVacation = (vacationPart: string, passReturn?: string) => {
+                                         const vRangeMatch = vacationPart.match(rangeRegex);
+@@ -543,7 +548,7 @@ export function useMovementSync(baseDate?: Date) {
+                                             const hasStayKeyword = passPart.includes('잔류');
+ 
+                                             if (hasStayKeyword && !isDayOff) {
+-                                                extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: '당직/업무 등으로 인한 잔류' });
++                                                extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: extractStayDetail(passPart) });
+                                             } else {
+                                                 // const days = 1;
+                                                 // const passDayCount = extractDayCountFromText(passReason);
+@@ -589,10 +594,10 @@ export function useMovementSync(baseDate?: Date) {
+                                                 });
+                                             } else {
+                                                 // 연가 날짜도 없으면 잔류 처리
+-                                                extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: '잔류' });
++                                                extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: extractStayDetail(passPart) });
+                                             }
+                                         } else if (passPart.includes('잔류')) {
+-                                            extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: '잔류' });
++                                            extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: extractStayDetail(passPart) });
+                                         } else {
+                                             extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: '날짜 데이터 없음' });
+                                         }
+@@ -827,41 +832,6 @@ export function useMovementSync(baseDate?: Date) {
+                         if (matchingSyncMovs.length > 0) {
+                             deleteBatch.delete(docSnap.ref);
+                             shouldCommitDelete = true;
+-
+-                            matchingSyncMovs.forEach(m => {
+-                                let mStart = '';
+-                                let mEnd = '';
+-                                let reason = '';
+-                                if (m.type === '외박' && m.period) {
+-                                    const [s, e] = m.period.split('~').map((x: string) => x.trim());
+-                                    mStart = toISODate(s);
+-                                    mEnd = e ? toISODate(e) : mStart;
+-                                    reason = m.reason || '';
+-                                } else if (m.vacation) {
+-                                    mStart = toISODate(m.vacation.depart);
+-                                    mEnd = toISODate(m.vacation.return);
+-                                    reason = m.vacation.reason || '';
+-                                }
+-
+-                                const cleanDBReason = (data.reason || '').replace(/\s+/g, '');
+-                                const cleanExcelReason = reason.replace(/\s+/g, '');
+-
+-                                if (cleanDBReason && cleanExcelReason && (cleanDBReason.includes(cleanExcelReason) || cleanExcelReason.includes(cleanDBReason))) {
+-                                    const mergedStart = mStart < existStart ? mStart : existStart;
+-                                    const mergedEnd = mEnd > existEnd ? mEnd : existEnd;
+-
+-                                    if (m.type === '외박' && m.period) {
+-                                        const [, mo1, d1] = mergedStart.split('-');
+-                                        const [, mo2, d2] = mergedEnd.split('-');
+-                                        m.period = `${parseInt(mo1)}.${parseInt(d1)}~${parseInt(mo2)}.${parseInt(d2)}`;
+-                                    } else if (m.vacation) {
+-                                        const [, mo1, d1] = mergedStart.split('-');
+-                                        const [, mo2, d2] = mergedEnd.split('-');
+-                                        m.vacation.depart = `${parseInt(mo1)}.${parseInt(d1)}`;
+-                                        m.vacation.return = `${parseInt(mo2)}.${parseInt(d2)}`;
+-                                    }
+-                                }
+-                            });
+                         } else {
+                             // Check stay overlaps
+                             const list = intervalsByMember.get(cleanName) || [];
+diff --git a/src/utils/duty/dutyAutoDistribute.ts b/src/utils/duty/dutyAutoDistribute.ts
+index 455bfa8..35dd907 100644
+--- a/src/utils/duty/dutyAutoDistribute.ts
++++ b/src/utils/duty/dutyAutoDistribute.ts
+@@ -155,7 +155,7 @@ function getBlcActiveDay(day0: string, target: string, isHoliday: (s: string) =>
+         const cur = new Date(start);
+         while (cur < tgt) {
+             cur.setDate(cur.getDate() + 1);
+-            if (cnt < 22) {
++            if (cnt < 30) {
+                 const cs = toDateStr(cur);
+                 const isSunday = cur.getDay() === 0;
+                 if (!isSunday && !isHoliday(cs)) {
+diff --git a/src/utils/duty/exportCalendarImage.ts b/src/utils/duty/exportCalendarImage.ts
+index 5b4c8f2..b0e11a3 100644
+--- a/src/utils/duty/exportCalendarImage.ts
++++ b/src/utils/duty/exportCalendarImage.ts
+@@ -97,7 +97,7 @@ export function exportCalendarImage({
+             let current = new Date(start);
+             while (current < target) {
+                 current.setDate(current.getDate() + 1);
+-                if (dayCount < 22) {
++                if (dayCount < 30) {
+                     const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
+                     const isSunday = current.getDay() === 0;
+                     const isHoliday = events.some((e: CalendarEvent) => e.type === 'holiday' && e.holidayType !== 'duty' && currentStr >= e.startDate && currentStr <= e.endDate);

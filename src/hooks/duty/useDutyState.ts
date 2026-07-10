@@ -149,6 +149,14 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
         return 'weekday';
     };
 
+    const isDateAffectedByDonsa = (dateStr: string, allEvents: CalendarEvent[]): boolean => {
+        const donsaHolidays = allEvents.filter(e => e.type === 'holiday' && e.holidayType === 'duty' && e.memo?.toUpperCase().includes('DONSA'));
+        const isDayBeforeDonsaStart = donsaHolidays.some(h => dateStr === getPrevDateStr(h.startDate));
+        const isDonsaLastDay = donsaHolidays.some(h => dateStr === h.endDate);
+        const isDonsaBetween = donsaHolidays.some(h => dateStr >= h.startDate && dateStr < h.endDate);
+        return isDayBeforeDonsaStart || isDonsaLastDay || isDonsaBetween;
+    };
+
     const isDateDuringKtaPeriod = (dateStr: string, eventsList: CalendarEvent[]) => {
         const ktaDay0s = eventsList.filter(e => e.type === 'kta' && e.memo?.includes('Day 0'));
         const ktaGrads = eventsList.filter(e => e.type === 'kta' && (e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓')));
@@ -198,18 +206,25 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
         let currentMonthSat = 0;
 
         const targetMonth = currentDate.getMonth() + 1; // 1-indexed selected month in planner
-        const memberDuties = duties.filter((d: CalendarEvent) => d.memo === member.name && d.startDate.startsWith('2026-'));
 
-        memberDuties.forEach((d: CalendarEvent) => {
+        const CURRENT_YEAR = 2026;
+        const START_MONTH = 4; // April
+
+        // 1. 이전 달까지의 누적치는 DB 실제 저장 데이터(events)에서 계산
+        const dbDuties = events.filter((e: CalendarEvent) => e.type === 'duty' && e.memo === member.name && e.startDate.startsWith(`${CURRENT_YEAR}-`));
+
+        // 2. 이번 달(현재 플래너 대상 월)은 로컬 샌드박스 상태(duties)에서 계산
+        const currentMonthDutiesLocal = duties.filter((d: CalendarEvent) => d.memo === member.name && d.startDate.startsWith(`${CURRENT_YEAR}-`) && parseInt(d.startDate.split('-')[1], 10) === targetMonth);
+
+        dbDuties.forEach((d: CalendarEvent) => {
             const parts = d.startDate.split('-');
             const eventMonth = parseInt(parts[1], 10);
             const eventYear = parseInt(parts[0], 10);
 
-            if (eventYear === 2026 && eventMonth >= 4 && eventMonth <= targetMonth) {
+            if (eventYear === CURRENT_YEAR && eventMonth >= START_MONTH && eventMonth < targetMonth) {
                 const isKtaOrMedicMember = member.sections?.includes('KTA') || member.sections?.includes('MEDIC');
-                let dutyType = getDutyType(d.startDate);
-                if (isKtaOrMedicMember && isDateDuringKtaPeriod(d.startDate, events)) {
-                    // KTA 기수 중에는 공휴일이 없었던 것처럼 요일 기준으로만 계산합니다.
+                let dutyType = d.customDutyType || getDutyType(d.startDate);
+                if (!d.customDutyType && isKtaOrMedicMember && isDateDuringKtaPeriod(d.startDate, events) && !isDateAffectedByDonsa(d.startDate, events)) {
                     const dObj = new Date(d.startDate + 'T00:00:00');
                     const dayOfWeek = dObj.getDay();
                     if (dayOfWeek === 6) {
@@ -223,14 +238,38 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
 
                 if (dutyType === 'weekday') {
                     extraWeekday++;
-                    if (eventMonth === targetMonth) currentMonthWeekday++;
                 } else if (dutyType === 'friSun') {
                     extraFriSun++;
-                    if (eventMonth === targetMonth) currentMonthFriSun++;
                 } else if (dutyType === 'sat') {
                     extraSat++;
-                    if (eventMonth === targetMonth) currentMonthSat++;
                 }
+            }
+        });
+
+        currentMonthDutiesLocal.forEach((d: CalendarEvent) => {
+            const isKtaOrMedicMember = member.sections?.includes('KTA') || member.sections?.includes('MEDIC');
+            let dutyType = d.customDutyType || getDutyType(d.startDate);
+            if (!d.customDutyType && isKtaOrMedicMember && isDateDuringKtaPeriod(d.startDate, events) && !isDateAffectedByDonsa(d.startDate, events)) {
+                const dObj = new Date(d.startDate + 'T00:00:00');
+                const dayOfWeek = dObj.getDay();
+                if (dayOfWeek === 6) {
+                    dutyType = 'sat';
+                } else if (dayOfWeek === 0 || dayOfWeek === 5) {
+                    dutyType = 'friSun';
+                } else {
+                    dutyType = 'weekday';
+                }
+            }
+
+            if (dutyType === 'weekday') {
+                extraWeekday++;
+                currentMonthWeekday++;
+            } else if (dutyType === 'friSun') {
+                extraFriSun++;
+                currentMonthFriSun++;
+            } else if (dutyType === 'sat') {
+                extraSat++;
+                currentMonthSat++;
             }
         });
 

@@ -4,7 +4,7 @@ import { cn } from '../../lib/utils';
 import { DndContext, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { DraggableEventItem, DroppableDayZone } from './calendar.dnd.component.tsx';
-import { sortedWithIndex, formatDateWithDay } from '../../utils/calendar.utils';
+import { sortedWithIndex, formatDateWithDay, isBlc30Days } from '../../utils/calendar.utils';
 import type { ScheduleTemplateDay } from '../../types/calendar/calendar.type';
 
 interface KtaTemplateModalProps {
@@ -186,7 +186,7 @@ export function BlcTemplateModal({
                                 </span>
                             )}
                         </div>
-                        <p className="text-xs text-gray-500 font-bold mt-1">Day -1부터 Day 30까지의 일정을 미리 설정합니다.</p>
+                        <p className="text-xs text-gray-500 font-bold mt-1">Day -1부터 Day {isBlc30Days(blcReferenceBatch) ? 30 : 22}까지의 일정을 미리 설정합니다.</p>
                     </div>
                     <button onClick={() => setIsBLCScheduleAdding(false)} className="p-2 bg-gray-50 rounded-full hover:bg-gray-100">
                         <X className="w-5 h-5 text-gray-400" />

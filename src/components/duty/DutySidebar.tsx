@@ -229,7 +229,7 @@ export function DutySidebar({
         };
 
         return (
-            <aside className="w-80 border-r border-slate-800 bg-slate-900/60 flex flex-col shrink-0 h-full overflow-hidden">
+            <aside className="w-72 border-r border-slate-800 bg-slate-900/60 flex flex-col shrink-0 h-full overflow-hidden">
                 <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between shrink-0">
                     <div className="flex items-center gap-2">
                         <h2 className="text-base font-black tracking-wider text-slate-200">당직 플래너</h2>
@@ -461,7 +461,7 @@ export function DutySidebar({
 
     if (viewMode === 'kta-template') {
         return (
-            <aside className="w-80 border-r border-slate-800 bg-slate-900/60 flex flex-col shrink-0 h-full overflow-hidden">
+            <aside className="w-72 border-r border-slate-800 bg-slate-900/60 flex flex-col shrink-0 h-full overflow-hidden">
                 <div className="flex-1 flex flex-col justify-between p-6 bg-slate-900/60 custom-scrollbar overflow-y-auto h-full">
                     <div className="space-y-6">
                         <div className="flex items-center gap-2 pb-4 border-b border-slate-800">
@@ -610,7 +610,7 @@ export function DutySidebar({
 
     if (viewMode === 'blc-template') {
         return (
-            <aside className="w-80 border-r border-slate-800 bg-slate-900/60 flex flex-col shrink-0 h-full overflow-hidden">
+            <aside className="w-72 border-r border-slate-800 bg-slate-900/60 flex flex-col shrink-0 h-full overflow-hidden">
                 <div className="flex-1 flex flex-col justify-between p-6 bg-slate-900/60 custom-scrollbar overflow-y-auto h-full">
                     <div className="space-y-6">
                         <div className="flex items-center gap-2 pb-4 border-b border-slate-800">
@@ -740,6 +740,13 @@ export function DutySidebar({
                                     ))}
                                 </div>
                             )}
+                        </div>
+
+                        <div className="p-3.5 bg-blue-950/20 border border-blue-900/35 rounded-2xl space-y-1 mt-4 shrink-0">
+                            <span className="text-[10px] font-black text-blue-400 block">📢 BLC 수료포데이 당직 제한 안내</span>
+                            <p className="text-[10px] font-bold text-slate-400 leading-normal">
+                                BLC 수료포데이 기간 및 시작 1일 전에는 BLC 소속 대원들이 자동으로 당직 불가 처리됩니다. (30일 기수는 Day -2부터 Day 30까지 일정이 적용됩니다)
+                            </p>
                         </div>
                     </div>
 

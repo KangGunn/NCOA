@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Copy, AlertTriangle } from 'lucide-react';
 import { MovementGrid } from './movement.grid.component';
 import { MovementPreviewModal } from './movement.preview-modal.component';
 import { extractDayCountFromText } from '../../utils/movement.utils';
+import { calculateRank } from '../../lib/rankUtils';
 
 interface MovementSheetViewProps {
     sheetWeeks: any[];
@@ -41,10 +42,14 @@ export function MovementSheetView({
         }
 
         let target = trimmed;
-        const targetPhrase = '으로 인한';
-        const index = trimmed.lastIndexOf(targetPhrase);
+        let index = trimmed.lastIndexOf('으로 인한');
+        let phraseLen = 5;
+        if (index === -1) {
+            index = trimmed.lastIndexOf('로 인한');
+            phraseLen = 4;
+        }
         if (index !== -1) {
-            target = trimmed.substring(index + targetPhrase.length).trim();
+            target = trimmed.substring(index + phraseLen).trim();
         }
 
         // Regex for N데이 / N일 at the end of the target string
@@ -67,10 +72,14 @@ export function MovementSheetView({
 
     const extractRewardType = (reasonStr: string): string => {
         let target = reasonStr.trim();
-        const targetPhrase = '으로 인한';
-        const index = target.lastIndexOf(targetPhrase);
+        let index = target.lastIndexOf('으로 인한');
+        let phraseLen = 5;
+        if (index === -1) {
+            index = target.lastIndexOf('로 인한');
+            phraseLen = 4;
+        }
         if (index !== -1) {
-            target = target.substring(index + targetPhrase.length).trim();
+            target = target.substring(index + phraseLen).trim();
         }
 
         const dayPattern = /(\d+(\.\d+)?\s*(데이|일)|(원|투|쓰리|포|파이브|식스|세븐|에잇|나인|텐)\s*데이)$/i;
@@ -174,10 +183,22 @@ export function MovementSheetView({
                         const movStart = new Date(matchedMov.startDate);
                         const movEnd = new Date(matchedMov.endDate);
                         const totalMovDays = Math.round((movEnd.getTime() - movStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-                        if (passDayCount !== null && passDayCount !== totalMovDays) {
+                        
+                        if (passDayCount !== null && passDayCount !== passDays.length) {
                             activeWeekWarnings.push({
                                 name: cleanName,
-                                message: `외박 사유(${passDayCount}일)와 입력된 기간(${totalMovDays}일)이 일치하지 않습니다.`
+                                message: `외박 사유(${passDayCount}일)와 입력된 기간(${passDays.length}일)이 일치하지 않습니다.`
+                            });
+                        }
+                        if (passDays.length !== totalMovDays) {
+                            activeWeekWarnings.push({
+                                name: cleanName,
+                                message: `입력된 기간(${passDays.length}일)과 실제로 저장된 기간(${totalMovDays}일)이 일치하지 않습니다.`
+                            });
+                        } else if (passDayCount !== null && passDayCount !== totalMovDays) {
+                            activeWeekWarnings.push({
+                                name: cleanName,
+                                message: `외박 사유(${passDayCount}일)와 실제로 저장된 기간(${totalMovDays}일)이 일치하지 않습니다.`
                             });
                         }
                     }
@@ -194,10 +215,22 @@ export function MovementSheetView({
                     const movStart = new Date(matchedMov.startDate);
                     const movEnd = new Date(matchedMov.endDate);
                     const totalMovDays = Math.round((movEnd.getTime() - movStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-                    if (vacationDayCount !== null && vacationDayCount !== totalMovDays) {
+                    
+                    if (vacationDayCount !== null && vacationDayCount !== block.length) {
                         activeWeekWarnings.push({
                             name: cleanName,
-                            message: `휴가 사유(${vacationDayCount}일)와 입력된 기간(${totalMovDays}일)이 일치하지 않습니다.`
+                            message: `휴가 사유(${vacationDayCount}일)와 입력된 기간(${block.length}일)이 일치하지 않습니다.`
+                        });
+                    }
+                    if (block.length !== totalMovDays) {
+                        activeWeekWarnings.push({
+                            name: cleanName,
+                            message: `입력된 기간(${block.length}일)과 실제로 저장된 기간(${totalMovDays}일)이 일치하지 않습니다.`
+                        });
+                    } else if (vacationDayCount !== null && vacationDayCount !== totalMovDays) {
+                        activeWeekWarnings.push({
+                            name: cleanName,
+                            message: `휴가 사유(${vacationDayCount}일)와 실제로 저장된 기간(${totalMovDays}일)이 일치하지 않습니다.`
                         });
                     }
                 }
@@ -249,7 +282,9 @@ export function MovementSheetView({
                     '병장': 'SGT', '상병': 'CPL', '일병': 'PFC', '이병': 'PV2',
                     'SGT': 'SGT', 'CPL': 'CPL', 'PFC': 'PFC', 'PV2': 'PV2', 'PVT': 'PVT'
                 };
-                const dbRankStr = dbMember?.rank || '';
+                const dbRankStr = dbMember?.enlistmentDate
+                    ? calculateRank(new Date(dbMember.enlistmentDate), dbMember.earlyPromotion || 0, baseDate || new Date())
+                    : (dbMember?.rank || '');
                 const matchedRankKey = Object.keys(rankMap).find(key => dbRankStr.startsWith(key)) || '';
                 const rankEnglish = rankMap[matchedRankKey] || (Object.keys(rankMap).find(key => member.name.startsWith(key)) ? rankMap[Object.keys(rankMap).find(key => member.name.startsWith(key))!] : 'PFC');
 
@@ -498,7 +533,9 @@ export function MovementSheetView({
                     '병장': 'SGT', '상병': 'CPL', '일병': 'PFC', '이병': 'PV2',
                     'SGT': 'SGT', 'CPL': 'CPL', 'PFC': 'PFC', 'PV2': 'PV2', 'PVT': 'PVT'
                 };
-                const dbRankStr = dbMember?.rank || '';
+                const dbRankStr = dbMember?.enlistmentDate
+                    ? calculateRank(new Date(dbMember.enlistmentDate), dbMember.earlyPromotion || 0, baseDate || new Date())
+                    : (dbMember?.rank || '');
                 const matchedRankKey = Object.keys(rankMap).find(key => dbRankStr.startsWith(key)) || '';
                 const rankEnglish = rankMap[matchedRankKey] || (Object.keys(rankMap).find(key => member.name.startsWith(key)) ? rankMap[Object.keys(rankMap).find(key => member.name.startsWith(key))!] : 'PFC');
 

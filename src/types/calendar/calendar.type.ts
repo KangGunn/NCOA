@@ -7,6 +7,7 @@ export interface CalendarEvent {
     batch?: string;
     ktaType?: 'A' | 'B';
     holidayType?: 'blc' | 'duty';
+    customDutyType?: 'weekday' | 'friSun' | 'sat';
 }
 
 export interface CalendarMember {

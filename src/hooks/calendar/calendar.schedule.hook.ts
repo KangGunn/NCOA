@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, getDocs, query, where } from 'firebase/firestore';
 import { db, auth } from '../../lib/firebase';
 import type { CalendarEvent } from '../../types/calendar/calendar.type';
+import { isBlc30Days } from '../../utils/calendar.utils';
 
 export function useCalendarSchedule(
     events: CalendarEvent[],
@@ -122,10 +123,40 @@ export function useCalendarSchedule(
         const user = auth.currentUser;
         if (!user) return;
 
+        const lastDay0Event = [...events]
+            .filter(e => e.type === 'blc' && e.memo?.includes('Day 0'))
+            .sort((a, b) => b.startDate.localeCompare(a.startDate))[0];
+
+        let nextBatch = "04-26";
+        if (lastDay0Event) {
+            const lastBatch = lastDay0Event.batch || "";
+            if (lastBatch.includes('-')) {
+                const parts = lastBatch.split('-');
+                let num = parseInt(parts[0], 10);
+                let year = parseInt(parts[1], 10);
+                if (!isNaN(num) && !isNaN(year)) {
+                    num += 1;
+                    if (num > 12) {
+                        num = 1;
+                        year += 1;
+                    }
+                    nextBatch = `${String(num).padStart(2, '0')}-${String(year).padStart(2, '0')}`;
+                }
+            } else {
+                const batchMatch = lastBatch.match(/^(\d+)(.*)$/);
+                if (batchMatch) {
+                    const nextNum = String(parseInt(batchMatch[1], 10) + 1).padStart(2, '0');
+                    nextBatch = `${nextNum}${batchMatch[2]}`;
+                }
+            }
+        }
+
         const selectedStart = new Date(selectedDate);
         let proposedDayCount = 0;
         let proposedCurrent = new Date(selectedStart);
-        while (proposedDayCount < 30) {
+        const proposedLimit = isBlc30Days(nextBatch) ? 30 : 22;
+
+        while (proposedDayCount < proposedLimit) {
             proposedCurrent.setDate(proposedCurrent.getDate() + 1);
             const currentStr = `${proposedCurrent.getFullYear()}-${String(proposedCurrent.getMonth() + 1).padStart(2, '0')}-${String(proposedCurrent.getDate()).padStart(2, '0')}`;
             if (proposedCurrent.getDay() !== 0 && !isHolidayDate(currentStr)) {
@@ -139,7 +170,8 @@ export function useCalendarSchedule(
             const existingStart = new Date(e.startDate);
             let dayCount = 0;
             let current = new Date(existingStart);
-            while (dayCount < 30) {
+            const limit = isBlc30Days(e.batch) ? 30 : 22;
+            while (dayCount < limit) {
                 current.setDate(current.getDate() + 1);
                 const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
                 if (current.getDay() !== 0 && !isHolidayDate(currentStr)) {
@@ -153,20 +185,6 @@ export function useCalendarSchedule(
         if (isOverlapping) {
             alert("새로 생성될 BLC 기간이 이미 등록된 BLC 기수 기간과 겹칩니다.");
             return;
-        }
-
-        const lastDay0Event = [...events]
-            .filter(e => e.type === 'blc' && e.memo?.includes('Day 0'))
-            .sort((a, b) => b.startDate.localeCompare(a.startDate))[0];
-
-        let nextBatch = "24-01";
-        if (lastDay0Event) {
-            const lastBatch = lastDay0Event.batch || "";
-            const batchMatch = lastBatch.match(/^(\d+)(.*)$/);
-            if (batchMatch) {
-                const nextNum = String(parseInt(batchMatch[1], 10) + 1).padStart(2, '0');
-                nextBatch = `${nextNum}${batchMatch[2]}`;
-            }
         }
 
         try {
@@ -273,7 +291,8 @@ export function useCalendarSchedule(
                 const selectedStart = new Date(day0.startDate);
                 let dayCount = 0;
                 let current = new Date(selectedStart);
-                while (dayCount < 30) {
+                const limit = isBlc30Days(batch) ? 30 : 22;
+                while (dayCount < limit) {
                     current.setDate(current.getDate() + 1);
                     const currentStr = formatDate(current);
                     if (current.getDay() !== 0 && !isHolidayDateLocal(currentStr)) {
