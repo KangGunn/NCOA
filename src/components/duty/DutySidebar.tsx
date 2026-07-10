@@ -229,7 +229,7 @@ export function DutySidebar({
         };
 
         return (
-            <aside className="w-80 border-r border-slate-800 bg-slate-900/60 flex flex-col shrink-0 h-full overflow-hidden">
+            <aside className="w-72 border-r border-slate-800 bg-slate-900/60 flex flex-col shrink-0 h-full overflow-hidden">
                 <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between shrink-0">
                     <div className="flex items-center gap-2">
                         <h2 className="text-base font-black tracking-wider text-slate-200">당직 플래너</h2>
@@ -461,7 +461,7 @@ export function DutySidebar({
 
     if (viewMode === 'kta-template') {
         return (
-            <aside className="w-80 border-r border-slate-800 bg-slate-900/60 flex flex-col shrink-0 h-full overflow-hidden">
+            <aside className="w-72 border-r border-slate-800 bg-slate-900/60 flex flex-col shrink-0 h-full overflow-hidden">
                 <div className="flex-1 flex flex-col justify-between p-6 bg-slate-900/60 custom-scrollbar overflow-y-auto h-full">
                     <div className="space-y-6">
                         <div className="flex items-center gap-2 pb-4 border-b border-slate-800">
@@ -610,7 +610,7 @@ export function DutySidebar({
 
     if (viewMode === 'blc-template') {
         return (
-            <aside className="w-80 border-r border-slate-800 bg-slate-900/60 flex flex-col shrink-0 h-full overflow-hidden">
+            <aside className="w-72 border-r border-slate-800 bg-slate-900/60 flex flex-col shrink-0 h-full overflow-hidden">
                 <div className="flex-1 flex flex-col justify-between p-6 bg-slate-900/60 custom-scrollbar overflow-y-auto h-full">
                     <div className="space-y-6">
                         <div className="flex items-center gap-2 pb-4 border-b border-slate-800">

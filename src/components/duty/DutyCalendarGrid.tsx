@@ -22,14 +22,16 @@ interface DutyCalendarGridProps {
     togglePersonalRestriction: (dateStr: string, memberName: string) => void;
     dutyHolidays: any[];
     selectedMember: CalendarMember | null;
+    isForceAssignMode?: boolean;
 }
 
 export function DutyCalendarGrid({
     calendarDays, members, events,
     ktaDayLabels, blcDayLabels, monthlyDayLabels, currentDate,
     getKtaBlcEventsForDate, getDutyForDate,
-    isMemberEligibleForDuty, getMemberDutyRestrictionReason, handleCellClick, handleClearDate, togglePersonalRestriction,
-    dutyHolidays, selectedMember
+    isMemberEligibleForDuty, getMemberDutyRestrictionReason,
+    handleCellClick, handleClearDate, togglePersonalRestriction,
+    dutyHolidays, selectedMember, isForceAssignMode
 }: DutyCalendarGridProps) {
     const getOffsetDateStr = (dateStr: string, offset: number) => {
         const d = new Date(dateStr + 'T00:00:00');
@@ -334,18 +336,22 @@ export function DutyCalendarGrid({
                                                 let btnClassName = "";
                                                 let titleText = "";
                                                 if (isDisabled) {
-                                                    if (reason === '개인 사정 불가') {
-                                                        btnClassName = "bg-red-950/20 border-red-900/30 text-red-450 line-through opacity-55 hover:bg-red-900/20 cursor-not-allowed";
-                                                    } else if (reason === '개인: 앞뒤 이틀 내 당직 있음' || reason === '같은 섹션: 연달아 당직 불가') {
-                                                        btnClassName = "bg-amber-950/20 border-amber-900/30 text-amber-500 line-through opacity-55 cursor-not-allowed";
+                                                    if (isForceAssignMode) {
+                                                        btnClassName = "bg-amber-950/60 border-amber-500/70 text-amber-300 hover:bg-amber-600 hover:border-amber-500 hover:text-white cursor-pointer line-through opacity-85";
+                                                        titleText = `[강제 배정 모드 활성] ${reason} (클릭 시 강제 배정)`;
                                                     } else {
-                                                        btnClassName = "bg-slate-900/20 border-slate-850 text-slate-600 line-through opacity-50 cursor-not-allowed";
-                                                    }
-
-                                                    if (reason === '신병보호기간') {
-                                                        titleText = reason;
-                                                    } else {
-                                                        titleText = `${reason} (우클릭 시 개인 제한 토글)`;
+                                                        if (reason === '개인 사정 불가') {
+                                                            btnClassName = "bg-red-950/20 border-red-900/30 text-red-450 line-through opacity-55 hover:bg-red-900/20 cursor-not-allowed";
+                                                        } else if (reason === '개인: 앞뒤 이틀 내 당직 있음' || reason === '같은 섹션: 연달아 당직 불가') {
+                                                            btnClassName = "bg-amber-950/20 border-amber-900/30 text-amber-500 line-through opacity-55 cursor-not-allowed";
+                                                        } else {
+                                                            btnClassName = "bg-slate-900/20 border-slate-850 text-slate-600 line-through opacity-50 cursor-not-allowed";
+                                                        }
+                                                        if (reason === '신병보호기간') {
+                                                            titleText = reason;
+                                                        } else {
+                                                            titleText = `${reason} (우클릭 시 개인 제한 토글)`;
+                                                        }
                                                     }
                                                 } else {
                                                     btnClassName = "bg-slate-900/60 border-slate-800/80 text-slate-350 hover:bg-indigo-650 hover:border-indigo-500 hover:text-white cursor-pointer";
@@ -357,7 +363,7 @@ export function DutyCalendarGrid({
                                                         key={member.id}
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            if (isDisabled) return;
+                                                            if (isDisabled && !isForceAssignMode) return;
                                                             handleCellClick(cell.dateStr, member.name);
                                                         }}
                                                         onContextMenu={(e) => {

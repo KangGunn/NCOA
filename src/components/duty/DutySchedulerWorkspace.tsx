@@ -63,6 +63,8 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
 
 
 
+    const [isForceAssignMode, setIsForceAssignMode] = useState(false);
+
     const {
         handleToggleRestriction,
         handleToggleBlcRestriction,
@@ -454,16 +456,21 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
             if (memberObj) {
                 const reason = getMemberDutyRestrictionReason(memberObj, dateStr);
                 if (reason) {
-                    if (reason === 'completed') {
-                        showToast(`${targetMemberName} 대원은 이미 당직 요건을 채웠거나 완료된 상태입니다.`, "error");
+                    if (isForceAssignMode) {
+                        showToast(`[강제 배정] 제한 사유가 있는 ${targetMemberName} 대원을 강제 배정했습니다 (${reason}).`, "success");
+                        setIsForceAssignMode(false);
+                    } else {
+                        if (reason === 'completed') {
+                            showToast(`${targetMemberName} 대원은 이미 당직 요건을 채웠거나 완료된 상태입니다.`, "error");
+                            return;
+                        }
+                        if (reason === 'runner') {
+                            showToast(`${targetMemberName} 대원은 러너이므로 당직 배정이 불가능합니다.`, "error");
+                            return;
+                        }
+                        showToast(`${targetMemberName} 대원은 당직 배정이 제한되어 있습니다 (${reason}).`, "error");
                         return;
                     }
-                    if (reason === 'runner') {
-                        showToast(`${targetMemberName} 대원은 러너이므로 당직 배정이 불가능합니다.`, "error");
-                        return;
-                    }
-                    showToast(`${targetMemberName} 대원은 당직 배정이 제한되어 있습니다 (${reason}).`, "error");
-                    return;
                 }
             }
         }
@@ -535,6 +542,8 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                             monthlyDayLabels
                         });
                     }}
+                    isForceAssignMode={isForceAssignMode}
+                    setIsForceAssignMode={setIsForceAssignMode}
                 />
 
                 {viewMode !== 'blc-template' && (
@@ -573,6 +582,7 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                         togglePersonalRestriction={togglePersonalRestriction}
                         dutyHolidays={dutyHolidays}
                         selectedMember={selectedMember}
+                        isForceAssignMode={isForceAssignMode}
                     />
                 ) : (
                     <DutyTemplateGrid
