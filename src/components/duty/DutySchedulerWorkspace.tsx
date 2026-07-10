@@ -97,6 +97,8 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
 
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
+    const currentMonthBlcEvent = events.find(e => e.type === 'blc' && e.memo?.includes('Day 0') && new Date(e.startDate).getMonth() === month && new Date(e.startDate).getFullYear() === year);
+    const isBlc30 = currentMonthBlcEvent ? isBlc30Days(currentMonthBlcEvent.batch || '') : false;
 
     const prevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
     const nextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
@@ -229,7 +231,7 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
         return ktaBlcEvents;
     };
 
-    const getBlcActiveDay = (day0DateStr: string, targetDateStr: string) => {
+    const getBlcActiveDay = (day0DateStr: string, targetDateStr: string, batch?: string) => {
         const start = parseLocalDate(day0DateStr);
         const target = parseLocalDate(targetDateStr);
 
@@ -238,9 +240,10 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
         if (target > start) {
             let dayCount = 0;
             let current = new Date(start);
+            const limit = (batch && isBlc30Days(batch)) ? 30 : 22;
             while (current < target) {
                 current.setDate(current.getDate() + 1);
-                if (dayCount < 22) {
+                if (dayCount < limit) {
                     const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
                     const isSunday = current.getDay() === 0;
                     if (!isSunday && !isHolidayDate(currentStr)) {
@@ -356,20 +359,34 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
 
         if (isCompleted) return 'completed';
 
-        if (personalRestrictions[dateStr]?.includes(member.name)) {
-            return '개인 사정 불가';
-        }
-
         const consecutiveReason = getConsecutiveRestrictionReason(member.name, dateStr, duties);
         if (consecutiveReason) return consecutiveReason;
+
+        // BLC 수료포데이 당직 불가 체크 (13-16 포데이라면 12-16 당직 불가)
+        if (member.sections?.includes('BLC')) {
+            const hasBlcFourDayRestriction = events.some(e => {
+                if (e.type !== 'blc' || !e.memo?.includes('수료포데이')) return false;
+                const start = parseLocalDate(e.startDate);
+                const startMinus1 = new Date(start);
+                startMinus1.setDate(startMinus1.getDate() - 1);
+                const startMinus1Str = `${startMinus1.getFullYear()}-${String(startMinus1.getMonth() + 1).padStart(2, '0')}-${String(startMinus1.getDate()).padStart(2, '0')}`;
+                return dateStr >= startMinus1Str && dateStr <= e.endDate;
+            });
+            if (hasBlcFourDayRestriction) {
+                return 'BLC 수료포데이';
+            }
+        }
 
         const memberBlcSections = member.sections?.filter(sec => blcSections.includes(sec)) || [];
         if (memberBlcSections.length > 0) {
             const blcDay0s = events.filter((e: CalendarEvent) => e.type === 'blc' && e.memo?.includes('Day 0'));
             for (const day0 of blcDay0s) {
-                const diffDays = getBlcActiveDay(day0.startDate, dateStr);
-                // BLC 템플릿 유효 범위 (Day -1 ~ Day 26) 내에서만 판단
-                if (diffDays >= -1 && diffDays <= 26) {
+                const diffDays = getBlcActiveDay(day0.startDate, dateStr, day0.batch);
+                const is30 = day0.batch ? isBlc30Days(day0.batch) : false;
+                const minDay = is30 ? -2 : -1;
+                const maxDay = is30 ? 30 : 26;
+                // BLC 템플릿 유효 범위 내에서만 판단 (30일 기수: Day -2 ~ Day 30, 22일 기수: Day -1 ~ Day 26)
+                if (diffDays >= minDay && diffDays <= maxDay) {
                     const dayRestriction = blcRestrictions[diffDays];
                     if (dayRestriction) {
                         for (const sec of memberBlcSections) {
@@ -406,6 +423,10 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
             }
         }
 
+        if (personalRestrictions[dateStr]?.includes(member.name)) {
+            return '개인 사정 불가';
+        }
+
         return null;
     };
 
@@ -413,6 +434,17 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
         const targetMemberName = directMemberName || selectedMember?.name;
 
         if (viewMode === 'actual' && restrictionBrush === 'personal') {
+            if (targetMemberName) {
+                const memberObj = members.find(m => m.name === targetMemberName);
+                if (memberObj) {
+                    const reason = getMemberDutyRestrictionReason(memberObj, dateStr);
+                    // 개인 사정 불가 이외의 강력한 제한(BLC, KTA, 신병보호 등)이 이미 걸려있다면 설정 차단
+                    if (reason && reason !== '개인 사정 불가') {
+                        showToast(`${targetMemberName} 대원은 이미 타 일정(${reason})으로 제한되어 있어 개인 일정을 설정할 수 없습니다.`, "error");
+                        return;
+                    }
+                }
+            }
             baseHandleCellClick(dateStr, directMemberName);
             return;
         }
@@ -558,6 +590,7 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                         setBlcDayLabels={setBlcDayLabels}
                         ktaSections={ktaSections}
                         blcSections={blcSections}
+                        isBlc30={isBlc30}
                     />
                 )}
             </main>

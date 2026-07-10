@@ -232,7 +232,7 @@ export async function runAutoDistribute(params: {
     const isHoliday = (ds: string) =>
         allEvents.some(e => e.type === 'holiday' && e.holidayType !== 'duty' && ds >= e.startDate && ds <= e.endDate);
 
-    const blcActiveDayFn = (day0: string, tds: string) => getBlcActiveDay(day0, tds, isHoliday);
+    const blcActiveDayFn = (day0: string, tds: string, batch?: string) => getBlcActiveDay(day0, tds, isHoliday, batch);
 
     const memberByName = new Map<string, CalendarMember>();
     for (const m of members) memberByName.set(m.name, m);
@@ -420,13 +420,29 @@ export async function runAutoDistribute(params: {
         const mBlc = ms.filter(s => blcSections.includes(s));
         if (mBlc.length > 0) {
             for (const ev of blcDay0Events) {
-                const diff = blcActiveDayFn(ev.startDate, dateStr);
-                if (diff >= -1 && diff <= 26) {
+                const diff = blcActiveDayFn(ev.startDate, dateStr, ev.batch);
+                const is30 = ev.batch ? isBlc30Days(ev.batch) : false;
+                const minDay = is30 ? -2 : -1;
+                const maxDay = is30 ? 30 : 26;
+                if (diff >= minDay && diff <= maxDay) {
                     const r = blcRestrictions[diff];
                     if (r && (mBlc.some(s => r[s]) || (mBlc.includes('BLC') && r['blc']) ||
                         (mBlc.includes('S3') && r['s3']) || (mBlc.includes('PAO') && r['pao']))) return true;
                 }
             }
+        }
+
+        // BLC 수료포데이 당직 불가 체크 (13-16 포데이라면 12-16 당직 불가)
+        if (member.sections?.includes('BLC')) {
+            const hasBlcFourDayRestriction = allEvents.some(e => {
+                if (e.type !== 'blc' || !e.memo?.includes('수료포데이')) return false;
+                const start = parseLocalDate(e.startDate);
+                const startMinus1 = new Date(start);
+                startMinus1.setDate(startMinus1.getDate() - 1);
+                const startMinus1Str = toDateStr(startMinus1);
+                return dateStr >= startMinus1Str && dateStr <= e.endDate;
+            });
+            if (hasBlcFourDayRestriction) return true;
         }
 
         return false;
@@ -736,6 +752,21 @@ export async function runAutoDistribute(params: {
                             return `BLC 일정 제한 (Day ${diff})`;
                         }
                     }
+                }
+            }
+
+            // BLC 수료포데이 당직 불가 체크 (13-16 포데이라면 12-16 당직 불가)
+            if (member.sections?.includes('BLC')) {
+                const hasBlcFourDayRestriction = allEvents.some(e => {
+                    if (e.type !== 'blc' || !e.memo?.includes('수료포데이')) return false;
+                    const start = parseLocalDate(e.startDate);
+                    const startMinus1 = new Date(start);
+                    startMinus1.setDate(startMinus1.getDate() - 1);
+                    const startMinus1Str = toDateStr(startMinus1);
+                    return dateStr >= startMinus1Str && dateStr <= e.endDate;
+                });
+                if (hasBlcFourDayRestriction) {
+                    return 'BLC 수료포데이';
                 }
             }
 
@@ -1127,8 +1158,11 @@ export async function runAutoDistribute(params: {
             const mBlc = ms.filter(s => blcSections.includes(s));
             if (mBlc.length > 0) {
                 for (const ev of blcDay0Events) {
-                    const diff = blcActiveDayFn(ev.startDate, a.dateStr);
-                    if (diff >= -1 && diff <= 26) {
+                    const diff = blcActiveDayFn(ev.startDate, a.dateStr, ev.batch);
+                    const is30 = ev.batch ? isBlc30Days(ev.batch) : false;
+                    const minDay = is30 ? -2 : -1;
+                    const maxDay = is30 ? 30 : 26;
+                    if (diff >= minDay && diff <= maxDay) {
                         const r = blcRestrictions[diff];
                         if (r && (mBlc.some(s => r[s]) || (mBlc.includes('BLC') && r['blc']) ||
                             (mBlc.includes('S3') && r['s3']) || (mBlc.includes('PAO') && r['pao']))) {

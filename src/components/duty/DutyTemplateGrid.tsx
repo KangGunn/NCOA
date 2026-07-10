@@ -18,6 +18,7 @@ interface DutyTemplateGridProps {
     setBlcDayLabels: React.Dispatch<React.SetStateAction<Record<number, string>>>;
     ktaSections: string[];
     blcSections: string[];
+    isBlc30?: boolean;
 }
 
 export function DutyTemplateGrid({
@@ -26,7 +27,8 @@ export function DutyTemplateGrid({
     handleToggleRestriction, handleToggleBlcRestriction,
     ktaDayLabels, setKtaDayLabels,
     blcDayLabels, setBlcDayLabels,
-    ktaSections, blcSections
+    ktaSections, blcSections,
+    isBlc30
 }: DutyTemplateGridProps) {
     if (viewMode === 'kta-template') {
         const totalCells = 28;
@@ -129,9 +131,13 @@ export function DutyTemplateGrid({
     }
     
     if (viewMode === 'blc-template') {
-        const blcDays = Array.from({ length: 28 }, (_, i) => i - 1); // Day -1 ~ Day 26
+        const startDay = isBlc30 ? -2 : -1;
+        const endDay = isBlc30 ? 30 : 26;
+        const blcDays = Array.from({ length: endDay - startDay + 1 }, (_, i) => i + startDay);
+        const gridRowsClass = isBlc30 ? "grid-rows-5" : "grid-rows-4";
+
         return (
-            <div className="flex-1 min-h-0 grid grid-cols-7 bg-slate-950/20 w-full h-full relative grid-rows-4">
+            <div className={`flex-1 min-h-0 grid grid-cols-7 bg-slate-950/20 w-full h-full relative ${gridRowsClass}`}>
                 {blcDays.map((dayNum) => {
                     const dayEvents = blcTemplate?.schedules?.find((s: TemplateScheduleItem) => s.day === dayNum)?.events || [];
                     const customLabel = blcDayLabels[dayNum];
@@ -140,16 +146,16 @@ export function DutyTemplateGrid({
                         <div
                             key={dayNum}
                             onClick={() => {
-                                if (restrictionBrush && blcSections.includes(restrictionBrush)) {
-                                    handleToggleBlcRestriction(dayNum, restrictionBrush);
-                                }
-                            }}
+                                  if (restrictionBrush && blcSections.includes(restrictionBrush)) {
+                                      handleToggleBlcRestriction(dayNum, restrictionBrush);
+                                  }
+                              }}
                             className="border-r border-b border-slate-850 p-3.5 flex flex-col justify-between select-none relative transition-all h-full min-h-0 bg-slate-900/20 hover:bg-slate-900/40 cursor-crosshair"
                         >
                             <div className="flex flex-col h-full min-h-0 w-full justify-between">
                                 <div className="flex justify-between items-center shrink-0 h-6">
                                     <div className="flex items-center gap-1.5 min-w-0">
-                                        <span className={`text-[11px] font-black tracking-tight ${dayNum === 0 || dayNum === 22
+                                        <span className={`text-[11px] font-black tracking-tight ${dayNum === 0 || dayNum === (isBlc30 ? 30 : 22)
                                                 ? 'text-blue-400 font-black bg-blue-950/30 px-2 py-0.5 rounded border border-blue-900/30 shadow-sm'
                                                 : 'text-slate-300 font-extrabold'
                                             }`}>
@@ -170,7 +176,7 @@ export function DutyTemplateGrid({
                                             </span>
                                         )}
                                     </div>
-                                    {dayNum === 22 && (
+                                    {dayNum === (isBlc30 ? 30 : 22) && (
                                         <span className="text-[9px] font-black text-blue-400 bg-blue-950/20 px-2 py-0.5 rounded-lg border border-blue-500/10 uppercase shrink-0">
                                             Grad
                                         </span>

@@ -243,7 +243,7 @@ export function DutyCalendarGrid({
                                     const isBlc = e.type === 'blc';
                                     const isGraduation = e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓');
                                     let label = e.memo?.includes('수료포데이')
-                                        ? '수료포'
+                                        ? '포데이'
                                         : isGraduation
                                             ? 'Grad'
                                             : (e.memo?.match(/Day -?\d+/)?.[0] || '');
