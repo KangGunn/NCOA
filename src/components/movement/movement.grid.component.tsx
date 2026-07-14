@@ -134,7 +134,10 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                     )}>
                                         <div className="bg-gray-950 text-white text-[11px] font-medium rounded-lg py-1.5 px-2.5 whitespace-nowrap shadow-xl leading-tight text-center border border-gray-800 space-y-1">
                                             {[...memberMovements]
-                                                .sort((a, b) => a.type === 'pass' ? -1 : 1)
+                                                .sort((a, b) => {
+                                                    if (a.type === b.type) return a.startDate.localeCompare(b.startDate);
+                                                    return a.type === 'pass' ? -1 : 1;
+                                                })
                                                 .filter(m => m.reason)
                                                 .map((mov, mIdx) => (
                                                     <div key={mIdx} className={mIdx > 0 ? "border-t border-gray-800 pt-1 mt-1" : ""}>
