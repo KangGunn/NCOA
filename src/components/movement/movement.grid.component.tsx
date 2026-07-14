@@ -133,18 +133,54 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                         activeCardIndex === idx ? "flex" : "hidden"
                                     )}>
                                         <div className="bg-gray-950 text-white text-[11px] font-medium rounded-lg py-1.5 px-2.5 whitespace-nowrap shadow-xl leading-tight text-center border border-gray-800 space-y-1">
-                                            {memberMovements.filter(m => m.reason).map((mov, mIdx) => (
-                                                <div key={mIdx} className={mIdx > 0 ? "border-t border-gray-800 pt-1 mt-1" : ""}>
-                                                    <div className="text-[9px] text-gray-400 font-bold mb-0.5">
-                                                        {mov.type === 'pass' ? '외박' : '휴가'} ({
-                                                            mov.startDate === mov.endDate
-                                                                ? mov.startDate.slice(5).replace('-', '.')
-                                                                : `${mov.startDate.slice(5).replace('-', '.')} ~ ${mov.endDate.slice(5).replace('-', '.')}`
-                                                        })
+                                            {[...memberMovements]
+                                                .sort((a, b) => {
+                                                    if (a.type === b.type) return a.startDate.localeCompare(b.startDate);
+                                                    return a.type === 'pass' ? -1 : 1;
+                                                })
+                                                .filter(m => m.reason)
+                                                .map((mov, mIdx) => (
+                                                    <div key={mIdx} className={mIdx > 0 ? "border-t border-gray-800 pt-1 mt-1" : ""}>
+                                                        <div className="text-[9px] text-gray-400 font-bold mb-0.5">
+                                                            {mov.type === 'pass' ? '외박' : '휴가'} ({
+                                                                mov.startDate === mov.endDate
+                                                                    ? mov.startDate.slice(5).replace('-', '.')
+                                                                    : `${mov.startDate.slice(5).replace('-', '.')} ~ ${mov.endDate.slice(5).replace('-', '.')}`
+                                                            })
+                                                        </div>
+                                                        <div className="text-gray-100 font-semibold">
+                                                            {mov.type === 'vacation'
+                                                                ? (() => {
+                                                                      const startD = new Date(mov.startDate);
+                                                                      const endD = new Date(mov.endDate);
+                                                                      const days = Math.round((endD.getTime() - startD.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                                                                      
+                                                                      let isLinked = false;
+                                                                      const tempDate = new Date(startD);
+                                                                      while (tempDate <= endD) {
+                                                                          const dStr = `${tempDate.getMonth() + 1}.${tempDate.getDate()}`;
+                                                                          if (member.dayStatuses[dStr] === 'linked') {
+                                                                              isLinked = true;
+                                                                              break;
+                                                                          }
+                                                                          tempDate.setDate(tempDate.getDate() + 1);
+                                                                      }
+                                                                      
+                                                                      let cleanReason = mov.reason.replace(/외휴연계\s*[OX]?/gi, '').trim();
+                                                                      const dayPattern = /(\d+(\.\d+)?\s*(데이|일)|(원|투|쓰리|포|파이브|식스|세븐|에잇|나인|텐)\s*데이)/ig;
+                                                                      cleanReason = cleanReason.replace(dayPattern, '').trim();
+                                                                      cleanReason = cleanReason.replace(/사용/gi, '').trim();
+                                                                      cleanReason = cleanReason.replace(/,/gi, '').trim();
+                                                                      if (!cleanReason) cleanReason = '휴가';
+
+                                                                      return `${cleanReason} ${days}일, 외휴연계 ${isLinked ? 'O' : 'X'}`;
+                                                                  })()
+                                                                : mov.reason
+                                                            }
+                                                        </div>
                                                     </div>
-                                                    <div className="text-gray-100 font-semibold">{mov.reason}</div>
-                                                </div>
-                                            ))}
+                                                ))
+                                            }
                                         </div>
                                         <div className="w-1.5 h-1.5 bg-gray-950 rotate-45 -mt-[3.5px] border-r border-b border-gray-800" />
                                     </div>
