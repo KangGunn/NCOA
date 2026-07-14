@@ -72,6 +72,8 @@ export function MovementSheetView({
 
     const extractRewardType = (reasonStr: string): string => {
         let target = reasonStr.trim();
+        target = target.replace(/외휴연계\s*[OX]?/gi, '').trim();
+
         let index = target.lastIndexOf('으로 인한');
         let phraseLen = 5;
         if (index === -1) {
@@ -82,14 +84,12 @@ export function MovementSheetView({
             target = target.substring(index + phraseLen).trim();
         }
 
-        const dayPattern = /(\d+(\.\d+)?\s*(데이|일)|(원|투|쓰리|포|파이브|식스|세븐|에잇|나인|텐)\s*데이)$/i;
-        const match = target.match(dayPattern);
-        if (!match) {
-            return target;
-        }
+        const dayPattern = /(\d+(\.\d+)?\s*(데이|일)|(원|투|쓰리|포|파이브|식스|세븐|에잇|나인|텐)\s*데이)/ig;
+        target = target.replace(dayPattern, '').trim();
+        target = target.replace(/사용/gi, '').trim();
+        target = target.replace(/,/gi, '').trim();
 
-        const cleaned = target.substring(0, target.length - match[0].length).trim();
-        return cleaned || '포상';
+        return target || '포상';
     };
 
     // Helper to collect contiguous date blocks overlapping with weekend
@@ -179,26 +179,32 @@ export function MovementSheetView({
                 if (passDays.length > 0) {
                     const matchedMov = findMatchingMovement(memberMovements, passDays, 'pass');
                     if (matchedMov && isInCoreTimeline(matchedMov.startDate, coreTimeline)) {
-                        const passDayCount = extractDayCountFromText(matchedMov.reason);
+                        let passDayCount = extractDayCountFromText(matchedMov.reason);
                         const movStart = new Date(matchedMov.startDate);
                         const movEnd = new Date(matchedMov.endDate);
-                        const totalMovDays = Math.round((movEnd.getTime() - movStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                        let totalMovDays = Math.round((movEnd.getTime() - movStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
                         
+                        const hasLinked = Object.values(member.dayStatuses).includes('linked');
+                        if (hasLinked) {
+                            if (passDayCount !== null) passDayCount -= 1;
+                            totalMovDays -= 1;
+                        }
+
                         if (passDayCount !== null && passDayCount !== passDays.length) {
                             activeWeekWarnings.push({
                                 name: cleanName,
-                                message: `외박 사유(${passDayCount}일)와 입력된 기간(${passDays.length}일)이 일치하지 않습니다.`
+                                message: `외박 사유(${passDayCount + (hasLinked ? 1 : 0)}일)와 입력된 기간(${passDays.length}일)이 일치하지 않습니다.`
                             });
                         }
                         if (passDays.length !== totalMovDays) {
                             activeWeekWarnings.push({
                                 name: cleanName,
-                                message: `입력된 기간(${passDays.length}일)과 실제로 저장된 기간(${totalMovDays}일)이 일치하지 않습니다.`
+                                message: `입력된 기간(${passDays.length}일)과 실제로 저장된 기간(${totalMovDays + (hasLinked ? 1 : 0)}일)이 일치하지 않습니다.`
                             });
                         } else if (passDayCount !== null && passDayCount !== totalMovDays) {
                             activeWeekWarnings.push({
                                 name: cleanName,
-                                message: `외박 사유(${passDayCount}일)와 실제로 저장된 기간(${totalMovDays}일)이 일치하지 않습니다.`
+                                message: `외박 사유(${passDayCount + (hasLinked ? 1 : 0)}일)와 실제로 저장된 기간(${totalMovDays + (hasLinked ? 1 : 0)}일)이 일치하지 않습니다.`
                             });
                         }
                     }
@@ -605,6 +611,11 @@ export function MovementSheetView({
                         const movEnd = new Date(matchedMov.endDate);
                         const totalMovDays = Math.round((movEnd.getTime() - movStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
 
+                        const isLinked = block.some(d => {
+                            const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
+                            return member.dayStatuses[dStr] === 'linked';
+                        });
+
                         remarksVacationItems.push({
                             enlistmentDate,
                             koreanName: cleanName,
@@ -612,7 +623,8 @@ export function MovementSheetView({
                             dateRangeKo,
                             reason: rewardType,
                             count: totalMovDays,
-                            typeStr: 'VACATION'
+                            typeStr: 'VACATION',
+                            isLinked
                         });
                     }
                 }
@@ -658,7 +670,10 @@ export function MovementSheetView({
                 weekRangeStr = `(${minDate.getMonth() + 1}/${minDate.getDate()}~${maxDate.getMonth() + 1}/${maxDate.getDate()})`;
             }
 
-            const formatReasonStr = (reason: string, count: number) => {
+            const formatReasonStr = (reason: string, count: number, typeStr?: string, isLinked?: boolean) => {
+                if (typeStr === 'VACATION') {
+                    return `${reason} ${count}일 사용, 외휴연계 ${isLinked ? 'O' : 'X'}`;
+                }
                 let cleanReason = reason.trim();
                 if (cleanReason.includes('으로 인한')) {
                     return cleanReason;
@@ -700,7 +715,7 @@ export function MovementSheetView({
                     const num = index + 1;
                     const rankName = formatRankName(item.koreanName, item.rankKo, false);
                     const rankNameColon = `${rankName}:`;
-                    const reasonStr = formatReasonStr(item.reason, item.count);
+                    const reasonStr = formatReasonStr(item.reason, item.count, item.typeStr, item.isLinked);
                     remarksText += `${num}.\t${rankNameColon}\t ${item.dateRangeKo}\t${reasonStr}\n`;
                 });
             }
@@ -738,7 +753,7 @@ export function MovementSheetView({
                     const num = index + 1;
                     const rankName = formatRankName(item.koreanName, item.rankKo, true);
                     const rankNameAndColon = `${rankName}:`;
-                    const reasonStr = formatReasonStr(item.reason, item.count);
+                    const reasonStr = formatReasonStr(item.reason, item.count, item.typeStr, item.isLinked);
 
                     remarksHtml += `<tr style="height: 0.53cm; border: none; vertical-align: middle; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly;">`;
                     remarksHtml += `<td style="width: 1.05cm; height: 0.53cm; text-align: center; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly;">${num}.</td>`;

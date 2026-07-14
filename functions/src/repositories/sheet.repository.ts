@@ -3,6 +3,7 @@ import axios from "axios";
 import Papa from "papaparse";
 import { google } from "googleapis";
 import * as path from "path";
+import * as fs from "fs";
 import { getSpreadsheetSetting } from "./setting.repository";
 import { SHEET_URLS, SPREADSHEET_IDS } from "../config/sheet.config";
 
@@ -53,10 +54,14 @@ export async function getSheetData(): Promise<any[]> {
 }
 
 export async function getGoogleSheetsInstance() {
-    const auth = new google.auth.GoogleAuth({
-        keyFile: path.join(__dirname, "../../service-account.json"),
+    const keyPath = path.join(__dirname, "../../service-account.json");
+    const options: any = {
         scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-    });
+    };
+    if (fs.existsSync(keyPath)) {
+        options.keyFile = keyPath;
+    }
+    const auth = new google.auth.GoogleAuth(options);
     return google.sheets({ version: "v4", auth });
 }
 

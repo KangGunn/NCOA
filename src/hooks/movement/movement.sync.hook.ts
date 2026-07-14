@@ -471,6 +471,11 @@ export function useMovementSync(baseDate?: Date) {
                                         vReason = vReason.replace(rangeRegex, '');
                                         vReason = vReason.replace(singleRegex, '');
                                         vReason = vReason.replace(/\([^\)]+\)/g, '');
+                                        vReason = vReason.replace(/외휴연계\s*[OX]?/gi, '');
+                                        const vDayPattern = /(\d+(\.\d+)?\s*(데이|일)|(원|투|쓰리|포|파이브|식스|세븐|에잇|나인|텐)\s*데이)/ig;
+                                        vReason = vReason.replace(vDayPattern, '');
+                                        vReason = vReason.replace(/사용/gi, '').trim();
+                                        vReason = vReason.replace(/,/gi, '').trim();
                                         vReason = vReason.trim();
 
                                         // const vDays = Math.round((vEndDate.getTime() - vStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
