@@ -330,7 +330,7 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
     };
 
     const getMemberDutyRestrictionReason = (member: CalendarMember, dateStr: string) => {
-        if (member.role === 'runner') return 'runner';
+        if (member.role === 'runner') return null;
 
         // 신병보호기간 체크 (전입일 포함 15일 동안은 배정 차단)
         if (member.joinDate) {
