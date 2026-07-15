@@ -88,6 +88,52 @@ export function exportCalendarImage({
         return new Date(y, m - 1, d);
     };
 
+    const isHolidayDate = (dateStr: string) => events.some((e: CalendarEvent) => e.type === 'holiday' && e.holidayType !== 'duty' && dateStr >= e.startDate && dateStr <= e.endDate);
+
+    const getKtaBlcEventsForDate = (dateStr: string) => {
+        const ktaBlcEvents: CalendarEvent[] = [];
+        const blcDay0s = events.filter((e: CalendarEvent) => e.type === 'blc' && e.memo?.includes('Day 0'));
+
+        blcDay0s.forEach((day0: CalendarEvent) => {
+            const start = parseLocalDate(day0.startDate);
+            const batch = day0.batch || "";
+            let dayCount = 0;
+            let current = new Date(start);
+
+            if (day0.startDate === dateStr) {
+                ktaBlcEvents.push({ id: `blc-day0-${day0.id}`, type: 'blc', startDate: day0.startDate, endDate: day0.startDate, memo: `Day 0 (${batch})`, batch });
+            }
+
+            const limit = isBlc30Days(batch) ? 30 : 22;
+            while (dayCount < limit) {
+                current.setDate(current.getDate() + 1);
+                const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
+                const isSunday = current.getDay() === 0;
+
+                if (!isSunday && !isHolidayDate(currentStr)) {
+                    dayCount++;
+                    if (dayCount === limit && currentStr === dateStr) {
+                        const isDuringPoday = currentStr >= '2026-06-19' && currentStr <= '2026-06-22';
+                        if (!isDuringPoday) {
+                            ktaBlcEvents.push({ id: `dynamic-blc-grad-${batch}`, type: 'blc', startDate: currentStr, endDate: currentStr, memo: `Graduation (${batch})`, batch });
+                        }
+                    }
+                }
+            }
+        });
+
+        const ktaEvents = events.filter((e: CalendarEvent) => e.type === 'kta');
+        ktaEvents.forEach((e: CalendarEvent) => {
+            if (e.startDate === dateStr) {
+                if (e.memo?.includes('Day 0') || e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓') || e.memo?.includes('수료포데이')) {
+                    ktaBlcEvents.push(e);
+                }
+            }
+        });
+
+        return ktaBlcEvents;
+    };
+
     const getBlcActiveDay = (day0DateStr: string, targetDateStr: string, batch?: string) => {
         const start = parseLocalDate(day0DateStr);
         const target = parseLocalDate(targetDateStr);
@@ -145,9 +191,9 @@ export function exportCalendarImage({
         if (cell.isCurrentMonth) {
             const dt = getDutyType(cell.dateStr);
             if (dt === 'sat') {
-                bgColor = '#d2e1f8'; // 토당 (light blue)
+                bgColor = '#f0d0d0'; // 토당 (light red)
             } else if (dt === 'friSun') {
-                bgColor = '#f0d0d0'; // 금일당 (light red)
+                bgColor = '#d2e1f8'; // 금일당 (light blue)
             }
         } else {
             bgColor = '#ffffff'; // non-current month is white but we will skip text/duties
@@ -204,11 +250,12 @@ export function exportCalendarImage({
         });
 
         // 3. Regular calendar events (Day 0, Grad etc.)
-        const day0Events = events.filter(e => (e.type === 'kta' || e.type === 'blc') && e.startDate === cell.dateStr);
+        const day0Events = getKtaBlcEventsForDate(cell.dateStr);
         day0Events.forEach(e => {
             const isBlc = e.type === 'blc';
-            const isGrad = e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓');
-            const dayText = isGrad ? 'GRAD' : (e.memo?.match(/Day \d+/)?.[0] || '');
+            const isPoday = e.memo?.includes('수료포데이');
+            const isGrad = !isPoday && (e.memo?.includes('Graduation') || e.memo?.includes('수료') || e.memo?.includes('🎓'));
+            const dayText = isPoday ? '포데이' : isGrad ? 'GRAD' : (e.memo?.match(/Day -?\d+/)?.[0] || e.memo?.match(/Day \d+/)?.[0] || '');
             if (dayText) {
                 cellLabels.push(`${isBlc ? 'BLC' : 'KTA'} ${dayText.toUpperCase()}`);
             }
@@ -251,15 +298,15 @@ export function exportCalendarImage({
     ctx.textBaseline = 'middle';
     ctx.font = '14px "Noto Sans KR", sans-serif';
 
-    // 토당 (Blue)
-    ctx.fillStyle = '#d2e1f8';
+    // 토당 (Red)
+    ctx.fillStyle = '#f0d0d0';
     ctx.fillRect(20, footerY + 25, 20, 20);
     ctx.strokeRect(20, footerY + 25, 20, 20);
     ctx.fillStyle = '#000000';
     ctx.fillText('토당', 50, footerY + 35);
 
-    // 금일당 (Red)
-    ctx.fillStyle = '#f0d0d0';
+    // 금일당 (Blue)
+    ctx.fillStyle = '#d2e1f8';
     ctx.fillRect(20, footerY + 55, 20, 20);
     ctx.strokeRect(20, footerY + 55, 20, 20);
     ctx.fillStyle = '#000000';
@@ -290,10 +337,6 @@ export function exportCalendarImage({
         ctx.fillText(noteText, canvasWidth - 20, footerY + 50);
     }
 
-    // Trigger Download
-    const dataUrl = canvas.toDataURL('image/png');
-    const link = document.createElement('a');
-    link.download = `당직표_${year}년_${month + 1}월.png`;
-    link.href = dataUrl;
-    link.click();
+    // Return Data URL for preview modal
+    return canvas.toDataURL('image/png');
 }

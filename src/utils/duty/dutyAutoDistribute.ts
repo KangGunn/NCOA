@@ -820,7 +820,7 @@ export async function runAutoDistribute(params: {
                 const tF = cnt.friSun + ext.friSun;
                 const tS = cnt.sat + ext.sat;
                 const totalThisMonth = tW + tF + tS;
-                const totalTarget = target.weekday + target.friSun + target.sat + target.free;
+                const totalTarget = target.free > 0 ? target.free : (target.weekday + target.friSun + target.sat);
 
                 const wDiff = Math.max(0, target.weekday - tW);
                 const fDiff = Math.max(0, target.friSun - tF);
@@ -885,7 +885,7 @@ export async function runAutoDistribute(params: {
                     const tF = target.friSun;
                     const tS = target.sat;
                     const tFree = target.free;
-                    const totalTarget = tW + tF + tS + tFree;
+                    const totalTarget = tFree > 0 ? tFree : (tW + tF + tS);
 
                     let unlockedCost = 0;
                     if (tW > 0) unlockedCost += Math.pow(Math.max(0, tW - (cnt.weekday + existing.weekday)), 2) * 200000;
@@ -1077,7 +1077,7 @@ export async function runAutoDistribute(params: {
         const tF = newCnt.friSun + ext.friSun;
         const tS = newCnt.sat + ext.sat;
         const tAll = tW + tF + tS;
-        const tTarget = target.weekday + target.friSun + target.sat + target.free;
+        const tTarget = target.free > 0 ? target.free : (target.weekday + target.friSun + target.sat);
         if (tW < target.weekday || tF < target.friSun || tS < target.sat || tAll < tTarget) {
             warnings.push({
                 type: 'shortfall', memberName: name,

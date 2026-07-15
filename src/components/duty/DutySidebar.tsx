@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { RefreshCw, Check, Info, Calendar, ChevronDown, Wand2 } from 'lucide-react';
-import type { CalendarMember } from '../../types/calendar/calendar.type';
+import type { CalendarMember, MemberConfig } from '../../types/calendar/calendar.type';
 import { calculateRank } from '../../lib/rankUtils';
 import type { DutyHoliday } from '../../hooks/duty/useDutySync';
 
 interface DutySidebarProps {
+    configs: Record<string, MemberConfig>;
     viewMode: 'actual' | 'kta-template' | 'blc-template';
     loading: boolean;
     members: CalendarMember[];
@@ -40,6 +41,7 @@ interface DutySidebarProps {
 }
 
 export function DutySidebar({
+    configs,
     viewMode, loading, members, dutyStats,
     restrictionBrush, setRestrictionBrush,
     ktaDayLabels, setKtaDayLabels,
@@ -112,20 +114,10 @@ export function DutySidebar({
         const activeMembers = sortMembers(classified.filter(c => !c.isCompleted));
         const completedMembers = sortMembers(classified.filter(c => c.isCompleted));
 
-        const year = currentDate.getFullYear();
-        const month = currentDate.getMonth();
-        const configs = (() => {
-            try {
-                const saved = localStorage.getItem(`ncoa_duty_auto_configs_${year}_${month}`);
-                return saved ? JSON.parse(saved) : {};
-            } catch (e) {
-                console.error(e);
-                return {};
-            }
-        })();
+
 
         const renderMemberCard = ({ member, stats, count, isCompleted }: any) => {
-            const countBadgeColor = 'bg-slate-850/80 border-slate-800 text-slate-300';
+
             const dynamicRank = member.role === 'runner'
                 ? (member.rank || '러너')
                 : (member.enlistmentDate
@@ -144,9 +136,16 @@ export function DutySidebar({
             const isFriSunMet = stats.currentMonthFriSun >= targetFriSun;
             const isSatMet = stats.currentMonthSat >= targetSat;
 
-            const isAllMonthlyTargetsMet = isFreeConfigured
-                ? (isWeekdayMet && isFriSunMet && isSatMet && currentMonthTotal >= (targetWeekday + targetFriSun + targetSat + targetFree))
-                : (currentMonthTotal >= 2);
+            const isAllMonthlyTargetsMet = (() => {
+                if (isFreeConfigured) {
+                    return isWeekdayMet && isFriSunMet && isSatMet && currentMonthTotal >= targetFree;
+                }
+                const specificSum = targetWeekday + targetFriSun + targetSat;
+                if (specificSum > 0) {
+                    return isWeekdayMet && isFriSunMet && isSatMet && currentMonthTotal >= specificSum;
+                }
+                return currentMonthTotal >= 2;
+            })();
 
             const isSelected = selectedMember?.id === member.id;
 
@@ -160,70 +159,128 @@ export function DutySidebar({
                             setSelectedMember(member);
                         }
                     }}
-                    className={`w-full flex items-center justify-between p-3.5 rounded-2xl transition-all border text-left group/member cursor-pointer ${isSelected
-                            ? 'bg-indigo-950/40 border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.15)] text-slate-100 hover:border-indigo-400 ring-1 ring-indigo-500/30'
+                    className={`w-full flex flex-col py-2.5 px-3 rounded-2xl transition-all border text-left group/member cursor-pointer gap-1.5 ${isSelected
+                            ? 'bg-indigo-950/30 border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.2)] text-slate-100 ring-1 ring-indigo-500/30'
                             : isAllMonthlyTargetsMet
-                                ? 'bg-gradient-to-br from-slate-900/90 to-emerald-950/60 border-emerald-500/80 shadow-[0_0_15px_rgba(16,185,129,0.15)] text-slate-200 hover:border-emerald-400 ring-1 ring-emerald-500/30'
+                                ? 'bg-gradient-to-br from-slate-900/90 to-emerald-950/40 border-emerald-500/60 shadow-[0_0_12px_rgba(16,185,129,0.12)] text-slate-200 ring-1 ring-emerald-500/20'
                                 : isCompleted
-                                    ? 'bg-slate-950/20 border-slate-900/40 text-slate-555 opacity-60 hover:bg-slate-900/30'
-                                    : 'bg-slate-900/40 border-slate-850 text-slate-350 hover:bg-slate-800/60 hover:border-slate-800'
+                                    ? 'bg-slate-950/20 border-slate-900/40 text-slate-500 opacity-60 hover:bg-slate-900/30'
+                                    : 'bg-slate-900/40 border-slate-850 text-slate-300 hover:bg-slate-800/60 hover:border-slate-800'
                         }`}
                 >
-                    {/* 좌측: 이름 & 계급 */}
-                    <div className="flex flex-col gap-0.5 min-w-0 pr-2">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                            <span className={`text-sm font-black tracking-tight truncate ${isCompleted ? 'line-through text-slate-500' : ''}`}>
-                                {member.name}
-                            </span>
-                            {isCompleted && (
-                                <span className="px-1.5 py-0.5 rounded bg-emerald-950/80 border border-emerald-900/45 text-emerald-400 text-[8px] font-black tracking-wide shrink-0">
-                                    ✅ 완료
+                    {/* 상단: 이름, 계급 및 총 누적 */}
+                    <div className="flex items-start justify-between min-w-0 w-full">
+                        <div className="flex flex-col gap-0.5 min-w-0 pr-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                                <span className={`text-[13.5px] font-black tracking-tight truncate ${isCompleted ? 'line-through text-slate-500' : 'text-slate-100'}`}>
+                                    {member.name}
                                 </span>
-                            )}
+                                {isCompleted && (
+                                    <span className="px-1.5 py-0.5 rounded bg-emerald-950/80 border border-emerald-900/45 text-emerald-400 text-[8px] font-black tracking-wide shrink-0">
+                                        ✅ 완료
+                                    </span>
+                                )}
+                            </div>
+                            <span className="text-[10px] font-bold text-slate-500 truncate">
+                                {dynamicRank}
+                            </span>
                         </div>
-                        <span className={`text-[10px] font-bold truncate text-slate-500`}>
-                            {dynamicRank}
-                        </span>
-                    </div>
 
-
-
-                    {/* 우측: 누적 통계 */}
-                    <div className="flex items-center gap-2.5 shrink-0 ml-auto">
+                        {/* 총 누적 당직 뱃지 */}
                         {member.role !== 'runner' && (
-                            <div className="flex flex-col items-end gap-1.5 select-none min-w-0 pr-0.5">
-                                <div className={`px-2 py-0.5 rounded-xl text-[11px] font-black shrink-0 border flex items-center gap-1 ${isCompleted
-                                    ? 'bg-slate-950/60 border-slate-900 text-slate-550'
-                                    : countBadgeColor
-                                    }`}>
-                                    <span>당직 {count}회</span>
-                                    {currentMonthTotal > 0 && (
-                                        <span className="text-emerald-400 font-extrabold text-[10.5px]">+{currentMonthTotal}</span>
-                                    )}
-                                </div>
-                                <div className="flex items-center gap-2 text-[10px] font-black tracking-tight shrink-0">
-                                    <span className={isCompleted ? 'text-slate-650' : stats.weekday >= criteriaWeekday ? 'text-emerald-400 font-bold' : 'text-amber-400'}>
-                                        평 {stats.weekday}
-                                        {stats.currentMonthWeekday > 0 && (
-                                            <span className="text-emerald-400 font-extrabold ml-0.5">+{stats.currentMonthWeekday}</span>
-                                        )}
-                                    </span>
-                                    <span className={isCompleted ? 'text-slate-650' : stats.friSun >= criteriaFriSun ? 'text-emerald-400 font-bold' : 'text-sky-400'}>
-                                        금일 {stats.friSun}
-                                        {stats.currentMonthFriSun > 0 && (
-                                            <span className="text-emerald-400 font-extrabold ml-0.5">+{stats.currentMonthFriSun}</span>
-                                        )}
-                                    </span>
-                                    <span className={isCompleted ? 'text-slate-650' : stats.sat >= criteriaSat ? 'text-emerald-400 font-bold' : 'text-rose-400'}>
-                                        토 {stats.sat}
-                                        {stats.currentMonthSat > 0 && (
-                                            <span className="text-emerald-400 font-extrabold ml-0.5">+{stats.currentMonthSat}</span>
-                                        )}
-                                    </span>
-                                </div>
+                            <div className={`px-2 py-0.5 rounded-lg text-[9.5px] font-black border shrink-0 bg-slate-950/40 border-slate-850 text-slate-400 flex items-center gap-1`}>
+                                <span>누적 {count}회</span>
+                                {currentMonthTotal > 0 && (
+                                    <span className="text-emerald-400 font-extrabold text-[10px]">+{currentMonthTotal}</span>
+                                )}
                             </div>
                         )}
                     </div>
+
+                    {/* 중단: 당직 배정 현황 (평/금/토) 미니 대시보드 */}
+                    {member.role !== 'runner' && (
+                        <div className="flex flex-col gap-1.5 w-full">
+                            {/* 종류별 진행도 배지 3열 그리드 */}
+                            <div className="grid grid-cols-3 gap-1 text-[9px] font-black select-none w-full">
+                                {/* 평일 당직 */}
+                                <div className={`flex items-center justify-center gap-0.5 px-1 py-0.5 rounded-lg border transition-all whitespace-nowrap ${
+                                    targetWeekday > 0 
+                                        ? stats.currentMonthWeekday >= targetWeekday
+                                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                            : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                                        : stats.currentMonthWeekday > 0
+                                            ? 'bg-slate-800/80 border-slate-700 text-slate-300'
+                                            : 'bg-slate-950/20 border-slate-900/40 text-slate-650'
+                                }`}>
+                                    <span className="text-slate-500 mr-0.5 font-bold">평</span>
+                                    <span>{stats.weekday}</span>
+                                    {(targetWeekday > 0 || stats.currentMonthWeekday > 0) && (
+                                        <span className="text-[8px] opacity-90 font-black ml-0.5">
+                                            (+{stats.currentMonthWeekday || 0}{targetWeekday > 0 ? `/${targetWeekday}` : ''})
+                                        </span>
+                                    )}
+                                </div>
+
+                                {/* 금일 당직 */}
+                                <div className={`flex items-center justify-center gap-0.5 px-1 py-0.5 rounded-lg border transition-all whitespace-nowrap ${
+                                    targetFriSun > 0 
+                                        ? stats.currentMonthFriSun >= targetFriSun
+                                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                            : 'bg-sky-500/10 border-sky-500/20 text-sky-400'
+                                        : stats.currentMonthFriSun > 0
+                                            ? 'bg-slate-800/80 border-slate-700 text-slate-300'
+                                            : 'bg-slate-950/20 border-slate-900/40 text-slate-650'
+                                }`}>
+                                    <span className="text-sky-500/70 mr-0.5 font-bold">금</span>
+                                    <span>{stats.friSun}</span>
+                                    {(targetFriSun > 0 || stats.currentMonthFriSun > 0) && (
+                                        <span className="text-[8px] opacity-90 font-black ml-0.5">
+                                            (+{stats.currentMonthFriSun || 0}{targetFriSun > 0 ? `/${targetFriSun}` : ''})
+                                        </span>
+                                    )}
+                                </div>
+
+                                {/* 토당 당직 */}
+                                <div className={`flex items-center justify-center gap-0.5 px-1 py-0.5 rounded-lg border transition-all whitespace-nowrap ${
+                                    targetSat > 0 
+                                        ? stats.currentMonthSat >= targetSat
+                                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                            : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                                        : stats.currentMonthSat > 0
+                                            ? 'bg-slate-800/80 border-slate-700 text-slate-300'
+                                            : 'bg-slate-950/20 border-slate-900/40 text-slate-650'
+                                }`}>
+                                    <span className="text-rose-500/70 mr-0.5 font-bold">토</span>
+                                    <span>{stats.sat}</span>
+                                    {(targetSat > 0 || stats.currentMonthSat > 0) && (
+                                        <span className="text-[8px] opacity-90 font-black ml-0.5">
+                                            (+{stats.currentMonthSat || 0}{targetSat > 0 ? `/${targetSat}` : ''})
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* 하단: 전체 목표 달성 게이지바 */}
+                            <div className="space-y-1 w-full">
+                                <div className="flex items-center justify-between text-[9px] font-black text-slate-500 tracking-tight">
+                                    <span>이번 달 목표 달성량</span>
+                                    <span className={isAllMonthlyTargetsMet ? 'text-emerald-400 font-extrabold' : 'text-slate-400'}>
+                                        {currentMonthTotal}/{isFreeConfigured ? targetFree : (targetWeekday + targetFriSun + targetSat || 2)}회
+                                    </span>
+                                </div>
+                                <div className="w-full h-1 bg-slate-950 rounded-full overflow-hidden border border-slate-900">
+                                    <div 
+                                        className={`h-full transition-all duration-300 ${
+                                            isAllMonthlyTargetsMet ? 'bg-emerald-500' : 'bg-indigo-500'
+                                        }`}
+                                        style={{ 
+                                            width: `${Math.min(100, (currentMonthTotal / (isFreeConfigured ? targetFree : (targetWeekday + targetFriSun + targetSat || 2))) * 100)}%` 
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         };

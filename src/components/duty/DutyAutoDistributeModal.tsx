@@ -36,6 +36,10 @@ interface DutyAutoDistributeModalProps {
     ktaSections: string[];
     blcSections: string[];
     currentDate: Date;
+    configs: Record<string, MemberConfig>;
+    updateConfig: (memberName: string, patch: Partial<MemberConfig>) => void;
+    lockedMembers: Record<string, boolean>;
+    toggleLock: (memberName: string) => void;
     onApply: (assignments: AssignedDuty[]) => void;
 }
 
@@ -71,65 +75,12 @@ export function DutyAutoDistributeModal({
     restrictions, blcRestrictions,
     ktaSections, blcSections,
     currentDate,
+    configs, updateConfig,
+    lockedMembers, toggleLock,
     onApply
 }: DutyAutoDistributeModalProps) {
     const [step, setStep] = useState<Step>('configure');
-    const [configs, setConfigs] = useState<Record<string, MemberConfig>>(() => {
-        try {
-            const saved = localStorage.getItem(`ncoa_duty_auto_configs_${year}_${month}`);
-            return saved ? JSON.parse(saved) : {};
-        } catch (e) {
-            console.error(e);
-            return {};
-        }
-    });
-    const [lockedMembers, setLockedMembers] = useState<Record<string, boolean>>(() => {
-        try {
-            const saved = localStorage.getItem(`ncoa_duty_auto_locked_${year}_${month}`);
-            return saved ? JSON.parse(saved) : {};
-        } catch (e) {
-            console.error(e);
-            return {};
-        }
-    });
-    const [result, setResult] = useState<{ assignments: AssignedDuty[]; warnings: DistributeWarning[]; violations: RuleViolation[] } | null>(null);
-    const [isRunning, setIsRunning] = useState(false);
-    const cancelTokenRef = useRef({ isCancelled: false });
-    const [progressInfo, setProgressInfo] = useState<{
-        progress: number;
-        message: string;
-        costBreakdown?: { label: string; cost: number }[];
-    } | null>(null);
-    const [elapsedTime, setElapsedTime] = useState(0);
 
-    useEffect(() => {
-        let interval: any;
-        if (isRunning) {
-            setElapsedTime(0);
-            interval = setInterval(() => {
-                setElapsedTime(prev => prev + 1);
-            }, 1000);
-        } else {
-            setElapsedTime(0);
-        }
-        return () => clearInterval(interval);
-    }, [isRunning]);
-
-    useEffect(() => {
-        try {
-            localStorage.setItem(`ncoa_duty_auto_configs_${year}_${month}`, JSON.stringify(configs));
-        } catch (e) {
-            console.error("Failed to save configs to localStorage:", e);
-        }
-    }, [configs, year, month]);
-
-    useEffect(() => {
-        try {
-            localStorage.setItem(`ncoa_duty_auto_locked_${year}_${month}`, JSON.stringify(lockedMembers));
-        } catch (e) {
-            console.error("Failed to save lockedMembers to localStorage:", e);
-        }
-    }, [lockedMembers, year, month]);
 
     const daysInMonth = new Date(year, month + 1, 0).getDate();
 
@@ -188,22 +139,31 @@ export function DutyAutoDistributeModal({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [members, year, month, dutyStats]);
 
+    const [result, setResult] = useState<{ assignments: AssignedDuty[]; warnings: DistributeWarning[]; violations: RuleViolation[] } | null>(null);
+    const [isRunning, setIsRunning] = useState(false);
+    const cancelTokenRef = useRef({ isCancelled: false });
+    const [progressInfo, setProgressInfo] = useState<{
+        progress: number;
+        message: string;
+        costBreakdown?: { label: string; cost: number }[];
+    } | null>(null);
+    const [elapsedTime, setElapsedTime] = useState(0);
+
+    useEffect(() => {
+        let interval: any;
+        if (isRunning) {
+            setElapsedTime(0);
+            interval = setInterval(() => {
+                setElapsedTime(prev => prev + 1);
+            }, 1000);
+        } else {
+            setElapsedTime(0);
+        }
+        return () => clearInterval(interval);
+    }, [isRunning]);
+
     const getConfig = (memberName: string): MemberConfig =>
         configs[memberName] ?? EMPTY_CONFIG;
-
-    const updateConfig = (memberName: string, patch: Partial<MemberConfig>) => {
-        setConfigs(prev => ({
-            ...prev,
-            [memberName]: { ...getConfig(memberName), ...patch }
-        }));
-    };
-
-    const toggleLock = (memberName: string) => {
-        setLockedMembers(prev => ({
-            ...prev,
-            [memberName]: !prev[memberName]
-        }));
-    };
 
 
 
@@ -211,9 +171,21 @@ export function DutyAutoDistributeModal({
         let sum = 0;
         for (const m of eligibleMembers) {
             const cfg = getConfig(m.name);
-            const parsed = parseInt(cfg.free, 10);
-            const fr = (cfg.free === '' || isNaN(parsed)) ? null : parsed;
-            sum += (fr !== null ? fr : 2);
+            const w = parseInt(cfg.weekday, 10);
+            const f = parseInt(cfg.friSun, 10);
+            const s = parseInt(cfg.sat, 10);
+            const fr = parseInt(cfg.free, 10);
+
+            const hasW = !isNaN(w);
+            const hasF = !isNaN(f);
+            const hasS = !isNaN(s);
+            const hasFr = !isNaN(fr);
+
+            if (hasFr) {
+                sum += fr;
+            } else if (hasW || hasF || hasS) {
+                sum += (hasW ? w : 0) + (hasF ? f : 0) + (hasS ? s : 0);
+            }
         }
         return sum;
         // eslint-disable-next-line react-hooks/exhaustive-deps
