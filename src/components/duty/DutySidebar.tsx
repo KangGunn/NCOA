@@ -136,7 +136,14 @@ export function DutySidebar({
             const isFriSunMet = stats.currentMonthFriSun >= targetFriSun;
             const isSatMet = stats.currentMonthSat >= targetSat;
 
+            const isWeekdayMetLifetime = stats.weekday >= criteriaWeekday;
+            const isFriSunMetLifetime = stats.friSun >= criteriaFriSun;
+            const isSatMetLifetime = stats.sat >= criteriaSat;
+
             const isAllMonthlyTargetsMet = (() => {
+                if (member.role === 'runner') {
+                    return currentMonthTotal >= 1;
+                }
                 if (isFreeConfigured) {
                     return isWeekdayMet && isFriSunMet && isSatMet && currentMonthTotal >= targetFree;
                 }
@@ -198,7 +205,7 @@ export function DutySidebar({
                     </div>
 
                     {/* 중단: 당직 배정 현황 (평/금/토) 미니 대시보드 */}
-                    {member.role !== 'runner' && (
+                    {member.role !== 'runner' ? (
                         <div className="flex flex-col gap-1.5 w-full">
                             {/* 종류별 진행도 배지 3열 그리드 */}
                             <div className="grid grid-cols-3 gap-1 text-[9px] font-black select-none w-full">
@@ -206,16 +213,26 @@ export function DutySidebar({
                                 <div className={`flex items-center justify-center gap-0.5 px-1 py-0.5 rounded-lg border transition-all whitespace-nowrap ${
                                     targetWeekday > 0 
                                         ? stats.currentMonthWeekday >= targetWeekday
-                                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                                            : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                                            ? 'bg-emerald-500/10 border-emerald-500/30'
+                                            : 'bg-amber-500/10 border-amber-500/20'
                                         : stats.currentMonthWeekday > 0
-                                            ? 'bg-slate-800/80 border-slate-700 text-slate-300'
-                                            : 'bg-slate-950/20 border-slate-900/40 text-slate-650'
+                                            ? 'bg-slate-800/80 border-slate-700'
+                                            : 'bg-slate-950/20 border-slate-900/40'
                                 }`}>
-                                    <span className="text-slate-500 mr-0.5 font-bold">평</span>
-                                    <span>{stats.weekday}</span>
+                                    <span className={`mr-0.5 font-bold ${
+                                        isWeekdayMetLifetime 
+                                            ? 'text-emerald-400 font-extrabold' 
+                                            : 'text-amber-400'
+                                    }`}>
+                                        평
+                                    </span>
+                                    <span className={isWeekdayMetLifetime ? 'text-emerald-400 font-extrabold' : 'text-slate-200'}>{stats.weekday}</span>
                                     {(targetWeekday > 0 || stats.currentMonthWeekday > 0) && (
-                                        <span className="text-[8px] opacity-90 font-black ml-0.5">
+                                        <span className={`text-[8px] font-black ml-0.5 ${
+                                            targetWeekday > 0 && stats.currentMonthWeekday >= targetWeekday
+                                                ? 'text-emerald-400'
+                                                : 'text-slate-400'
+                                        }`}>
                                             (+{stats.currentMonthWeekday || 0}{targetWeekday > 0 ? `/${targetWeekday}` : ''})
                                         </span>
                                     )}
@@ -225,16 +242,26 @@ export function DutySidebar({
                                 <div className={`flex items-center justify-center gap-0.5 px-1 py-0.5 rounded-lg border transition-all whitespace-nowrap ${
                                     targetFriSun > 0 
                                         ? stats.currentMonthFriSun >= targetFriSun
-                                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                                            : 'bg-sky-500/10 border-sky-500/20 text-sky-400'
+                                            ? 'bg-emerald-500/10 border-emerald-500/30'
+                                            : 'bg-sky-500/10 border-sky-500/20'
                                         : stats.currentMonthFriSun > 0
-                                            ? 'bg-slate-800/80 border-slate-700 text-slate-300'
-                                            : 'bg-slate-950/20 border-slate-900/40 text-slate-650'
+                                            ? 'bg-slate-800/80 border-slate-700'
+                                            : 'bg-slate-950/20 border-slate-900/40'
                                 }`}>
-                                    <span className="text-sky-500/70 mr-0.5 font-bold">금</span>
-                                    <span>{stats.friSun}</span>
+                                    <span className={`mr-0.5 font-bold ${
+                                        isFriSunMetLifetime 
+                                            ? 'text-emerald-400 font-extrabold' 
+                                            : 'text-sky-400'
+                                    }`}>
+                                        금
+                                    </span>
+                                    <span className={isFriSunMetLifetime ? 'text-emerald-400 font-extrabold' : 'text-slate-200'}>{stats.friSun}</span>
                                     {(targetFriSun > 0 || stats.currentMonthFriSun > 0) && (
-                                        <span className="text-[8px] opacity-90 font-black ml-0.5">
+                                        <span className={`text-[8px] font-black ml-0.5 ${
+                                            targetFriSun > 0 && stats.currentMonthFriSun >= targetFriSun
+                                                ? 'text-emerald-400'
+                                                : 'text-slate-400'
+                                        }`}>
                                             (+{stats.currentMonthFriSun || 0}{targetFriSun > 0 ? `/${targetFriSun}` : ''})
                                         </span>
                                     )}
@@ -244,16 +271,26 @@ export function DutySidebar({
                                 <div className={`flex items-center justify-center gap-0.5 px-1 py-0.5 rounded-lg border transition-all whitespace-nowrap ${
                                     targetSat > 0 
                                         ? stats.currentMonthSat >= targetSat
-                                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                                            : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                                            ? 'bg-emerald-500/10 border-emerald-500/30'
+                                            : 'bg-rose-500/10 border-rose-500/20'
                                         : stats.currentMonthSat > 0
-                                            ? 'bg-slate-800/80 border-slate-700 text-slate-300'
-                                            : 'bg-slate-950/20 border-slate-900/40 text-slate-650'
+                                            ? 'bg-slate-800/80 border-slate-700'
+                                            : 'bg-slate-950/20 border-slate-900/40'
                                 }`}>
-                                    <span className="text-rose-500/70 mr-0.5 font-bold">토</span>
-                                    <span>{stats.sat}</span>
+                                    <span className={`mr-0.5 font-bold ${
+                                        isSatMetLifetime 
+                                            ? 'text-emerald-400 font-extrabold' 
+                                            : 'text-rose-400'
+                                    }`}>
+                                        토
+                                    </span>
+                                    <span className={isSatMetLifetime ? 'text-emerald-400 font-extrabold' : 'text-slate-200'}>{stats.sat}</span>
                                     {(targetSat > 0 || stats.currentMonthSat > 0) && (
-                                        <span className="text-[8px] opacity-90 font-black ml-0.5">
+                                        <span className={`text-[8px] font-black ml-0.5 ${
+                                            targetSat > 0 && stats.currentMonthSat >= targetSat
+                                                ? 'text-emerald-400'
+                                                : 'text-slate-400'
+                                        }`}>
                                             (+{stats.currentMonthSat || 0}{targetSat > 0 ? `/${targetSat}` : ''})
                                         </span>
                                     )}
@@ -278,6 +315,25 @@ export function DutySidebar({
                                         }}
                                     />
                                 </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="space-y-1 w-full mt-0.5">
+                            <div className="flex items-center justify-between text-[9px] font-black text-slate-500 tracking-tight">
+                                <span>이번 달 목표 달성량</span>
+                                <span className={isAllMonthlyTargetsMet ? 'text-emerald-400 font-extrabold' : 'text-slate-400'}>
+                                    {currentMonthTotal}/1회
+                                </span>
+                            </div>
+                            <div className="w-full h-1 bg-slate-950 rounded-full overflow-hidden border border-slate-900">
+                                <div 
+                                    className={`h-full transition-all duration-300 ${
+                                        isAllMonthlyTargetsMet ? 'bg-emerald-500' : 'bg-indigo-500'
+                                    }`}
+                                    style={{ 
+                                        width: `${Math.min(100, (currentMonthTotal / 1) * 100)}%` 
+                                    }}
+                                />
                             </div>
                         </div>
                     )}
