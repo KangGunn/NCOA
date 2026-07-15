@@ -29,3 +29,10 @@ export interface ScheduleTemplateDay {
     day: number;
     events: string[];
 }
+
+export interface MemberConfig {
+    weekday: string;
+    friSun: string;
+    sat: string;
+    free: string;
+}

@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, AlertCircle } from 'lucide-react';
+import { Check, AlertCircle, X } from 'lucide-react';
 import { useDutySync } from '../../hooks/duty/useDutySync';
 import { isBlc30Days } from '../../utils/calendar.utils';
 import { useDutyState } from '../../hooks/duty/useDutyState';
@@ -54,7 +54,9 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
         togglePersonalRestriction,
         handleCellClick: baseHandleCellClick, handleClearDate, handleClearMonth,
         handleConfirmDuties,
-        markCurrentMonthAsEdited
+        markCurrentMonthAsEdited,
+        configs, lockedMembers,
+        updateConfig, toggleLock
     } = useDutyState({ events, members, personalRestrictions, dutyHolidays, showToast });
 
 
@@ -64,6 +66,7 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
 
 
     const [isForceAssignMode, setIsForceAssignMode] = useState(false);
+    const [exportPreviewUrl, setExportPreviewUrl] = useState<string | null>(null);
 
     const {
         handleToggleRestriction,
@@ -491,6 +494,7 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
             )}
 
             <DutySidebar
+                configs={configs}
                 viewMode={viewMode}
                 loading={loading || !dutiesInitialized}
                 members={members}
@@ -530,7 +534,7 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                     onOpenInfoModal={() => setIsInfoModalOpen(true)}
                     onConfirmDuties={handleConfirmDuties}
                     onExportImage={() => {
-                        exportCalendarImage({
+                        const dataUrl = exportCalendarImage({
                             year,
                             month,
                             calendarDays: getCalendarDays(),
@@ -541,6 +545,9 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                             blcDayLabels,
                             monthlyDayLabels
                         });
+                        if (dataUrl) {
+                            setExportPreviewUrl(dataUrl);
+                        }
                     }}
                     isForceAssignMode={isForceAssignMode}
                     setIsForceAssignMode={setIsForceAssignMode}
@@ -637,6 +644,10 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                     ktaSections={ktaSections}
                     blcSections={blcSections}
                     currentDate={currentDate}
+                    configs={configs}
+                    updateConfig={updateConfig}
+                    lockedMembers={lockedMembers}
+                    toggleLock={toggleLock}
                     onApply={(assignments: AssignedDuty[]) => {
                         markCurrentMonthAsEdited();
                         const newDuties = assignments.map(a => ({
@@ -650,6 +661,55 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                         showToast(`자동 분배 완료! ${assignments.length}개 날짜에 당직이 배정되었습니다. 💫`);
                     }}
                 />
+            )}
+
+            {exportPreviewUrl && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+                    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-4xl w-full flex flex-col gap-4 shadow-2xl relative">
+                        {/* Header */}
+                        <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                            <div>
+                                <h3 className="text-base font-black text-slate-200">당직표 이미지 내보내기 미리보기</h3>
+                                <p className="text-xs text-slate-500 font-bold mt-0.5">
+                                    {year}년 {month + 1}월 당직표
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setExportPreviewUrl(null)}
+                                className="p-1.5 text-slate-500 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-all cursor-pointer"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        {/* Image Preview Container */}
+                        <div className="bg-slate-950 rounded-2xl border border-slate-800 p-2 flex justify-center items-center">
+                            <img
+                                src={exportPreviewUrl}
+                                alt="당직표 미리보기"
+                                className="max-w-full max-h-[68vh] object-contain rounded-lg shadow-lg"
+                            />
+                        </div>
+
+                        {/* Footer Actions */}
+                        <div className="flex justify-end gap-2.5 pt-2 border-t border-slate-800">
+                            <button
+                                onClick={() => setExportPreviewUrl(null)}
+                                className="px-4 py-2 bg-slate-800 hover:bg-slate-750 border border-slate-750 hover:border-slate-700 text-slate-300 text-xs font-black rounded-xl transition-all cursor-pointer"
+                            >
+                                취소
+                            </button>
+                            <a
+                                href={exportPreviewUrl}
+                                download={`당직표_${year}년_${month + 1}월.png`}
+                                onClick={() => setExportPreviewUrl(null)}
+                                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shadow-lg shadow-indigo-600/10"
+                            >
+                                이미지 다운로드
+                            </a>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

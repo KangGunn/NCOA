@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../../lib/firebase';
-import { doc, setDoc, updateDoc, writeBatch, collection, serverTimestamp } from 'firebase/firestore';
-import type { CalendarEvent, CalendarMember } from '../../types/calendar/calendar.type';
+import { doc, setDoc, updateDoc, writeBatch, collection, serverTimestamp, onSnapshot } from 'firebase/firestore';
+import type { CalendarEvent, CalendarMember, MemberConfig } from '../../types/calendar/calendar.type';
 
 interface UseDutyStateProps {
     events: CalendarEvent[];
@@ -21,82 +21,151 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
     const [restrictionBrush, setRestrictionBrush] = useState<string | null>(null);
     const [selectedMember, setSelectedMember] = useState<CalendarMember | null>(null);
 
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+
     // 로컬 당직 샌드박스 상태
-    const [duties, setDuties] = useState<CalendarEvent[]>([]);
+    const [draftDuties, setDraftDuties] = useState<CalendarEvent[]>([]);
+    const [editedMonths, setEditedMonths] = useState<Set<string>>(new Set());
+    const [draftConfigs, setDraftConfigs] = useState<Record<string, Record<string, MemberConfig>>>({});
+    const [draftLockedMembers, setDraftLockedMembers] = useState<Record<string, Record<string, boolean>>>({});
     const [dutiesInitialized, setDutiesInitialized] = useState(false);
     const isConfirmingRef = useRef(false);
 
-    // 편집 중인 월 (예: "2026-06") 목록 관리
-    const [editedMonths, setEditedMonths] = useState<Set<string>>(() => {
-        const saved = localStorage.getItem('ncoa_duty_planner_edited_months');
-        if (saved) {
-            try {
-                return new Set(JSON.parse(saved));
-            } catch (e) {
-                console.error("Failed to parse saved edited months:", e);
-            }
-        }
-        return new Set<string>();
-    });
-
+    // 임시 상태 Firestore 실시간 동기화 구독
     useEffect(() => {
-        localStorage.setItem('ncoa_duty_planner_edited_months', JSON.stringify(Array.from(editedMonths)));
-    }, [editedMonths]);
-
-    // 원본 데이터가 최초 로드될 때 샌드박스 초기화 (로컬스토리지 백업 지원)
-    useEffect(() => {
-        if (events.length > 0 && !dutiesInitialized) {
-            const saved = localStorage.getItem('ncoa_duty_planner_duties');
-            if (saved) {
-                try {
-                    const parsed = JSON.parse(saved) as CalendarEvent[];
-                    setDuties(parsed);
+        const unsub = onSnapshot(doc(db, 'settings', 'dutyDraft'), (snapshot) => {
+            if (snapshot.exists()) {
+                const data = snapshot.data();
+                setDraftDuties(data.duties || []);
+                setEditedMonths(new Set(data.editedMonths || []));
+                setDraftConfigs(data.configs || {});
+                setDraftLockedMembers(data.lockedMembers || {});
+                setDutiesInitialized(true);
+            } else {
+                setDraftDuties([]);
+                setEditedMonths(new Set());
+                setDraftConfigs({});
+                setDraftLockedMembers({});
+                if (events.length > 0) {
                     setDutiesInitialized(true);
-                    return;
-                } catch (e) {
-                    console.error("Failed to parse saved duties:", e);
                 }
             }
-
-            const initialDuties = events.filter((e: CalendarEvent) => e.type === 'duty');
-            setDuties(initialDuties);
-            setDutiesInitialized(true);
-        }
-    }, [events, dutiesInitialized]);
-
-    // DB의 실제 당직이 변경될 때 자동으로 동기화 (단, 편집 중인 월은 제외)
-    useEffect(() => {
-        if (!dutiesInitialized) return;
-
-        const dbDuties = events.filter((e: CalendarEvent) => e.type === 'duty');
-        setDuties(prevDuties => {
-            // 편집 중인 월의 당직만 유지
-            const editedLocalDuties = prevDuties.filter(d => {
-                const [yStr, mStr] = d.startDate.split('-');
-                const monthKey = `${yStr}-${mStr}`;
-                return editedMonths.has(monthKey);
-            });
-
-            // 편집 중이 아닌 월의 당직은 DB에서 실시간 반영
-            const nonEditedDbDuties = dbDuties.filter(d => {
-                const [yStr, mStr] = d.startDate.split('-');
-                const monthKey = `${yStr}-${mStr}`;
-                return !editedMonths.has(monthKey);
-            });
-
-            return [...editedLocalDuties, ...nonEditedDbDuties];
+        }, (error) => {
+            console.error("Error subscribing to dutyDraft:", error);
         });
-    }, [events, editedMonths, dutiesInitialized]);
+        return () => unsub();
+    }, [events]);
 
-    // 샌드박스 상태가 변경될 때마다 로컬스토리지에 동기화
-    useEffect(() => {
-        if (dutiesInitialized) {
-            localStorage.setItem('ncoa_duty_planner_duties', JSON.stringify(duties));
+    const currentMonthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
+    const configs = useMemo(() => draftConfigs[currentMonthKey] || {}, [draftConfigs, currentMonthKey]);
+    const lockedMembers = useMemo(() => draftLockedMembers[currentMonthKey] || {}, [draftLockedMembers, currentMonthKey]);
+
+    // 전체 당직 목록 (편집중인 달은 임시 데이터, 편집하지 않는 달은 실제 DB 데이터 결합)
+    const duties = useMemo(() => {
+        const dbDuties = events.filter((e: CalendarEvent) => e.type === 'duty');
+        
+        const nonEditedDbDuties = dbDuties.filter(d => {
+            const [yStr, mStr] = d.startDate.split('-');
+            const monthKey = `${yStr}-${mStr}`;
+            return !editedMonths.has(monthKey);
+        });
+
+        const editedDraftDuties = draftDuties.filter(d => {
+            const [yStr, mStr] = d.startDate.split('-');
+            const monthKey = `${yStr}-${mStr}`;
+            return editedMonths.has(monthKey);
+        });
+
+        return [...editedDraftDuties, ...nonEditedDbDuties];
+    }, [events, draftDuties, editedMonths]);
+
+    const updateDraftInFirestore = async (
+        newDraftDuties: CalendarEvent[], 
+        newEditedMonths: Set<string>,
+        newConfigs = draftConfigs,
+        newLockedMembers = draftLockedMembers
+    ) => {
+        try {
+            await setDoc(doc(db, 'settings', 'dutyDraft'), {
+                duties: newDraftDuties,
+                editedMonths: Array.from(newEditedMonths),
+                configs: newConfigs,
+                lockedMembers: newLockedMembers,
+                updatedAt: serverTimestamp()
+            });
+        } catch (e) {
+            console.error("Failed to save draft to Firestore:", e);
+            showToast("임시 당직 데이터를 공유하는데 실패했습니다.", "error");
         }
-    }, [duties, dutiesInitialized]);
+    };
 
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth();
+    const updateConfig = async (memberName: string, patch: Partial<MemberConfig>) => {
+        const currentMonthConfigs = draftConfigs[currentMonthKey] || {};
+        const memberConfig = currentMonthConfigs[memberName] || { weekday: '', friSun: '', sat: '', free: '' };
+        
+        const nextMonthConfigs = {
+            ...currentMonthConfigs,
+            [memberName]: { ...memberConfig, ...patch }
+        };
+        const nextDraftConfigs = {
+            ...draftConfigs,
+            [currentMonthKey]: nextMonthConfigs
+        };
+
+        await updateDraftInFirestore(draftDuties, editedMonths, nextDraftConfigs, draftLockedMembers);
+    };
+
+    const toggleLock = async (memberName: string) => {
+        const currentMonthLocked = draftLockedMembers[currentMonthKey] || {};
+        const isLocked = !!currentMonthLocked[memberName];
+
+        const nextMonthLocked = {
+            ...currentMonthLocked,
+            [memberName]: !isLocked
+        };
+        const nextDraftLockedMembers = {
+            ...draftLockedMembers,
+            [currentMonthKey]: nextMonthLocked
+        };
+
+        await updateDraftInFirestore(draftDuties, editedMonths, draftConfigs, nextDraftLockedMembers);
+    };
+
+    const getMarkedMonths = (currentSet: Set<string>) => {
+        const monthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
+        if (!currentSet.has(monthKey)) {
+            const next = new Set(currentSet);
+            next.add(monthKey);
+            return next;
+        }
+        return currentSet;
+    };
+
+    const setDuties = (valOrFunc: CalendarEvent[] | ((prev: CalendarEvent[]) => CalendarEvent[])) => {
+        let nextDuties: CalendarEvent[] = [];
+        if (typeof valOrFunc === 'function') {
+            nextDuties = valOrFunc(duties);
+        } else {
+            nextDuties = valOrFunc;
+        }
+
+        const otherMonthsDraftDuties = draftDuties.filter(d => {
+            const [yStr, mStr] = d.startDate.split('-');
+            const monthKey = `${yStr}-${mStr}`;
+            return monthKey !== currentMonthKey;
+        });
+
+        const thisMonthDuties = nextDuties.filter(d => {
+            const [yStr, mStr] = d.startDate.split('-');
+            const monthKey = `${yStr}-${mStr}`;
+            return monthKey === currentMonthKey;
+        });
+
+        const nextDraftDuties = [...otherMonthsDraftDuties, ...thisMonthDuties];
+        const nextEditedMonths = getMarkedMonths(editedMonths);
+        updateDraftInFirestore(nextDraftDuties, nextEditedMonths);
+    };
 
     const currentMonthDuties = duties.filter((e: CalendarEvent) => {
         if (e.type !== 'duty') return false;
@@ -332,11 +401,13 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
     const markCurrentMonthAsEdited = () => {
         const monthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
         if (!editedMonths.has(monthKey)) {
-            setEditedMonths(prev => {
-                const next = new Set(prev);
-                next.add(monthKey);
-                return next;
+            const thisMonthDuties = duties.filter(d => {
+                const [yStr, mStr] = d.startDate.split('-');
+                return `${yStr}-${mStr}` === monthKey;
             });
+            const nextDraftDuties = [...draftDuties, ...thisMonthDuties];
+            const nextEditedMonths = getMarkedMonths(editedMonths);
+            updateDraftInFirestore(nextDraftDuties, nextEditedMonths);
         }
     };
 
@@ -353,9 +424,21 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
             return;
         }
 
-        markCurrentMonthAsEdited();
-        const existingDuty = currentMonthDuties.find((d: CalendarEvent) => d.startDate === dateStr);
+        const currentMonthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
+        const otherMonthsDraftDuties = draftDuties.filter(d => {
+            const [yStr, mStr] = d.startDate.split('-');
+            return `${yStr}-${mStr}` !== currentMonthKey;
+        });
+
+        const thisMonthDuties = duties.filter(d => {
+            const [yStr, mStr] = d.startDate.split('-');
+            return `${yStr}-${mStr}` === currentMonthKey;
+        });
+
+        const existingDuty = thisMonthDuties.find((d: CalendarEvent) => d.startDate === dateStr);
         const targetMemberName = directMemberName || selectedMember?.name;
+
+        let nextThisMonthDuties = [...thisMonthDuties];
 
         if (targetMemberName) {
             if (!existingDuty) {
@@ -366,21 +449,38 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
                     endDate: dateStr,
                     memo: targetMemberName
                 };
-                setDuties(prev => [...prev, newLocalDuty]);
+                nextThisMonthDuties.push(newLocalDuty);
             } else if (existingDuty.memo !== targetMemberName) {
-                setDuties(prev => prev.map((d: CalendarEvent) =>
+                nextThisMonthDuties = nextThisMonthDuties.map((d: CalendarEvent) =>
                     d.id === existingDuty.id ? { ...d, memo: targetMemberName } : d
-                ));
+                );
             }
         } else if (!selectedMember && existingDuty && !directMemberName) {
-            setDuties(prev => prev.filter((d: CalendarEvent) => d.id !== existingDuty.id));
+            nextThisMonthDuties = nextThisMonthDuties.filter((d: CalendarEvent) => d.id !== existingDuty.id);
         }
+
+        const nextDraftDuties = [...otherMonthsDraftDuties, ...nextThisMonthDuties];
+        const nextEditedMonths = getMarkedMonths(editedMonths);
+        updateDraftInFirestore(nextDraftDuties, nextEditedMonths);
     };
 
     const handleClearDate = (e: React.MouseEvent, id: string) => {
         e.stopPropagation();
-        markCurrentMonthAsEdited();
-        setDuties(prev => prev.filter((d: CalendarEvent) => d.id !== id));
+        const currentMonthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
+        
+        const otherMonthsDraftDuties = draftDuties.filter(d => {
+            const [yStr, mStr] = d.startDate.split('-');
+            return `${yStr}-${mStr}` !== currentMonthKey;
+        });
+
+        const thisMonthDuties = duties.filter(d => {
+            const [yStr, mStr] = d.startDate.split('-');
+            return `${yStr}-${mStr}` === currentMonthKey;
+        }).filter((d: CalendarEvent) => d.id !== id);
+
+        const nextDraftDuties = [...otherMonthsDraftDuties, ...thisMonthDuties];
+        const nextEditedMonths = getMarkedMonths(editedMonths);
+        updateDraftInFirestore(nextDraftDuties, nextEditedMonths);
     };
 
     const handleClearMonth = () => {
@@ -390,13 +490,14 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
         }
 
         if (confirm(`⚠️ [경고] ${year}년 ${month + 1}월에 배정된 총 ${currentMonthDuties.length}개의 당직 일정을 전부 지우시겠습니까? (이 변경은 임시 화면에만 적용되며 실제 DB에는 반영되지 않습니다)`)) {
-            markCurrentMonthAsEdited();
-            setDuties(prev => prev.filter((d: CalendarEvent) => {
+            const currentMonthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
+            const otherMonthsDraftDuties = draftDuties.filter(d => {
                 const [yStr, mStr] = d.startDate.split('-');
-                const eYear = parseInt(yStr, 10);
-                const eMonth = parseInt(mStr, 10) - 1;
-                return !(eYear === year && eMonth === month);
-            }));
+                return `${yStr}-${mStr}` !== currentMonthKey;
+            });
+
+            const nextEditedMonths = getMarkedMonths(editedMonths);
+            updateDraftInFirestore(otherMonthsDraftDuties, nextEditedMonths);
             showToast(`[임시] ${month + 1}월의 당직표가 초기화되었습니다.`);
         }
     };
@@ -411,21 +512,16 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
         });
 
         if (confirm(`📅 실제 캘린더 DB에 저장된 ${year}년 ${month + 1}월의 당직 일정 ${actualDutiesThisMonth.length}건을 플래너에 불러오시겠습니까?\n(현재 플래너에 임시 작성 중인 당월 정보는 덮어씌워집니다)`)) {
-            const otherMonthDuties = duties.filter((d: CalendarEvent) => {
+            const currentMonthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
+            const otherMonthsDraftDuties = draftDuties.filter(d => {
                 const [yStr, mStr] = d.startDate.split('-');
-                const eYear = parseInt(yStr, 10);
-                const eMonth = parseInt(mStr, 10) - 1;
-                return !(eYear === year && eMonth === month);
+                return `${yStr}-${mStr}` !== currentMonthKey;
             });
 
-            const monthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
-            setEditedMonths(prev => {
-                const next = new Set(prev);
-                next.delete(monthKey);
-                return next;
-            });
+            const nextEditedMonths = new Set(editedMonths);
+            nextEditedMonths.delete(currentMonthKey);
 
-            setDuties([...otherMonthDuties, ...actualDutiesThisMonth]);
+            updateDraftInFirestore(otherMonthsDraftDuties, nextEditedMonths);
             showToast("실제 캘린더 당직 데이터를 성공적으로 가져왔습니다!");
         }
     };
@@ -486,12 +582,16 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
 
             await batch.commit();
 
-            const monthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
-            setEditedMonths(prev => {
-                const next = new Set(prev);
-                next.delete(monthKey);
-                return next;
+            const currentMonthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
+            const otherMonthsDraftDuties = draftDuties.filter(d => {
+                const [yStr, mStr] = d.startDate.split('-');
+                return `${yStr}-${mStr}` !== currentMonthKey;
             });
+
+            const nextEditedMonths = new Set(editedMonths);
+            nextEditedMonths.delete(currentMonthKey);
+
+            await updateDraftInFirestore(otherMonthsDraftDuties, nextEditedMonths);
 
             showToast(`${year}년 ${month + 1}월 당직이 실제 캘린더 DB에 성공적으로 반영되었습니다! 🎉`, "success");
         } catch (e) {
@@ -515,6 +615,8 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
         handleCellClick, handleClearDate, handleClearMonth,
         handleConfirmDuties,
         handleSyncFromDB,
-        markCurrentMonthAsEdited
+        markCurrentMonthAsEdited,
+        configs, lockedMembers,
+        updateConfig, toggleLock
     };
 }
