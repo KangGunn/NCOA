@@ -70,13 +70,13 @@ export function PersonnelFormModal({
             const calculatedRank = isRunner ? rank.trim() : calculateRank(new Date(enlistmentDate), earlyPromotion);
             const dataToSave = {
                 name: n,
-                englishName: englishName.trim(),
-                phoneNumber: phoneNumber.trim(),
+                englishName: isRunner ? '' : englishName.trim(),
+                phoneNumber: isRunner ? '' : phoneNumber.trim(),
                 enlistmentDate: isRunner ? '' : enlistmentDate,
                 joinDate: isRunner ? '' : joinDate,
                 rank: calculatedRank,
                 role: isRunner ? 'runner' : 'member',
-                sections: sections,
+                sections: isRunner ? [] : sections,
                 earlyPromotion: isRunner ? 0 : earlyPromotion,
                 updatedAt: serverTimestamp(),
             };
@@ -134,26 +134,30 @@ export function PersonnelFormModal({
                             className="w-full px-4 py-3 sm:px-5 sm:py-4 rounded-2xl bg-gray-50 border border-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-base sm:text-lg font-bold"
                         />
                     </div>
-                    <div className="space-y-2">
-                        <label className="text-sm font-bold text-gray-700 ml-1">영문 이름</label>
-                        <input
-                            type="text"
-                            value={englishName}
-                            onChange={(e) => setEnglishName(e.target.value)}
-                            placeholder="KANG, DONG MIN"
-                            className="w-full px-4 py-3 sm:px-5 sm:py-4 rounded-2xl bg-gray-50 border border-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-base sm:text-lg font-bold"
-                        />
-                    </div>
-                    <div className="space-y-2">
-                        <label className="text-sm font-bold text-gray-700 ml-1">전화번호</label>
-                        <input
-                            type="text"
-                            value={phoneNumber}
-                            onChange={(e) => setPhoneNumber(e.target.value)}
-                            placeholder="010 1234 5678"
-                            className="w-full px-4 py-3 sm:px-5 sm:py-4 rounded-2xl bg-gray-50 border border-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-base sm:text-lg font-bold"
-                        />
-                    </div>
+                    {!isRunner && (
+                        <>
+                            <div className="space-y-2">
+                                <label className="text-sm font-bold text-gray-700 ml-1">영문 이름</label>
+                                <input
+                                    type="text"
+                                    value={englishName}
+                                    onChange={(e) => setEnglishName(e.target.value)}
+                                    placeholder="KANG, DONG MIN"
+                                    className="w-full px-4 py-3 sm:px-5 sm:py-4 rounded-2xl bg-gray-50 border border-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-base sm:text-lg font-bold"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-bold text-gray-700 ml-1">전화번호</label>
+                                <input
+                                    type="text"
+                                    value={phoneNumber}
+                                    onChange={(e) => setPhoneNumber(e.target.value)}
+                                    placeholder="010 1234 5678"
+                                    className="w-full px-4 py-3 sm:px-5 sm:py-4 rounded-2xl bg-gray-50 border border-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-base sm:text-lg font-bold"
+                                />
+                            </div>
+                        </>
+                    )}
                     {isRunner ? (
                         <div className="space-y-2">
                             <label className="text-sm font-bold text-gray-700 ml-1">계급</label>
