@@ -257,10 +257,7 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
         currentMonthFriSun?: number;
         currentMonthSat?: number;
     }>, member: CalendarMember) => {
-        if (member.role === 'runner') {
-            acc[member.name] = { total: 0, weekday: 0, friSun: 0, sat: 0, currentMonthWeekday: 0, currentMonthFriSun: 0, currentMonthSat: 0 };
-            return acc;
-        }
+
 
         const baselineWeekday = member.baselineWeekday || 0;
         const baselineFriSun = member.baselineFriSun || 0;
