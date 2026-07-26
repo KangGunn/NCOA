@@ -72,7 +72,7 @@ export function RollCallScheduleList({
             </div>
             <div className="flex flex-col gap-4">
                 {Object.keys(scheduleParticipants).map(category => {
-                    const targetSection = category.split(' ')[0]; // 'HQ', 'KTA', 'MEDIC', 'BLC'
+                    const targetSection = category.split(' ')[0]; // 'HQ', 'KTA', 'MEDIC', 'BLC', 'PAO'
 
                     let sectionMembers: Member[] = [];
                     if (targetSection === 'HQ') {
