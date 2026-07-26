@@ -94,7 +94,7 @@ export function generateEveningReportText({
         report += `-없음\n`;
     }
 
-    return report;
+    return report.trim();
 }
 
 
@@ -173,5 +173,5 @@ export function generateMorningReportText({
     }
     report += `\n`;
 
-    return report;
+    return report.trim();
 }
