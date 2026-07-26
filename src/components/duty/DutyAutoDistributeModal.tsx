@@ -453,24 +453,21 @@ export function DutyAutoDistributeModal({
 
                 {/* 푸터 */}
                 <div className="px-6 py-4 border-t border-slate-800 shrink-0 flex items-center justify-between gap-3">
-                    <p className="text-[10px] text-slate-600 font-bold">
+                    <p className="text-[11px] text-amber-400 font-black">
                         {step === 'configure'
-                            ? '목표 횟수가 모두 0인 대원은 자동 분배에서 제외됩니다.'
+                            ? '⚠️ 자동분배 기능은 현재 미완성되어 사용할 수 없습니다.'
                             : `총 ${result?.assignments.length ?? 0}개 배정 완료 · 미배정 ${result?.warnings.filter(w => w.type === 'unassigned').length ?? 0}일`}
                     </p>
                     {step === 'configure' ? (
                         <button
                             onClick={handleRun}
-                            disabled={isRunning}
-                            className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 active:scale-[0.97] text-white rounded-xl text-xs font-black transition-all shadow-lg shadow-indigo-500/20 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                            disabled={true}
+                            title="자동분배 기능은 현재 미완성되어 사용할 수 없습니다."
+                            className="flex items-center gap-2 px-5 py-2.5 bg-slate-800 text-slate-500 rounded-xl text-xs font-black transition-all cursor-not-allowed opacity-60"
                         >
-                            {isRunning ? (
-                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                                <Wand2 className="w-3.5 h-3.5" />
-                            )}
-                            {isRunning ? '분배 중...' : '자동 분배 실행'}
-                            {!isRunning && <ChevronRight className="w-3.5 h-3.5" />}
+                            <Wand2 className="w-3.5 h-3.5" />
+                            자동 분배 실행 (미완성)
+                            <ChevronRight className="w-3.5 h-3.5" />
                         </button>
                     ) : (
                         <button

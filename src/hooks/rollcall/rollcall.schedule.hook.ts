@@ -5,7 +5,8 @@ export function useRollCallSchedule() {
         'HQ PT': [],
         'KTA 업무지원': [],
         'MEDIC 의무지원': [],
-        'BLC 업무지원': []
+        'BLC 업무지원': [],
+        'PAO 업무지원': []
     });
     const [customSchedules, setCustomSchedules] = useState<{ name: string; participants: string[] }[]>([]);
 
