@@ -70,7 +70,54 @@ export function MovementSheetView({
         return true;
     };
 
-    const extractRewardType = (reasonStr: string): string => {
+    const formatReasonWithBatchPrefix = (reasonStr: string, dbMember?: any, isEnclosure: boolean = false): string => {
+        if (!reasonStr) return reasonStr;
+
+        const batchRegex = /(\d{1,2}-\d{1,2})\s*(?:기|Cycle|cycle|차)?/i;
+        const match = reasonStr.match(batchRegex);
+        if (!match) return reasonStr;
+
+        const batchNum = match[1];
+        const matchIndex = match.index || 0;
+        const matchLength = match[0].length;
+
+        const textBeforeBatch = reasonStr.substring(0, matchIndex).trim();
+        const textAfterBatch = reasonStr.substring(matchIndex + matchLength).trim();
+
+        const hasPrefix = /(KTA|BLC|PAO|S3|BLC\/S3)\s*$/i.test(textBeforeBatch);
+
+        const sections: string[] = dbMember?.sections || [];
+        let sectionPrefix = '';
+
+        if (!hasPrefix) {
+            if (sections.includes('S3') || sections.includes('S-3')) {
+                sectionPrefix = 'BLC/S3';
+            } else if (sections.includes('PAO')) {
+                sectionPrefix = 'PAO';
+            } else if (sections.includes('KTA')) {
+                sectionPrefix = 'KTA';
+            } else if (sections.includes('BLC')) {
+                sectionPrefix = 'BLC';
+            } else if (sections.length > 0) {
+                const firstSec = sections[0].toUpperCase();
+                if (firstSec === 'S3' || firstSec === 'S-3') {
+                    sectionPrefix = 'BLC/S3';
+                } else {
+                    sectionPrefix = firstSec;
+                }
+            } else {
+                sectionPrefix = 'BLC';
+            }
+        }
+
+        const formattedSuffix = isEnclosure ? `${batchNum} Cycle` : `${batchNum}기`;
+        const prefixStr = hasPrefix ? '' : `${sectionPrefix} `;
+        const spaceAfter = textAfterBatch ? ' ' : '';
+
+        return `${textBeforeBatch ? textBeforeBatch + ' ' : ''}${prefixStr}${formattedSuffix}${spaceAfter}${textAfterBatch}`;
+    };
+
+    const extractRewardType = (reasonStr: string, dbMember?: any, isEnclosure: boolean = false): string => {
         let target = reasonStr.trim();
         target = target.replace(/외휴연계\s*[OX]?/gi, '').trim();
 
@@ -89,7 +136,13 @@ export function MovementSheetView({
         target = target.replace(/사용/gi, '').trim();
         target = target.replace(/,/gi, '').trim();
 
-        return target || '포상';
+        target = target || '포상';
+
+        if (dbMember) {
+            target = formatReasonWithBatchPrefix(target, dbMember, isEnclosure);
+        }
+
+        return target;
     };
 
     // Helper to collect contiguous date blocks overlapping with weekend
@@ -571,7 +624,8 @@ export function MovementSheetView({
 
                         if (matchedMov && isInCoreTimeline(matchedMov.startDate, coreTimeline)) {
                             const reason = matchedMov.reason;
-                            const rewardType = extractRewardType(reason);
+                            const rewardTypeEnclosure = extractRewardType(reason, dbMember, true);
+                            const rewardTypeRemarks = extractRewardType(reason, dbMember, false);
                             const dateRangeKo = formatRemarksDateRange(matchedMov, true);
                             const movStart = new Date(matchedMov.startDate);
                             const movEnd = new Date(matchedMov.endDate);
@@ -584,7 +638,7 @@ export function MovementSheetView({
                                 formattedName: formattedEnglishName,
                                 count: totalMovDays,
                                 typeStr: 'PASS',
-                                reason: rewardType
+                                reason: rewardTypeEnclosure
                             });
 
                             remarksPassItems.push({
@@ -592,7 +646,7 @@ export function MovementSheetView({
                                 koreanName: cleanName,
                                 rankKo,
                                 dateRangeKo,
-                                reason: rewardType,
+                                reason: rewardTypeRemarks,
                                 count: totalMovDays,
                                 typeStr: 'PASS'
                             });
@@ -608,7 +662,7 @@ export function MovementSheetView({
 
                     if (matchedMov && isInCoreTimeline(matchedMov.startDate, coreTimeline)) {
                         const reason = matchedMov.reason;
-                        const rewardType = extractRewardType(reason);
+                        const rewardType = extractRewardType(reason, dbMember, false);
                         const dateRangeKo = formatRemarksDateRange(matchedMov, false);
                         const movStart = new Date(matchedMov.startDate);
                         const movEnd = new Date(matchedMov.endDate);

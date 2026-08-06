@@ -27,8 +27,7 @@ export function DutyTemplateGrid({
     handleToggleRestriction, handleToggleBlcRestriction,
     ktaDayLabels, setKtaDayLabels,
     blcDayLabels, setBlcDayLabels,
-    ktaSections, blcSections,
-    isBlc30
+    ktaSections, blcSections
 }: DutyTemplateGridProps) {
     if (viewMode === 'kta-template') {
         const totalCells = 28;

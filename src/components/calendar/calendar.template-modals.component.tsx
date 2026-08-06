@@ -4,7 +4,7 @@ import { cn } from '../../lib/utils';
 import { DndContext, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { DraggableEventItem, DroppableDayZone } from './calendar.dnd.component.tsx';
-import { sortedWithIndex, formatDateWithDay, isBlc30Days } from '../../utils/calendar.utils';
+import { sortedWithIndex, formatDateWithDay } from '../../utils/calendar.utils';
 import type { ScheduleTemplateDay } from '../../types/calendar/calendar.type';
 
 interface KtaTemplateModalProps {

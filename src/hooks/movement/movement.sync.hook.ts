@@ -96,6 +96,7 @@ export function useMovementSync(baseDate?: Date) {
     const [sheetUpdatedAt, setSheetUpdatedAt] = useState<string>('0');
     const [dbMembers, setDbMembers] = useState<any[]>([]);
     const [movements, setMovements] = useState<MovementRecord[]>([]);
+    const [dutySchedules, setDutySchedules] = useState<any[]>([]);
 
     useEffect(() => {
         const unsub = onSnapshot(doc(db, 'settings', 'spreadsheet'), (snap) => {
@@ -128,10 +129,16 @@ export function useMovementSync(baseDate?: Date) {
             setMovements(rows);
         });
 
+        const unsubSchedules = onSnapshot(collection(db, 'schedules'), (snap) => {
+            const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            setDutySchedules(rows);
+        });
+
         return () => {
             unsub();
             unsubMembers();
             unsubMovements();
+            unsubSchedules();
         };
     }, []);
 
@@ -408,6 +415,125 @@ export function useMovementSync(baseDate?: Date) {
                 let isDutyCapturing = false;
 
                 const currentYear = new Date().getFullYear();
+                const detectedMonths: number[] = [];
+                const detectedDates: Date[] = [];
+
+                // Helper to parse flexible duty lines with month-boundary awareness (e.g. 5.31 토당 ~ 6.1 일당)
+                const parseDutyLine = (line: string) => {
+                    const cleanLine = line.replace(/^[ㄴ\-\*\[\]\.\s]+/, '').trim();
+                    const nameMatch = cleanLine.match(/(병장|상병|일병|이병)\s*([가-힣]{2,5})/);
+                    if (!nameMatch) return null;
+
+                    const rank = nameMatch[1];
+                    const name = nameMatch[2];
+                    const fullName = `${rank} ${name}`;
+
+                    const lineAfterName = cleanLine.replace(nameMatch[0], '').trim();
+
+                    let m: number | null = null;
+                    let d: number | null = null;
+
+                    // 1. Check for explicit Month and Day (e.g. "8.15", "8/15", "8월 15일", "8월15")
+                    const fullDateMatch = lineAfterName.match(/(\d{1,2})\s*[./월]\s*(\d{1,2})\s*일?/);
+                    if (fullDateMatch) {
+                        m = parseInt(fullDateMatch[1], 10);
+                        d = parseInt(fullDateMatch[2], 10);
+                    } else {
+                        // 2. Check for Day-only number (e.g. "15일", "16일", or bare number "15")
+                        const dayMatch = lineAfterName.match(/(\d{1,2})\s*일/) || lineAfterName.match(/\b(\d{1,2})\b/);
+                        if (dayMatch) {
+                            d = parseInt(dayMatch[1], 10);
+                        }
+                    }
+
+                    // 3. Check for Day-of-week specification ((금), (토), (일) 또는 금당, 토당, 일당 등)
+                    const dayOfWeekMap: Record<string, number> = {
+                        '일': 0, '일당': 0,
+                        '월': 1, '월당': 1,
+                        '화': 2, '화당': 2,
+                        '수': 3, '수당': 3,
+                        '목': 4, '목당': 4,
+                        '금': 5, '금당': 5,
+                        '토': 6, '토당': 6
+                    };
+
+                    let specDayOfWeek: string | null = null;
+                    let expectedDayIndex: number | null = null;
+
+                    const parenMatch = lineAfterName.match(/\((월|화|수|목|금|토|일)\)/);
+                    if (parenMatch) {
+                        specDayOfWeek = parenMatch[1];
+                        expectedDayIndex = dayOfWeekMap[specDayOfWeek];
+                    } else {
+                        const dowMatch = lineAfterName.match(/(월당|화당|수당|목당|금당|토당|일당)/);
+                        if (dowMatch) {
+                            specDayOfWeek = dowMatch[1];
+                            expectedDayIndex = dayOfWeekMap[specDayOfWeek];
+                        }
+                    }
+
+                    // Month & Date Resolution: Check detectedDates to accurately handle month boundaries across weekends!
+                    if (m === null && d !== null) {
+                        const matchedDate = detectedDates.find(dateObj => dateObj.getDate() === d);
+                        if (matchedDate) {
+                            m = matchedDate.getMonth() + 1;
+                        } else {
+                            m = detectedMonths.length > 0
+                                ? detectedMonths[0]
+                                : (baseDate ? baseDate.getMonth() + 1 : new Date().getMonth() + 1);
+                        }
+                    } else if (m === null && d === null && expectedDayIndex !== null) {
+                        const matchedDate = detectedDates.find(dateObj => dateObj.getDay() === expectedDayIndex);
+                        if (matchedDate) {
+                            m = matchedDate.getMonth() + 1;
+                            d = matchedDate.getDate();
+                        } else {
+                            m = detectedMonths.length > 0
+                                ? detectedMonths[0]
+                                : (baseDate ? baseDate.getMonth() + 1 : new Date().getMonth() + 1);
+                        }
+                    }
+
+                    // Validation & Date Resolution
+                    const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+                    const warnings: string[] = [];
+
+                    if (d !== null && m !== null) {
+                        const targetDate = new Date(currentYear, m - 1, d, 12, 0, 0, 0);
+                        const actualDayIndex = targetDate.getDay();
+
+                        if (expectedDayIndex !== null && actualDayIndex !== expectedDayIndex) {
+                            warnings.push(`${m}.${d}일은 ${dayNames[actualDayIndex]}요일이나, 댓글에는 '${specDayOfWeek}'(으)로 표기되어 일치하지 않습니다.`);
+                        }
+
+                        // Calendar Duty Mismatch Check
+                        const targetDateISO = `${currentYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                        const savedDuty = dutySchedules.find((s: any) => (s.type === 'duty' || !s.type) && s.startDate === targetDateISO);
+                        if (savedDuty && savedDuty.memo) {
+                            const excelNameClean = name.trim();
+                            const savedNameClean = savedDuty.memo.replace(/^(병장|상병|일병|이병)\s*/, '').replace(/\(.*\)/, '').replace(/당직.*/, '').trim();
+                            if (!savedNameClean.includes(excelNameClean) && !excelNameClean.includes(savedNameClean)) {
+                                warnings.push(`${m}.${d}일 캘린더 등록 당직자('${savedDuty.memo}')와 엑셀 입력 당직자('${fullName}')가 일치하지 않습니다.`);
+                            }
+                        }
+
+                        return {
+                            name: fullName,
+                            type: '당직',
+                            date: `${m}.${d}`,
+                            warning: warnings.length > 0 ? warnings.join(' / ') : null
+                        };
+                    } else if (expectedDayIndex !== null && m !== null) {
+                        return {
+                            name: fullName,
+                            type: '당직',
+                            date: `${m}.${specDayOfWeek}`,
+                            warning: null
+                        };
+                    }
+
+                    return null;
+                };
 
                 for (let i = 0; i < rawData.length; i++) {
                     const content = String(rawData[i]['댓글 내용'] || '').trim();
@@ -453,8 +579,15 @@ export function useMovementSync(baseDate?: Date) {
                                         const vD1 = parseInt((vRangeMatch || vSingleMatch)![2]);
                                         const vM2 = vRangeMatch ? parseInt(vRangeMatch[3]) : vM1;
                                         const vD2 = vRangeMatch ? parseInt(vRangeMatch[4]) : vD1;
+
+                                        detectedMonths.push(vM1);
+                                        detectedMonths.push(vM2);
+
                                         const vStartDate = new Date(currentYear, vM1 - 1, vD1, 12, 0, 0, 0);
                                         const vEndDate = new Date(currentYear, vM2 - 1, vD2, 12, 0, 0, 0);
+                                        detectedDates.push(vStartDate);
+                                        detectedDates.push(vEndDate);
+
                                         const vStartStr = `${vM1}.${vD1}`;
                                         const vEndStr = `${vM2}.${vD2}`;
                                         // 외휴연계 O이면 true, X이면 false, 없으면 주소 비교 fallback
@@ -478,10 +611,7 @@ export function useMovementSync(baseDate?: Date) {
                                         vReason = vReason.replace(/,/gi, '').trim();
                                         vReason = vReason.trim();
 
-                                        // const vDays = Math.round((vEndDate.getTime() - vStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-                                        // const vacationDayCount = extractDayCountFromText(vReason);
                                         let warning: string | null = null;
-                                        // Warning removed: vDays from Excel might be clipped, comparing with full vacationDayCount causes false positives
 
                                         return {
                                             period: vRangeMatch ? `${vM1}.${vD1}~${vM2}.${vD2}` : `${vM1}.${vD1}`,
@@ -508,19 +638,23 @@ export function useMovementSync(baseDate?: Date) {
                                         const endM = parseInt(rangeMatch[3]);
                                         const endD = parseInt(rangeMatch[4]);
 
+                                        detectedMonths.push(startM);
+                                        detectedMonths.push(endM);
+
                                         const startDate = new Date(currentYear, startM - 1, startD, 12, 0, 0, 0);
                                         const endDate = new Date(currentYear, endM - 1, endD, 12, 0, 0, 0);
                                         const departDate = new Date(startDate);
                                         departDate.setDate(startDate.getDate() - 1);
                                         departDate.setHours(12, 0, 0, 0);
 
+                                        detectedDates.push(startDate);
+                                        detectedDates.push(endDate);
+                                        detectedDates.push(departDate);
+
                                         // Parse vacation first if vacationRaw exists to check for linkage
                                         const vacation = vacationRaw ? parseVacation(vacationRaw, `${endM}.${endD}`) : null;
 
-                                        // const days = Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-                                        // const passDayCount = extractDayCountFromText(passReason);
                                         let warning: string | null = null;
-                                        // Warning removed: days from Excel might be clipped
 
                                         const passData = {
                                             name: `${rank} ${name}`,
@@ -544,10 +678,16 @@ export function useMovementSync(baseDate?: Date) {
                                             // '+' 앞에 단일 날짜 있음 → 외박(원데이) 처리
                                             const m = parseInt(singleMatch[1]);
                                             const d = parseInt(singleMatch[2]);
+
+                                            detectedMonths.push(m);
+
                                             const endDate = new Date(currentYear, m - 1, d, 12, 0, 0, 0);
                                             const departDate = new Date(endDate);
                                             departDate.setDate(endDate.getDate() - 1);
                                             departDate.setHours(12, 0, 0, 0);
+
+                                            detectedDates.push(endDate);
+                                            detectedDates.push(departDate);
 
                                             const isDayOff = passPart.match(/(원|투|쓰리|포|파이브)데이/);
                                             const hasStayKeyword = passPart.includes('잔류');
@@ -555,10 +695,7 @@ export function useMovementSync(baseDate?: Date) {
                                             if (hasStayKeyword && !isDayOff) {
                                                 extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: extractStayDetail(passPart) });
                                             } else {
-                                                // const days = 1;
-                                                // const passDayCount = extractDayCountFromText(passReason);
                                                 let warning: string | null = null;
-                                                // Warning removed: Excel data may not reflect the full pass period
 
                                                 const passData = {
                                                     name: `${rank} ${name}`,
@@ -615,23 +752,18 @@ export function useMovementSync(baseDate?: Date) {
                     }
 
                     if (isDutyCapturing) {
-                        if (content.startsWith('ㄴ')) {
-                            const cleanLine = content.replace(/^ㄴ/, '').trim();
-                            const dutyMatch = cleanLine.match(/^(병장|상병|일병|이병)\s+([가-힣]+)[,\s]+(\d{1,2})\s*[./월]\s*(\d{1,2})/);
+                        const lines = content.split('\n');
+                        let matchedAnyInCell = false;
 
-                            if (dutyMatch) {
-                                const rank = dutyMatch[1];
-                                const name = dutyMatch[2];
-                                const m = dutyMatch[3];
-                                const d = dutyMatch[4];
-
-                                extractedData.push({
-                                    name: `${rank} ${name}`,
-                                    type: '당직',
-                                    date: `${m}.${d}`
-                                });
+                        lines.forEach(line => {
+                            const dutyItem = parseDutyLine(line);
+                            if (dutyItem) {
+                                extractedData.push(dutyItem);
+                                matchedAnyInCell = true;
                             }
-                        } else if (content !== '') {
+                        });
+
+                        if (!matchedAnyInCell && content !== '' && !content.includes('당직')) {
                             isDutyCapturing = false;
                         }
                     }
