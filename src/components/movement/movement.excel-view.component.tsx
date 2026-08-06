@@ -71,6 +71,18 @@ export function MovementExcelView({
             }
         }
 
+        if (item.type === '잔류') {
+            const firstDateStr = timeline[0] ? toISODate(timeline[0]) : '';
+            const lastDateStr = timeline[timeline.length - 1] ? toISODate(timeline[timeline.length - 1]) : firstDateStr;
+            records.push({
+                name: cleanName,
+                type: 'stay',
+                startDate: firstDateStr || `${currentYear}-01-01`,
+                endDate: lastDateStr || `${currentYear}-12-31`,
+                reason: item.detail || '잔류'
+            });
+        }
+
         return records;
     });
 

@@ -103,7 +103,7 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     const currentMonthBlcEvent = events.find(e => e.type === 'blc' && e.memo?.includes('Day 0') && new Date(e.startDate).getMonth() === month && new Date(e.startDate).getFullYear() === year);
-    const isBlc30 = currentMonthBlcEvent ? isBlc30Days(currentMonthBlcEvent.batch || '') : false;
+    const isBlc30 = currentMonthBlcEvent ? isBlc30Days(currentMonthBlcEvent.batch || '') : true;
 
     const prevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
     const nextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
