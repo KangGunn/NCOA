@@ -186,7 +186,7 @@ export function BlcTemplateModal({
                                 </span>
                             )}
                         </div>
-                        <p className="text-xs text-gray-500 font-bold mt-1">Day -1부터 Day {isBlc30Days(blcReferenceBatch) ? 30 : 22}까지의 일정을 미리 설정합니다.</p>
+                        <p className="text-xs text-gray-500 font-bold mt-1">Day -1부터 Day 30까지의 일정을 미리 설정합니다.</p>
                     </div>
                     <button onClick={() => setIsBLCScheduleAdding(false)} className="p-2 bg-gray-50 rounded-full hover:bg-gray-100">
                         <X className="w-5 h-5 text-gray-400" />

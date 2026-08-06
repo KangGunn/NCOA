@@ -131,10 +131,11 @@ export function DutyTemplateGrid({
     }
     
     if (viewMode === 'blc-template') {
-        const startDay = isBlc30 ? -2 : -1;
-        const endDay = isBlc30 ? 30 : 26;
+        const startDay = -2;
+        const endDay = 30;
         const blcDays = Array.from({ length: endDay - startDay + 1 }, (_, i) => i + startDay);
-        const gridRowsClass = isBlc30 ? "grid-rows-5" : "grid-rows-4";
+        const gridRowsClass = "grid-rows-5";
+        const gradDay = 30;
 
         return (
             <div className={`flex-1 min-h-0 grid grid-cols-7 bg-slate-950/20 w-full h-full relative ${gridRowsClass}`}>
@@ -155,7 +156,7 @@ export function DutyTemplateGrid({
                             <div className="flex flex-col h-full min-h-0 w-full justify-between">
                                 <div className="flex justify-between items-center shrink-0 h-6">
                                     <div className="flex items-center gap-1.5 min-w-0">
-                                        <span className={`text-[11px] font-black tracking-tight ${dayNum === 0 || dayNum === (isBlc30 ? 30 : 22)
+                                        <span className={`text-[11px] font-black tracking-tight ${dayNum === 0 || dayNum === gradDay
                                                 ? 'text-blue-400 font-black bg-blue-950/30 px-2 py-0.5 rounded border border-blue-900/30 shadow-sm'
                                                 : 'text-slate-300 font-extrabold'
                                             }`}>
@@ -176,7 +177,7 @@ export function DutyTemplateGrid({
                                             </span>
                                         )}
                                     </div>
-                                    {dayNum === (isBlc30 ? 30 : 22) && (
+                                    {dayNum === gradDay && (
                                         <span className="text-[9px] font-black text-blue-400 bg-blue-950/20 px-2 py-0.5 rounded-lg border border-blue-500/10 uppercase shrink-0">
                                             Grad
                                         </span>

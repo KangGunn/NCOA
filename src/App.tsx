@@ -200,12 +200,14 @@ function App() {
       const isHoliday = isHolidayDate(tomorrowStr);
 
       if (!isSunday && !isHoliday) {
-        blcBatches.filter(b => b.memo?.startsWith('Day 0')).forEach(b => {
+        blcBatches.filter(b => b.memo?.includes('Day 0')).forEach(b => {
           const blcStart = new Date(b.startDate);
           blcStart.setHours(0, 0, 0, 0);
 
+          let dayCount: number | null = null;
+
           if (tomorrowCalc >= blcStart) {
-            let dayCount = 0;
+            dayCount = 0;
             let current = new Date(blcStart);
             while (current < tomorrowCalc) {
               const currentStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
@@ -216,14 +218,23 @@ function App() {
               }
               current.setDate(current.getDate() + 1);
             }
+          } else {
+            // 입교 전날 (Day -1) 체크
+            const oneDayBefore = new Date(blcStart);
+            oneDayBefore.setDate(oneDayBefore.getDate() - 1);
+            if (tomorrowCalc.getTime() === oneDayBefore.getTime()) {
+              dayCount = -1;
+            }
+          }
 
-            if (dayCount <= 22) {
-              const dayData = blcTemplate.schedules?.find((s: any) => s.day === dayCount);
-              if (dayData && dayData.events.length > 0) {
-                const batch = b.batch || '';
-                const blcEvents = dayData.events.map((e: string) => e.replace(/\{batch\}/g, batch));
-                scheduleLines = [...scheduleLines, ...blcEvents];
-              }
+          if (dayCount !== null && dayCount >= -1 && dayCount <= 30) {
+            const dayData = blcTemplate.schedules?.find((s: any) => s.day === dayCount);
+            if (dayData && dayData.events && dayData.events.length > 0) {
+              const batch = b.batch || '';
+              const blcEvents = dayData.events
+                .filter((e: string) => e.trim() !== '')
+                .map((e: string) => e.replace(/\{batch\}/g, batch));
+              scheduleLines = [...scheduleLines, ...blcEvents];
             }
           }
         });

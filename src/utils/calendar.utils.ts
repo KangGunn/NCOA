@@ -140,13 +140,21 @@ export const sortedWithIndex = (evts: string[]) =>
         .sort((a, b) => (a.evt.match(/^\d{4}/)?.[0] || '9999').localeCompare(b.evt.match(/^\d{4}/)?.[0] || '9999'));
 
 export function isBlc30Days(batch?: string): boolean {
-    if (!batch) return false;
+    if (!batch) return true;
     const match = batch.match(/^(\d+)-(\d+)$/);
-    if (!match) return false;
-    const m = parseInt(match[1], 10);
-    const y = parseInt(match[2], 10);
-    // 08-26 and later is 30 days
-    if (y > 26) return true;
-    if (y === 26 && m >= 8) return true;
-    return false;
+    if (!match) return true;
+    const n1 = parseInt(match[1], 10);
+    const n2 = parseInt(match[2], 10);
+    let year = 2000;
+    let month = 1;
+    if (n1 >= 20) {
+        year = 2000 + n1;
+        month = n2;
+    } else {
+        month = n1;
+        year = 2000 + n2;
+    }
+    if (year > 2026) return true;
+    if (year === 2026 && month >= 8) return true;
+    return true;
 }

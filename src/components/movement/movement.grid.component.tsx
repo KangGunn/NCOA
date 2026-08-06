@@ -95,7 +95,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                         const isOverlapping = isoDate >= mov.startDate && isoDate <= mov.endDate;
                         if (!isOverlapping) return false;
                         
-                        if (mov.type === 'pass') {
+                        if (mov.type === 'pass' || mov.type === 'stay') {
                             return coreTimeline.includes(dateStr);
                         }
                         
@@ -136,13 +136,14 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                             {[...memberMovements]
                                                 .sort((a, b) => {
                                                     if (a.type === b.type) return a.startDate.localeCompare(b.startDate);
-                                                    return a.type === 'pass' ? -1 : 1;
+                                                    const order: Record<string, number> = { pass: 1, stay: 2, vacation: 3 };
+                                                    return (order[a.type] || 9) - (order[b.type] || 9);
                                                 })
                                                 .filter(m => m.reason)
                                                 .map((mov, mIdx) => (
                                                     <div key={mIdx} className={mIdx > 0 ? "border-t border-gray-800 pt-1 mt-1" : ""}>
                                                         <div className="text-[9px] text-gray-400 font-bold mb-0.5">
-                                                            {mov.type === 'pass' ? '외박' : '휴가'} ({
+                                                            {mov.type === 'pass' ? '외박' : mov.type === 'stay' ? '잔류' : '휴가'} ({
                                                                 mov.startDate === mov.endDate
                                                                     ? mov.startDate.slice(5).replace('-', '.')
                                                                     : `${mov.startDate.slice(5).replace('-', '.')} ~ ${mov.endDate.slice(5).replace('-', '.')}`

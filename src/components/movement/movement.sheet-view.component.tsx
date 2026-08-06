@@ -500,8 +500,11 @@ export function MovementSheetView({
             const allRemarksDates: Date[] = [];
 
             // Helper to format date range to Korean style for remarks using DB movement
-            const formatRemarksDateRange = (matchedMov: any) => {
+            const formatRemarksDateRange = (matchedMov: any, includeDepartDateForPass: boolean = false) => {
                 const startD = new Date(matchedMov.startDate);
+                if (includeDepartDateForPass) {
+                    startD.setDate(startD.getDate() - 1);
+                }
                 const endD = new Date(matchedMov.endDate);
 
                 allRemarksDates.push(new Date(startD));
@@ -516,7 +519,7 @@ export function MovementSheetView({
                 const em = endD.getMonth() + 1;
                 const ed = endD.getDate();
 
-                if (matchedMov.startDate === matchedMov.endDate) {
+                if (startD.getTime() === endD.getTime()) {
                     return `${sm}/${sd}(${startDayKo})`;
                 } else {
                     return `${sm}/${sd}(${startDayKo})~${em}/${ed}(${endDayKo})`;
@@ -569,7 +572,7 @@ export function MovementSheetView({
                         if (matchedMov && isInCoreTimeline(matchedMov.startDate, coreTimeline)) {
                             const reason = matchedMov.reason;
                             const rewardType = extractRewardType(reason);
-                            const dateRangeKo = formatRemarksDateRange(matchedMov);
+                            const dateRangeKo = formatRemarksDateRange(matchedMov, true);
                             const movStart = new Date(matchedMov.startDate);
                             const movEnd = new Date(matchedMov.endDate);
                             const totalMovDays = Math.round((movEnd.getTime() - movStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
@@ -606,7 +609,7 @@ export function MovementSheetView({
                     if (matchedMov && isInCoreTimeline(matchedMov.startDate, coreTimeline)) {
                         const reason = matchedMov.reason;
                         const rewardType = extractRewardType(reason);
-                        const dateRangeKo = formatRemarksDateRange(matchedMov);
+                        const dateRangeKo = formatRemarksDateRange(matchedMov, false);
                         const movStart = new Date(matchedMov.startDate);
                         const movEnd = new Date(matchedMov.endDate);
                         const totalMovDays = Math.round((movEnd.getTime() - movStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
