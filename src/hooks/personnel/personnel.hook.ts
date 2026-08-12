@@ -14,6 +14,13 @@ export interface MemberDoc {
     updatedAt?: unknown;
     englishName?: string;
     phoneNumber?: string;
+    dutyOffset?: number;
+    penalties?: Array<{
+        id: string;
+        type: 'weekday' | 'friSun' | 'sat';
+        reason: string;
+        createdAt?: string;
+    }>;
 }
 
 export function usePersonnel(baseDate: Date) {

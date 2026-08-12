@@ -8,4 +8,11 @@ export interface Member {
     joinDate?: string;
     englishName?: string;
     phoneNumber?: string;
+    dutyOffset?: number;
+    penalties?: Array<{
+        id: string;
+        type: 'weekday' | 'friSun' | 'sat';
+        reason: string;
+        createdAt?: string;
+    }>;
 }
