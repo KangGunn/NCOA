@@ -13,6 +13,7 @@ import { DutyAutoDistributeModal } from './DutyAutoDistributeModal';
 import { db } from '../../lib/firebase';
 import { doc, setDoc, updateDoc, deleteField } from 'firebase/firestore';
 import type { CalendarEvent, CalendarMember } from '../../types/calendar/calendar.type';
+import { getMemberPenaltyCounts } from '../../utils/duty/dutyAutoDistribute';
 import type { AssignedDuty } from '../../utils/duty/dutyAutoDistribute';
 import { getActiveSectionsFor } from '../../utils/duty/dutyAutoDistribute';
 import { exportCalendarImage } from '../../utils/duty/exportCalendarImage';
@@ -271,18 +272,23 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
         if (member.role === 'runner') return false;
 
         const stats = dutyStats[member.name] || { weekday: 0, friSun: 0, sat: 0 };
-        const criteriaWeekday = (() => {
+        const baseCriteriaWeekday = (() => {
             const saved = localStorage.getItem('ncoa_criteria_weekday');
             return saved ? parseInt(saved, 10) : 13;
         })();
-        const criteriaFriSun = (() => {
+        const baseCriteriaFriSun = (() => {
             const saved = localStorage.getItem('ncoa_criteria_frisun');
             return saved ? parseInt(saved, 10) : 9;
         })();
-        const criteriaSat = (() => {
+        const baseCriteriaSat = (() => {
             const saved = localStorage.getItem('ncoa_criteria_sat');
             return saved ? parseInt(saved, 10) : 6;
         })();
+        const penalties = getMemberPenaltyCounts(member);
+        const criteriaWeekday = baseCriteriaWeekday + penalties.weekday;
+        const criteriaFriSun = baseCriteriaFriSun + penalties.friSun;
+        const criteriaSat = baseCriteriaSat + penalties.sat;
+
         const isSK = member.sections?.includes('SK') || false;
         const isCompleted = isSK || !!member.dutyCompleted || (stats.weekday >= criteriaWeekday && stats.friSun >= criteriaFriSun && stats.sat >= criteriaSat);
 
@@ -347,18 +353,23 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
         }
 
         const stats = dutyStats[member.name] || { weekday: 0, friSun: 0, sat: 0 };
-        const criteriaWeekday = (() => {
+        const baseCriteriaWeekday = (() => {
             const saved = localStorage.getItem('ncoa_criteria_weekday');
             return saved ? parseInt(saved, 10) : 13;
         })();
-        const criteriaFriSun = (() => {
+        const baseCriteriaFriSun = (() => {
             const saved = localStorage.getItem('ncoa_criteria_frisun');
             return saved ? parseInt(saved, 10) : 9;
         })();
-        const criteriaSat = (() => {
+        const baseCriteriaSat = (() => {
             const saved = localStorage.getItem('ncoa_criteria_sat');
             return saved ? parseInt(saved, 10) : 6;
         })();
+        const penalties = getMemberPenaltyCounts(member);
+        const criteriaWeekday = baseCriteriaWeekday + penalties.weekday;
+        const criteriaFriSun = baseCriteriaFriSun + penalties.friSun;
+        const criteriaSat = baseCriteriaSat + penalties.sat;
+
         const isSK = member.sections?.includes('SK') || false;
         const isCompleted = isSK || !!member.dutyCompleted || (stats.weekday >= criteriaWeekday && stats.friSun >= criteriaFriSun && stats.sat >= criteriaSat);
 

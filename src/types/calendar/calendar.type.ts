@@ -10,6 +10,14 @@ export interface CalendarEvent {
     customDutyType?: 'weekday' | 'friSun' | 'sat';
 }
 
+export interface PenaltyItem {
+    id: string;
+    type: 'weekday' | 'friSun' | 'sat';
+    date?: string;
+    reason: string;
+    createdAt?: string;
+}
+
 export interface CalendarMember {
     id: string;
     name: string;
@@ -23,6 +31,8 @@ export interface CalendarMember {
     baselineSat?: number;
     earlyPromotion?: number;
     joinDate?: string;
+    dutyOffset?: number;
+    penalties?: PenaltyItem[];
 }
 
 export interface ScheduleTemplateDay {

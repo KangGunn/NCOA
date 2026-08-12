@@ -9,6 +9,7 @@ import { EventModal } from '../calendar/calendar.event-modal.component';
 import { BatchDutyModal } from '../calendar/calendar.batch-duty-modal.component';
 import { KtaTemplateModal, BlcTemplateModal } from '../calendar/calendar.template-modals.component';
 import { DutyTrackerModal } from '../calendar/calendar.tracker-modal.component';
+import { PenaltyDutyModal } from '../calendar/calendar.penalty-duty-modal.component';
 import {
     getKtaReferenceDate, getKtaReferenceBatch, getKtaReferenceType,
     getBlcReferenceDate, getBlcReferenceBatch
@@ -21,6 +22,7 @@ interface CalendarTabProps {
 export default function CalendarTab({ baseDate }: CalendarTabProps) {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [isTrackerOpen, setIsTrackerOpen] = useState(false);
+    const [isPenaltyModalOpen, setIsPenaltyModalOpen] = useState(false);
     const [calendarMode, setCalendarMode] = useState<'schedule' | 'duty'>(() => {
         const saved = localStorage.getItem('ncoa_calendar_mode');
         return (saved === 'schedule' || saved === 'duty') ? saved : 'schedule';
@@ -60,7 +62,7 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
 
         handleAutoKtaDay0, handleAutoBlcDay0, handleAutoBlcGradFourDay, handleAddDuty, handleAddHoliday,
         handleUpdateHoliday, handleDeleteEvent, handleUpdateBatch, handleUpdateBlcBatch,
-        handleReplace, handleRealSwap, openBatchDutyModal, handleBatchSaveDuties
+        handleReplace, handleRealSwap, handleBatchSaveDuties
     } = useCalendarSchedule(events, currentDate, calendarMode);
 
     // 3. Template & DnD Hook
@@ -79,7 +81,7 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
 
     // Stop scrolling when modals are open
     useEffect(() => {
-        if (isAdding || isBatchDutyAdding || isKTAScheduleAdding || isBLCScheduleAdding || isTrackerOpen) {
+        if (isAdding || isBatchDutyAdding || isKTAScheduleAdding || isBLCScheduleAdding || isTrackerOpen || isPenaltyModalOpen) {
             document.documentElement.style.overflow = 'hidden';
             document.body.style.overflow = 'hidden';
         } else {
@@ -90,7 +92,7 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
             document.documentElement.style.overflow = '';
             document.body.style.overflow = '';
         };
-    }, [isAdding, isBatchDutyAdding, isKTAScheduleAdding, isBLCScheduleAdding, isTrackerOpen]);
+    }, [isAdding, isBatchDutyAdding, isKTAScheduleAdding, isBLCScheduleAdding, isTrackerOpen, isPenaltyModalOpen]);
 
     const prevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1));
     const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1));
@@ -105,8 +107,6 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
             }
         });
     };
-
-
 
     return (
         <div className="w-full max-w-7xl mx-auto pb-20 animate-in fade-in duration-500">
@@ -143,11 +143,11 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
                     당직 횟수 트래커
                 </button>
                 <button
-                    onClick={openBatchDutyModal}
+                    onClick={() => setIsPenaltyModalOpen(true)}
                     style={{ height: '44px' }}
-                    className="col-span-1 px-4 bg-yellow-50 text-yellow-600 rounded-xl text-sm font-black hover:bg-yellow-100 transition-colors border border-yellow-100/50 flex items-center justify-center whitespace-nowrap"
+                    className="col-span-1 px-4 bg-orange-50 text-orange-600 rounded-xl text-sm font-black hover:bg-orange-100 transition-colors border border-orange-100/50 flex items-center justify-center whitespace-nowrap"
                 >
-                    당직 일괄 등록
+                    페널티 당직
                 </button>
                 <button
                     onClick={() => setIsKTAScheduleAdding(true)}
@@ -168,35 +168,34 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
             </div>
 
             <EventModal
-                events={events}
-                calendarMode={calendarMode}
-                members={members}
                 currentDate={currentDate}
                 selectedDate={selectedDate}
+                setSelectedDate={setSelectedDate}
+                calendarMode={calendarMode}
                 isAdding={isAdding}
                 setIsAdding={setIsAdding}
-                setSelectedDate={setSelectedDate}
                 activeAction={activeAction}
                 setActiveAction={setActiveAction}
                 editingBatch={editingBatch}
                 setEditingBatch={setEditingBatch}
-                editingHoliday={editingHoliday}
-                setEditingHoliday={setEditingHoliday}
-                isHolidayNaming={isHolidayNaming}
-                setIsHolidayNaming={setIsHolidayNaming}
                 holidayName={holidayName}
                 setHolidayName={setHolidayName}
                 holidayStartDate={holidayStartDate}
                 setHolidayStartDate={setHolidayStartDate}
                 holidayEndDate={holidayEndDate}
                 setHolidayEndDate={setHolidayEndDate}
-
-                handleAddHoliday={handleAddHoliday}
-                handleUpdateHoliday={handleUpdateHoliday}
+                isHolidayNaming={isHolidayNaming}
+                setIsHolidayNaming={setIsHolidayNaming}
+                editingHoliday={editingHoliday}
+                setEditingHoliday={setEditingHoliday}
+                members={members}
+                events={events}
                 handleAutoKtaDay0={handleAutoKtaDay0}
                 handleAutoBlcDay0={handleAutoBlcDay0}
                 handleAutoBlcGradFourDay={handleAutoBlcGradFourDay}
                 handleAddDuty={handleAddDuty}
+                handleAddHoliday={handleAddHoliday}
+                handleUpdateHoliday={handleUpdateHoliday}
                 handleDeleteEvent={handleDeleteEvent}
                 handleUpdateBatch={handleUpdateBatch}
                 handleUpdateBlcBatch={handleUpdateBlcBatch}
@@ -254,6 +253,12 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
                 events={events}
                 members={members}
                 currentDate={currentDate}
+            />
+
+            <PenaltyDutyModal
+                isOpen={isPenaltyModalOpen}
+                onClose={() => setIsPenaltyModalOpen(false)}
+                members={members}
             />
         </div>
     );

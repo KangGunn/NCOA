@@ -57,6 +57,24 @@ export interface DistributeResult {
     violations: RuleViolation[];
 }
 
+// ── Penalty utilities ──────────────────────────────────────
+
+export function getMemberPenaltyCounts(m: CalendarMember): { weekday: number; friSun: number; sat: number } {
+    if (!m.penalties || m.penalties.length === 0) {
+        const legacyOffset = m.dutyOffset || 0;
+        return { weekday: legacyOffset, friSun: 0, sat: 0 };
+    }
+    let weekday = 0;
+    let friSun = 0;
+    let sat = 0;
+    for (const p of m.penalties) {
+        if (p.type === 'weekday') weekday++;
+        else if (p.type === 'friSun') friSun++;
+        else if (p.type === 'sat') sat++;
+    }
+    return { weekday, friSun, sat };
+}
+
 // ── Date utilities ────────────────────────────────────────
 
 function parseLocalDate(dateStr: string): Date {
@@ -490,7 +508,11 @@ export async function runAutoDistribute(params: {
         if (m.role === 'runner' || m.dutyCompleted || m.sections?.includes('SK')) return false;
 
         const stats = dutyStats[m.name] || { total: 0, weekday: 0, friSun: 0, sat: 0 };
-        if (stats.weekday >= criteria.weekday && stats.friSun >= criteria.friSun && stats.sat >= criteria.sat) return false;
+        const penalties = getMemberPenaltyCounts(m);
+        const effectiveCriteriaW = criteria.weekday + penalties.weekday;
+        const effectiveCriteriaF = criteria.friSun + penalties.friSun;
+        const effectiveCriteriaS = criteria.sat + penalties.sat;
+        if (stats.weekday >= effectiveCriteriaW && stats.friSun >= effectiveCriteriaF && stats.sat >= effectiveCriteriaS) return false;
 
         const daysInMonthLocal = new Date(year, month + 1, 0).getDate();
         const lastDayStrLocal = `${year}-${String(month + 1).padStart(2, '0')}-${String(daysInMonthLocal).padStart(2, '0')}`;

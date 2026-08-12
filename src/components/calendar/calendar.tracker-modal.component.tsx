@@ -6,6 +6,7 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { cn } from '../../lib/utils';
 import type { CalendarEvent, CalendarMember } from '../../types/calendar/calendar.type';
 import { calculateRank } from '../../lib/rankUtils';
+import { getMemberPenaltyCounts } from '../../utils/duty/dutyAutoDistribute';
 
 interface DutyTrackerModalProps {
     isOpen: boolean;
@@ -253,10 +254,15 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
         const sat = parsedBaselineSat + extraSat;
         const total = weekday + friSun + sat;
 
+        const penalties = getMemberPenaltyCounts(member);
+        const effectiveCriteriaW = criteriaWeekday + penalties.weekday;
+        const effectiveCriteriaF = criteriaFriSun + penalties.friSun;
+        const effectiveCriteriaS = criteriaSat + penalties.sat;
+
         const isSK = member.sections?.includes('SK') || false;
 
-        // Completion logic: 평 criteriaWeekday, 금일 criteriaFriSun, 토 criteriaSat, or SK section
-        const isCompleted = isSK || (weekday >= criteriaWeekday && friSun >= criteriaFriSun && sat >= criteriaSat);
+        // Completion logic: 평 effectiveCriteriaW, 금일 effectiveCriteriaF, 토 effectiveCriteriaS, or SK section
+        const isCompleted = isSK || (weekday >= effectiveCriteriaW && friSun >= effectiveCriteriaF && sat >= effectiveCriteriaS);
 
         const targetYear = MONTH_LABELS[selectedMonthIndex].year;
         const targetMonth = MONTH_LABELS[selectedMonthIndex].month;
@@ -277,7 +283,10 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
             total,
             isCompleted,
             isSK,
-            localBaseline
+            localBaseline,
+            effectiveCriteriaW,
+            effectiveCriteriaF,
+            effectiveCriteriaS
         };
     });
 
@@ -308,7 +317,7 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
     const activeStats = sortedStats.filter(s => !s.isCompleted);
     const completedStats = sortedStats.filter(s => s.isCompleted);
 
-    const renderMemberCard = ({ member, name, rank, weekday, friSun, sat, total, isCompleted, isSK, localBaseline }: any) => (
+    const renderMemberCard = ({ member, name, rank, weekday, friSun, sat, total, isCompleted, isSK, localBaseline, effectiveCriteriaW, effectiveCriteriaF, effectiveCriteriaS }: any) => (
         <div 
             key={member.id} 
             style={{ transition: 'all 0.2s ease-in-out' }}
@@ -450,15 +459,33 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
                     </div>
                 ) : (
                     /* Cumulative Readonly Displays with enlarged, colored typography */
-                    <div className="flex gap-4 text-xs font-black select-none">
-                        <span className="text-gray-400">
-                            평당 <span className={cn("text-sm font-extrabold ml-0.5", weekday >= criteriaWeekday ? "text-green-600" : "text-amber-500")}>{weekday}회</span>
+                    <div className="flex gap-3 text-xs font-black select-none flex-wrap items-center">
+                        <span className="text-gray-400 flex items-center gap-1">
+                            <span>평당</span>
+                            {effectiveCriteriaW > criteriaWeekday && (
+                                <span className="px-1.5 py-0.2 text-[10px] font-black text-red-100 bg-red-600/90 rounded-full shadow-2xs">
+                                    +{effectiveCriteriaW - criteriaWeekday}
+                                </span>
+                            )}
+                            <span className={cn("text-sm font-extrabold ml-0.5", weekday >= (effectiveCriteriaW || criteriaWeekday) ? "text-green-600" : "text-amber-500")}>{weekday}회</span>
                         </span>
-                        <span className="text-gray-400">
-                            금일당 <span className={cn("text-sm font-extrabold ml-0.5", friSun >= criteriaFriSun ? "text-green-600" : "text-blue-500")}>{friSun}회</span>
+                        <span className="text-gray-400 flex items-center gap-1">
+                            <span>금일당</span>
+                            {effectiveCriteriaF > criteriaFriSun && (
+                                <span className="px-1.5 py-0.2 text-[10px] font-black text-red-100 bg-red-600/90 rounded-full shadow-2xs">
+                                    +{effectiveCriteriaF - criteriaFriSun}
+                                </span>
+                            )}
+                            <span className={cn("text-sm font-extrabold ml-0.5", friSun >= (effectiveCriteriaF || criteriaFriSun) ? "text-green-600" : "text-sky-500")}>{friSun}회</span>
                         </span>
-                        <span className="text-gray-400">
-                            토당 <span className={cn("text-sm font-extrabold ml-0.5", sat >= criteriaSat ? "text-green-600" : "text-rose-500")}>{sat}회</span>
+                        <span className="text-gray-400 flex items-center gap-1">
+                            <span>토당</span>
+                            {effectiveCriteriaS > criteriaSat && (
+                                <span className="px-1.5 py-0.2 text-[10px] font-black text-red-100 bg-red-600/90 rounded-full shadow-2xs">
+                                    +{effectiveCriteriaS - criteriaSat}
+                                </span>
+                            )}
+                            <span className={cn("text-sm font-extrabold ml-0.5", sat >= (effectiveCriteriaS || criteriaSat) ? "text-green-600" : "text-rose-500")}>{sat}회</span>
                         </span>
                     </div>
                 )}</div>

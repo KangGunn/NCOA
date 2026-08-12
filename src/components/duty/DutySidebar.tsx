@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { RefreshCw, Check, Info, Calendar, ChevronDown, Wand2 } from 'lucide-react';
 import type { CalendarMember, MemberConfig } from '../../types/calendar/calendar.type';
 import { calculateRank } from '../../lib/rankUtils';
+import { getMemberPenaltyCounts } from '../../utils/duty/dutyAutoDistribute';
 import type { DutyHoliday } from '../../hooks/duty/useDutySync';
 
 interface DutySidebarProps {
@@ -82,10 +83,15 @@ export function DutySidebar({
             const stats = dutyStats[member.name] || { total: 0, weekday: 0, friSun: 0, sat: 0, currentMonthWeekday: 0, currentMonthFriSun: 0, currentMonthSat: 0 };
             const count = stats.total;
 
-            const isSK = member.sections?.includes('SK') || false;
-            const isCompleted = member.role !== 'runner' && (isSK || !!member.dutyCompleted || (stats.weekday >= criteriaWeekday && stats.friSun >= criteriaFriSun && stats.sat >= criteriaSat));
+            const penalties = getMemberPenaltyCounts(member);
+            const effectiveCriteriaW = criteriaWeekday + penalties.weekday;
+            const effectiveCriteriaF = criteriaFriSun + penalties.friSun;
+            const effectiveCriteriaS = criteriaSat + penalties.sat;
 
-            return { member, stats, count, isCompleted };
+            const isSK = member.sections?.includes('SK') || false;
+            const isCompleted = member.role !== 'runner' && (isSK || !!member.dutyCompleted || (stats.weekday >= effectiveCriteriaW && stats.friSun >= effectiveCriteriaF && stats.sat >= effectiveCriteriaS));
+
+            return { member, stats, count, isCompleted, effectiveCriteriaW, effectiveCriteriaF, effectiveCriteriaS };
         });
 
         const sortMembers = (arr: typeof classified) => {
@@ -116,7 +122,7 @@ export function DutySidebar({
 
 
 
-        const renderMemberCard = ({ member, stats, count, isCompleted }: any) => {
+        const renderMemberCard = ({ member, stats, count, isCompleted, effectiveCriteriaW, effectiveCriteriaF, effectiveCriteriaS }: any) => {
 
             const dynamicRank = member.role === 'runner'
                 ? (member.rank || '러너')
@@ -136,9 +142,9 @@ export function DutySidebar({
             const isFriSunMet = stats.currentMonthFriSun >= targetFriSun;
             const isSatMet = stats.currentMonthSat >= targetSat;
 
-            const isWeekdayMetLifetime = stats.weekday >= criteriaWeekday;
-            const isFriSunMetLifetime = stats.friSun >= criteriaFriSun;
-            const isSatMetLifetime = stats.sat >= criteriaSat;
+            const isWeekdayMetLifetime = stats.weekday >= effectiveCriteriaW;
+            const isFriSunMetLifetime = stats.friSun >= effectiveCriteriaF;
+            const isSatMetLifetime = stats.sat >= effectiveCriteriaS;
 
             const isAllMonthlyTargetsMet = (() => {
                 if (member.role === 'runner') {
@@ -210,7 +216,7 @@ export function DutySidebar({
                             {/* 종류별 진행도 배지 3열 그리드 */}
                             <div className="grid grid-cols-3 gap-1 text-[9px] font-black select-none w-full">
                                 {/* 평일 당직 */}
-                                <div className={`flex items-center justify-center gap-0.5 px-1 py-0.5 rounded-lg border transition-all whitespace-nowrap ${
+                                <div className={`relative flex items-center justify-center gap-0.5 px-1 py-0.5 rounded-lg border transition-all whitespace-nowrap ${
                                     targetWeekday > 0 
                                         ? stats.currentMonthWeekday >= targetWeekday
                                             ? 'bg-emerald-500/10 border-emerald-500/30'
@@ -219,6 +225,11 @@ export function DutySidebar({
                                             ? 'bg-slate-800/80 border-slate-700'
                                             : 'bg-slate-950/20 border-slate-900/40'
                                 }`}>
+                                    {effectiveCriteriaW > criteriaWeekday && (
+                                        <span className="absolute -top-2 left-1/2 -translate-x-1/2 px-1 py-0.2 text-[7.5px] font-black text-white bg-red-600 rounded-full border border-red-500 shadow-xs leading-none z-10" title={`평당 페널티 +${effectiveCriteriaW - criteriaWeekday}회`}>
+                                            +{effectiveCriteriaW - criteriaWeekday}
+                                        </span>
+                                    )}
                                     <span className={`mr-0.5 font-bold ${
                                         isWeekdayMetLifetime 
                                             ? 'text-emerald-400 font-extrabold' 
@@ -239,7 +250,7 @@ export function DutySidebar({
                                 </div>
 
                                 {/* 금일 당직 */}
-                                <div className={`flex items-center justify-center gap-0.5 px-1 py-0.5 rounded-lg border transition-all whitespace-nowrap ${
+                                <div className={`relative flex items-center justify-center gap-0.5 px-1 py-0.5 rounded-lg border transition-all whitespace-nowrap ${
                                     targetFriSun > 0 
                                         ? stats.currentMonthFriSun >= targetFriSun
                                             ? 'bg-emerald-500/10 border-emerald-500/30'
@@ -248,6 +259,11 @@ export function DutySidebar({
                                             ? 'bg-slate-800/80 border-slate-700'
                                             : 'bg-slate-950/20 border-slate-900/40'
                                 }`}>
+                                    {effectiveCriteriaF > criteriaFriSun && (
+                                        <span className="absolute -top-2 left-1/2 -translate-x-1/2 px-1 py-0.2 text-[7.5px] font-black text-white bg-red-600 rounded-full border border-red-500 shadow-xs leading-none z-10" title={`금일당 페널티 +${effectiveCriteriaF - criteriaFriSun}회`}>
+                                            +{effectiveCriteriaF - criteriaFriSun}
+                                        </span>
+                                    )}
                                     <span className={`mr-0.5 font-bold ${
                                         isFriSunMetLifetime 
                                             ? 'text-emerald-400 font-extrabold' 
@@ -268,7 +284,7 @@ export function DutySidebar({
                                 </div>
 
                                 {/* 토당 당직 */}
-                                <div className={`flex items-center justify-center gap-0.5 px-1 py-0.5 rounded-lg border transition-all whitespace-nowrap ${
+                                <div className={`relative flex items-center justify-center gap-0.5 px-1 py-0.5 rounded-lg border transition-all whitespace-nowrap ${
                                     targetSat > 0 
                                         ? stats.currentMonthSat >= targetSat
                                             ? 'bg-emerald-500/10 border-emerald-500/30'
@@ -277,6 +293,11 @@ export function DutySidebar({
                                             ? 'bg-slate-800/80 border-slate-700'
                                             : 'bg-slate-950/20 border-slate-900/40'
                                 }`}>
+                                    {effectiveCriteriaS > criteriaSat && (
+                                        <span className="absolute -top-2 left-1/2 -translate-x-1/2 px-1 py-0.2 text-[7.5px] font-black text-white bg-red-600 rounded-full border border-red-500 shadow-xs leading-none z-10" title={`토당 페널티 +${effectiveCriteriaS - criteriaSat}회`}>
+                                            +{effectiveCriteriaS - criteriaSat}
+                                        </span>
+                                    )}
                                     <span className={`mr-0.5 font-bold ${
                                         isSatMetLifetime 
                                             ? 'text-emerald-400 font-extrabold' 
