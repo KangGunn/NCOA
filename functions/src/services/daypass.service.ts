@@ -114,3 +114,45 @@ export async function clearDayPassReport(todayStr: string): Promise<string> {
     await db.collection("dayPassLogs").doc(todayStr).delete();
     return "🗑️ 금일 외출 기록이 초기화되었습니다.";
 }
+
+export async function cancelDayPassEntriesFromMessage(replyText: string, todayStr: string): Promise<string> {
+    const docRef = db.collection("dayPassLogs").doc(todayStr);
+    const docSnap = await docRef.get();
+    const data = docSnap.data();
+
+    if (!docSnap.exists || !data || !Array.isArray(data.logs) || data.logs.length === 0) {
+        return "⚠️ 금일 등록된 외출 기록이 없습니다.";
+    }
+
+    const currentLogs: any[] = data.logs;
+    const [members, sheetData] = await Promise.all([
+        getAllMembers(),
+        getSheetData().catch(() => []),
+    ]);
+
+    const memberNames = new Set([
+        ...members.map((m) => m.name),
+        ...sheetData.map((s) => s.name),
+    ]);
+
+    const targetNamesInReply = Array.from(memberNames).filter((name) => replyText.includes(name));
+
+    if (targetNamesInReply.length === 0) {
+        return "⚠️ 답장한 메시지에서 등록된 대원 이름을 찾을 수 없습니다.";
+    }
+
+    const targetSet = new Set(targetNamesInReply);
+    const remainingLogs = currentLogs.filter((log) => !targetSet.has(log.name));
+
+    const removedCount = currentLogs.length - remainingLogs.length;
+    if (removedCount === 0) {
+        return `⚠️ 답장한 메시지의 대원(${targetNamesInReply.join(", ")})에 대한 외출 기록이 없습니다.`;
+    }
+
+    await docRef.update({
+        logs: remainingLogs,
+        updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    return `🗑️ ${targetNamesInReply.join(", ")} 님의 외출 기록(${removedCount}건)이 취소되었습니다.`;
+}

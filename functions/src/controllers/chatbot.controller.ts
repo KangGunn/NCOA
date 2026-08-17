@@ -51,7 +51,7 @@ export const kakaoBot = onRequest((req, res) => {
             // 외출 정보 패턴 매칭 (예: "송태성 윤하늘 저녁 식사 1725 1847")
             const dayPassResult = await parseAndSaveDayPass(utterance, todayStr);
             if (dayPassResult) {
-                const text = `✅ 외출 기록이 추가되었습니다.\n\n• 대상: ${dayPassResult.matchedNames.join(", ")}\n• 사유: ${dayPassResult.reason}\n• 시간: ${dayPassResult.departTime} ~ ${dayPassResult.returnTime}\n\n('외출'을 입력하시면 보고서가 출력됩니다.)`;
+                const text = `✅ 외출 기록이 추가되었습니다.\n\n• 대상: ${dayPassResult.matchedNames.join(", ")}\n• 사유: ${dayPassResult.reason}\n• 시간: ${dayPassResult.departTime} ~ ${dayPassResult.returnTime}`;
                 return res.json({ version: "2.0", template: { outputs: [{ simpleText: { text } }] } });
             }
 
@@ -112,7 +112,7 @@ export const telegramBot = onRequest((req, res) => {
                     if (devData && devData.enabled && devData.tunnelUrl) {
                         try {
                             logger.info("Forwarding Telegram request to local tunnel", { url: devData.tunnelUrl });
-                            const response = await axios.post(devData.tunnelUrl, req.body, { 
+                            const response = await axios.post(devData.tunnelUrl, req.body, {
                                 timeout: 10000,
                                 headers: {
                                     "Bypass-Tunnel-Reminder": "true"
