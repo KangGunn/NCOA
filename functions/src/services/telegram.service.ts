@@ -8,6 +8,7 @@ import { parseSheetEvents } from "../utils/sheet.util";
 import { deleteDailyReturns } from "../repositories/return.repository";
 import { getDebugSetting, updateDebugSetting, getSeniorSetting, updateSeniorSetting, getSpreadsheetSetting, updateSpreadsheetSetting } from "../repositories/setting.repository";
 import { getSheetData } from "../repositories/sheet.repository";
+import { parseAndSaveDayPass, getDayPassReport, clearDayPassReport } from "./daypass.service";
 import { db } from "../config/firebase.config";
 
 const TELEGRAM_TOKEN = "8760934378:AAFl26uGt5sj6fhlz2peBYkr0kJcqwCtxgI";
@@ -327,6 +328,25 @@ export async function processTelegramMessage(body: any) {
                 text: helpMsg,
                 parse_mode: "Markdown"
             });
+            return;
+        }
+
+        if (text === "외출 리셋") {
+            const reply = await clearDayPassReport(todayStr);
+            await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, { chat_id: chatId, text: reply });
+            return;
+        }
+
+        if (text === "외출") {
+            const reply = await getDayPassReport(todayStr);
+            await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, { chat_id: chatId, text: reply });
+            return;
+        }
+
+        const dayPassResult = await parseAndSaveDayPass(text, todayStr);
+        if (dayPassResult) {
+            const reply = `✅ 외출 기록이 추가되었습니다.\n\n• 대상: ${dayPassResult.matchedNames.join(", ")}\n• 사유: ${dayPassResult.reason}\n• 시간: ${dayPassResult.departTime} ~ ${dayPassResult.returnTime}\n\n('외출'을 입력하시면 보고서가 출력됩니다.)`;
+            await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, { chat_id: chatId, text: reply });
             return;
         }
 
