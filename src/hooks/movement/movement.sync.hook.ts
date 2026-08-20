@@ -411,51 +411,178 @@ export function useMovementSync(baseDate?: Date) {
                 const rawData = XLSX.utils.sheet_to_json(ws) as any[];
 
                 const extractedData: any[] = [];
-                let isCapturing = false;
-                let isDutyCapturing = false;
-
                 const currentYear = new Date().getFullYear();
-                const detectedMonths: number[] = [];
-                const detectedDates: Date[] = [];
 
-                // Helper to parse flexible duty lines with month-boundary awareness (e.g. 5.31 토당 ~ 6.1 일당)
+                const dayOfWeekMap: Record<string, number> = {
+                    '일': 0, '일당': 0,
+                    '월': 1, '월당': 1,
+                    '화': 2, '화당': 2,
+                    '수': 3, '수당': 3,
+                    '목': 4, '목당': 4,
+                    '금': 5, '금당': 5,
+                    '토': 6, '토당': 6
+                };
+
+                const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+
+                // 날짜 정규식 (~ 및 - 모두 허용)
+                const rangeRegex = /(\d{1,2})[./](\d{1,2})\s*[~\-]\s*(\d{1,2})[./](\d{1,2})/;
+                const singleRegex = /(\d{1,2})[./](\d{1,2})/;
+
+                // ----------------------------------------------------
+                // [Pass 1] 전체 엑셀에서 날짜를 사전 수집하여 대표 주말 날짜 확정
+                // ----------------------------------------------------
+                const allDetectedDates: Date[] = [];
+                const allDetectedMonths: number[] = [];
+
+                for (let i = 0; i < rawData.length; i++) {
+                    const content = String(rawData[i]['댓글 내용'] || rawData[i]['내용'] || '').trim();
+                    if (!content) continue;
+
+                    const lines = content.split('\n');
+                    lines.forEach(line => {
+                        const cleanLine = line.replace(/^[ㄴ\-\*•\[\]\.\s]+/, '').trim();
+                        const passPart = cleanLine.split('+')[0];
+                        const vacationRaw = cleanLine.split('+')[1];
+
+                        const rangeMatch = passPart.match(rangeRegex);
+                        if (rangeMatch) {
+                            const startM = parseInt(rangeMatch[1]);
+                            const startD = parseInt(rangeMatch[2]);
+                            const endM = parseInt(rangeMatch[3]);
+                            const endD = parseInt(rangeMatch[4]);
+                            allDetectedMonths.push(startM, endM);
+                            allDetectedDates.push(
+                                new Date(currentYear, startM - 1, startD, 12, 0, 0, 0),
+                                new Date(currentYear, endM - 1, endD, 12, 0, 0, 0)
+                            );
+                        } else {
+                            const singleMatch = passPart.match(singleRegex);
+                            if (singleMatch) {
+                                const m = parseInt(singleMatch[1]);
+                                const d = parseInt(singleMatch[2]);
+                                allDetectedMonths.push(m);
+                                allDetectedDates.push(new Date(currentYear, m - 1, d, 12, 0, 0, 0));
+                            }
+                        }
+
+                        if (vacationRaw) {
+                            const vRangeMatch = vacationRaw.match(rangeRegex);
+                            const vSingleMatch = vacationRaw.match(singleRegex);
+                            if (vRangeMatch) {
+                                const vM1 = parseInt(vRangeMatch[1]);
+                                const vD1 = parseInt(vRangeMatch[2]);
+                                const vM2 = parseInt(vRangeMatch[3]);
+                                const vD2 = parseInt(vRangeMatch[4]);
+                                allDetectedMonths.push(vM1, vM2);
+                                allDetectedDates.push(
+                                    new Date(currentYear, vM1 - 1, vD1, 12, 0, 0, 0),
+                                    new Date(currentYear, vM2 - 1, vD2, 12, 0, 0, 0)
+                                );
+                            } else if (vSingleMatch) {
+                                const vM = parseInt(vSingleMatch[1]);
+                                const vD = parseInt(vSingleMatch[2]);
+                                allDetectedMonths.push(vM);
+                                allDetectedDates.push(new Date(currentYear, vM - 1, vD, 12, 0, 0, 0));
+                            }
+                        }
+                    });
+                }
+
+                // 대표 주말 기준일(토요일 우선, 없으면 금/일, 없으면 수집 첫 날짜, 없으면 baseDate)
+                let anchorWeekend: Date;
+                if (allDetectedDates.length > 0) {
+                    const sat = allDetectedDates.find(d => d.getDay() === 6);
+                    const fri = allDetectedDates.find(d => d.getDay() === 5);
+                    const sun = allDetectedDates.find(d => d.getDay() === 0);
+                    anchorWeekend = sat || fri || sun || allDetectedDates[0];
+                } else {
+                    anchorWeekend = baseDate ? new Date(baseDate) : new Date();
+                }
+
+                // 헬퍼: 기준일과 가장 가까운 해당 요일(targetDay: 0~6)의 Date 반환
+                const getClosestDateForDayOfWeek = (refDate: Date, targetDay: number): Date => {
+                    const refDay = refDate.getDay();
+                    let bestDiff = 0;
+                    let minDistance = Infinity;
+
+                    for (let diff = -6; diff <= 6; diff++) {
+                        const candidateDay = (refDay + diff + 70) % 7;
+                        if (candidateDay === targetDay) {
+                            const distance = Math.abs(diff);
+                            if (distance < minDistance) {
+                                minDistance = distance;
+                                bestDiff = diff;
+                            }
+                        }
+                    }
+
+                    const res = new Date(refDate);
+                    res.setDate(refDate.getDate() + bestDiff);
+                    res.setHours(12, 0, 0, 0);
+                    return res;
+                };
+
+                // 헬퍼: 사유 텍스트에서 당직 키워드(금당, 토당, 일당 등)를 감지하여 당직 항목 생성 및 검증
+                const checkAndExtractDutyFromReason = (fullName: string, text: string, memberDates: Date[]) => {
+                    const dowMatch = text.match(/(월당|화당|수당|목당|금당|토당|일당)/) || text.match(/\((월|화|수|목|금|토|일)\)\s*당직/) || text.match(/(월|화|수|목|금|토|일)\s*당직/);
+                    if (!dowMatch) return null;
+
+                    const rawDow = dowMatch[1];
+                    const expectedDayIndex = dayOfWeekMap[rawDow] !== undefined ? dayOfWeekMap[rawDow] : dayNames.indexOf(rawDow);
+                    if (expectedDayIndex === undefined || expectedDayIndex === -1) return null;
+
+                    // 해당 대원의 날짜가 있으면 그 날짜 기준, 없으면 전체 외박 주간의 대표 주말 기준 역산!
+                    const refDate = memberDates.length > 0 ? memberDates[0] : anchorWeekend;
+                    const targetDate = getClosestDateForDayOfWeek(refDate, expectedDayIndex);
+
+                    const m = targetDate.getMonth() + 1;
+                    const d = targetDate.getDate();
+                    const targetDateISO = `${targetDate.getFullYear()}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+                    const warnings: string[] = [];
+                    const savedDuty = dutySchedules.find((s: any) => (s.type === 'duty' || !s.type) && s.startDate === targetDateISO);
+                    const cleanName = fullName.replace(/^(병장|상병|일병|이병)\s*/, '').trim();
+
+                    if (savedDuty && savedDuty.memo) {
+                        const savedNameClean = savedDuty.memo.replace(/^(병장|상병|일병|이병)\s*/, '').replace(/\(.*\)/, '').replace(/당직.*/, '').trim();
+                        if (!savedNameClean.includes(cleanName) && !cleanName.includes(savedNameClean)) {
+                            warnings.push(`${m}.${d}일 캘린더 등록 당직자('${savedDuty.memo}')와 엑셀 입력 당직자('${fullName}')가 일치하지 않습니다.`);
+                        }
+                    }
+
+                    return {
+                        name: fullName,
+                        type: '당직',
+                        date: `${m}.${d}`,
+                        warning: warnings.length > 0 ? warnings.join(' / ') : null
+                    };
+                };
+
+                // 독립적인 당직 라인(구 양식) 호환 파서
                 const parseDutyLine = (line: string) => {
-                    const cleanLine = line.replace(/^[ㄴ\-\*\[\]\.\s]+/, '').trim();
+                    const cleanLine = line.replace(/^[ㄴ\-\*•\[\]\.\s]+/, '').trim();
                     const nameMatch = cleanLine.match(/(병장|상병|일병|이병)\s*([가-힣]{2,5})/);
                     if (!nameMatch) return null;
 
                     const rank = nameMatch[1];
                     const name = nameMatch[2];
                     const fullName = `${rank} ${name}`;
-
                     const lineAfterName = cleanLine.replace(nameMatch[0], '').trim();
 
                     let m: number | null = null;
                     let d: number | null = null;
 
-                    // 1. Check for explicit Month and Day (e.g. "8.15", "8/15", "8월 15일", "8월15")
                     const fullDateMatch = lineAfterName.match(/(\d{1,2})\s*[./월]\s*(\d{1,2})\s*일?/);
                     if (fullDateMatch) {
                         m = parseInt(fullDateMatch[1], 10);
                         d = parseInt(fullDateMatch[2], 10);
                     } else {
-                        // 2. Check for Day-only number (e.g. "15일", "16일", or bare number "15")
                         const dayMatch = lineAfterName.match(/(\d{1,2})\s*일/) || lineAfterName.match(/\b(\d{1,2})\b/);
                         if (dayMatch) {
                             d = parseInt(dayMatch[1], 10);
                         }
                     }
-
-                    // 3. Check for Day-of-week specification ((금), (토), (일) 또는 금당, 토당, 일당 등)
-                    const dayOfWeekMap: Record<string, number> = {
-                        '일': 0, '일당': 0,
-                        '월': 1, '월당': 1,
-                        '화': 2, '화당': 2,
-                        '수': 3, '수당': 3,
-                        '목': 4, '목당': 4,
-                        '금': 5, '금당': 5,
-                        '토': 6, '토당': 6
-                    };
 
                     let specDayOfWeek: string | null = null;
                     let expectedDayIndex: number | null = null;
@@ -472,30 +599,21 @@ export function useMovementSync(baseDate?: Date) {
                         }
                     }
 
-                    // Month & Date Resolution: Check detectedDates to accurately handle month boundaries across weekends!
                     if (m === null && d !== null) {
-                        const matchedDate = detectedDates.find(dateObj => dateObj.getDate() === d);
+                        const matchedDate = allDetectedDates.find(dateObj => dateObj.getDate() === d);
                         if (matchedDate) {
                             m = matchedDate.getMonth() + 1;
                         } else {
-                            m = detectedMonths.length > 0
-                                ? detectedMonths[0]
+                            m = allDetectedMonths.length > 0
+                                ? allDetectedMonths[0]
                                 : (baseDate ? baseDate.getMonth() + 1 : new Date().getMonth() + 1);
                         }
                     } else if (m === null && d === null && expectedDayIndex !== null) {
-                        const matchedDate = detectedDates.find(dateObj => dateObj.getDay() === expectedDayIndex);
-                        if (matchedDate) {
-                            m = matchedDate.getMonth() + 1;
-                            d = matchedDate.getDate();
-                        } else {
-                            m = detectedMonths.length > 0
-                                ? detectedMonths[0]
-                                : (baseDate ? baseDate.getMonth() + 1 : new Date().getMonth() + 1);
-                        }
+                        const targetDate = getClosestDateForDayOfWeek(anchorWeekend, expectedDayIndex);
+                        m = targetDate.getMonth() + 1;
+                        d = targetDate.getDate();
                     }
 
-                    // Validation & Date Resolution
-                    const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
                     const warnings: string[] = [];
 
                     if (d !== null && m !== null) {
@@ -506,7 +624,6 @@ export function useMovementSync(baseDate?: Date) {
                             warnings.push(`${m}.${d}일은 ${dayNames[actualDayIndex]}요일이나, 댓글에는 '${specDayOfWeek}'(으)로 표기되어 일치하지 않습니다.`);
                         }
 
-                        // Calendar Duty Mismatch Check
                         const targetDateISO = `${currentYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                         const savedDuty = dutySchedules.find((s: any) => (s.type === 'duty' || !s.type) && s.startDate === targetDateISO);
                         if (savedDuty && savedDuty.memo) {
@@ -535,238 +652,201 @@ export function useMovementSync(baseDate?: Date) {
                     return null;
                 };
 
+                // 연가 파싱 헬퍼
+                const parseVacation = (vacationPart: string, passReturn?: string) => {
+                    const vRangeMatch = vacationPart.match(rangeRegex);
+                    const vSingleMatch = vacationPart.match(singleRegex);
+                    if (!vRangeMatch && !vSingleMatch) return null;
+                    const vM1 = parseInt((vRangeMatch || vSingleMatch)![1]);
+                    const vD1 = parseInt((vRangeMatch || vSingleMatch)![2]);
+                    const vM2 = vRangeMatch ? parseInt(vRangeMatch[3]) : vM1;
+                    const vD2 = vRangeMatch ? parseInt(vRangeMatch[4]) : vD1;
+
+                    const vStartDate = new Date(currentYear, vM1 - 1, vD1, 12, 0, 0, 0);
+                    const vEndDate = new Date(currentYear, vM2 - 1, vD2, 12, 0, 0, 0);
+
+                    const vStartStr = `${vM1}.${vD1}`;
+                    const vEndStr = `${vM2}.${vD2}`;
+                    let isLinked: boolean;
+                    if (/외휴연계\s*O/i.test(vacationPart)) {
+                        isLinked = true;
+                    } else if (/외휴연계\s*X/i.test(vacationPart)) {
+                        isLinked = false;
+                    } else {
+                        isLinked = passReturn ? vStartStr === passReturn : false;
+                    }
+
+                    let vReason = vacationPart.trim();
+                    vReason = vReason.replace(rangeRegex, '');
+                    vReason = vReason.replace(singleRegex, '');
+                    vReason = vReason.replace(/\([^\)]+\)/g, '');
+                    vReason = vReason.replace(/외휴연계\s*[OX]?/gi, '');
+                    const vDayPattern = /(\d+(\.\d+)?\s*(데이|일)|(원|투|쓰리|포|파이브|식스|세븐|에잇|나인|텐)\s*데이)/ig;
+                    vReason = vReason.replace(vDayPattern, '');
+                    vReason = vReason.replace(/사용/gi, '').trim();
+                    vReason = vReason.replace(/,/gi, '').trim();
+                    vReason = vReason.trim();
+
+                    const warning: string | null = null;
+
+                    return {
+                        period: vRangeMatch ? `${vM1}.${vD1}~${vM2}.${vD2}` : `${vM1}.${vD1}`,
+                        depart: vStartStr,
+                        isLinked,
+                        return: vEndStr,
+                        stayDays: getDatesBetween(vStartDate, vEndDate, false),
+                        reason: vReason,
+                        warning
+                    };
+                };
+
+                const extractStayDetail = (part: string): string => {
+                    const clean = part.replace(/^(병장|상병|일병|이병)\s+[가-힣]+\s*/, '').trim();
+                    return clean || '잔류';
+                };
+
+                // ----------------------------------------------------
+                // [Pass 2] 모든 댓글 행 순회 파싱 및 당직 생성
+                // ----------------------------------------------------
                 for (let i = 0; i < rawData.length; i++) {
-                    const content = String(rawData[i]['댓글 내용'] || '').trim();
+                    const content = String(rawData[i]['댓글 내용'] || rawData[i]['내용'] || '').trim();
+                    if (!content) continue;
 
-                    if (content === 'ㅌㅇㅅㅎ') {
-                        isCapturing = true;
-                        isDutyCapturing = false;
-                        continue;
-                    }
+                    const lines = content.split('\n');
+                    lines.forEach(line => {
+                        const cleanLine = line.replace(/^[ㄴ\-\*•\[\]\.\s]+/, '').trim();
+                        const nameMatch = cleanLine.match(/^(병장|상병|일병|이병)\s+([가-힣]+)/);
 
-                    if (content.includes('당직') && !content.startsWith('ㄴ')) {
-                        isDutyCapturing = true;
-                        isCapturing = false;
-                        continue;
-                    }
+                        if (nameMatch) {
+                            const rank = nameMatch[1];
+                            const name = nameMatch[2];
+                            const fullName = `${rank} ${name}`;
+                            const passPart = cleanLine.split('+')[0];
+                            const vacationRaw = cleanLine.split('+')[1];
+                            const rangeMatch = passPart.match(rangeRegex);
 
-                    if (isCapturing) {
-                        if (content.startsWith('ㄴ')) {
-                            const lines = content.split('\n');
-                            lines.forEach(line => {
-                                const cleanLine = line.replace(/^ㄴ/, '').trim();
-                                const nameMatch = cleanLine.match(/^(병장|상병|일병|이병)\s+([가-힣]+)/);
-                                if (nameMatch) {
-                                    const rank = nameMatch[1];
-                                    const name = nameMatch[2];
-                                    const passPart = cleanLine.split('+')[0];
-                                    const vacationRaw = cleanLine.split('+')[1];
-                                    const rangeRegex = /(\d{1,2})[./](\d{1,2})\s*~\s*(\d{1,2})[./](\d{1,2})/;
-                                    const singleRegex = /(\d{1,2})[./](\d{1,2})/;
-                                    const rangeMatch = passPart.match(rangeRegex);
+                            let passReason = passPart.trim();
+                            passReason = passReason.replace(/^(병장|상병|일병|이병)\s+[가-힣]+\s*/, '');
+                            passReason = passReason.replace(rangeRegex, '');
+                            passReason = passReason.replace(singleRegex, '');
+                            passReason = passReason.replace(/\([^\)]+\)/g, '');
+                            passReason = passReason.trim();
 
-                                    const extractStayDetail = (part: string): string => {
-                                        let clean = part.replace(/^(병장|상병|일병|이병)\s+[가-힣]+\s*/, '').trim();
-                                         return clean || '잔류';
-                                    };
+                            const memberDates: Date[] = [];
 
-                                    // 연가 파싱 헬퍼: vacationPart에서 날짜 추출 후 vacation 객체 생성
-                                    const parseVacation = (vacationPart: string, passReturn?: string) => {
-                                        const vRangeMatch = vacationPart.match(rangeRegex);
-                                        const vSingleMatch = vacationPart.match(singleRegex);
-                                        if (!vRangeMatch && !vSingleMatch) return null;
-                                        const vM1 = parseInt((vRangeMatch || vSingleMatch)![1]);
-                                        const vD1 = parseInt((vRangeMatch || vSingleMatch)![2]);
-                                        const vM2 = vRangeMatch ? parseInt(vRangeMatch[3]) : vM1;
-                                        const vD2 = vRangeMatch ? parseInt(vRangeMatch[4]) : vD1;
+                            if (rangeMatch) {
+                                const startM = parseInt(rangeMatch[1]);
+                                const startD = parseInt(rangeMatch[2]);
+                                const endM = parseInt(rangeMatch[3]);
+                                const endD = parseInt(rangeMatch[4]);
 
-                                        detectedMonths.push(vM1);
-                                        detectedMonths.push(vM2);
+                                const startDate = new Date(currentYear, startM - 1, startD, 12, 0, 0, 0);
+                                const endDate = new Date(currentYear, endM - 1, endD, 12, 0, 0, 0);
+                                const departDate = new Date(startDate);
+                                departDate.setDate(startDate.getDate() - 1);
+                                departDate.setHours(12, 0, 0, 0);
 
-                                        const vStartDate = new Date(currentYear, vM1 - 1, vD1, 12, 0, 0, 0);
-                                        const vEndDate = new Date(currentYear, vM2 - 1, vD2, 12, 0, 0, 0);
-                                        detectedDates.push(vStartDate);
-                                        detectedDates.push(vEndDate);
+                                memberDates.push(startDate, endDate);
 
-                                        const vStartStr = `${vM1}.${vD1}`;
-                                        const vEndStr = `${vM2}.${vD2}`;
-                                        // 외휴연계 O이면 true, X이면 false, 없으면 주소 비교 fallback
-                                        let isLinked: boolean;
-                                        if (/외휴연계\s*O/i.test(vacationPart)) {
-                                            isLinked = true;
-                                        } else if (/외휴연계\s*X/i.test(vacationPart)) {
-                                            isLinked = false;
-                                        } else {
-                                            isLinked = passReturn ? vStartStr === passReturn : false;
-                                        }
+                                const vacation = vacationRaw ? parseVacation(vacationRaw, `${endM}.${endD}`) : null;
+                                const warning: string | null = null;
 
-                                        let vReason = vacationPart.trim();
-                                        vReason = vReason.replace(rangeRegex, '');
-                                        vReason = vReason.replace(singleRegex, '');
-                                        vReason = vReason.replace(/\([^\)]+\)/g, '');
-                                        vReason = vReason.replace(/외휴연계\s*[OX]?/gi, '');
-                                        const vDayPattern = /(\d+(\.\d+)?\s*(데이|일)|(원|투|쓰리|포|파이브|식스|세븐|에잇|나인|텐)\s*데이)/ig;
-                                        vReason = vReason.replace(vDayPattern, '');
-                                        vReason = vReason.replace(/사용/gi, '').trim();
-                                        vReason = vReason.replace(/,/gi, '').trim();
-                                        vReason = vReason.trim();
+                                const passData = {
+                                    name: fullName,
+                                    type: '외박',
+                                    period: `${startM}.${startD}~${endM}.${endD}`,
+                                    depart: `${departDate.getMonth() + 1}.${departDate.getDate()}`,
+                                    return: `${endM}.${endD}`,
+                                    stayDays: getDatesBetween(startDate, endDate, true),
+                                    reason: passReason,
+                                    warning
+                                };
 
-                                        let warning: string | null = null;
+                                if (vacation) {
+                                    extractedData.push({ ...passData, vacation, warning: warning || vacation.warning });
+                                } else {
+                                    extractedData.push(passData);
+                                }
+                            } else {
+                                const singleMatch = passPart.match(singleRegex);
+                                if (singleMatch) {
+                                    const m = parseInt(singleMatch[1]);
+                                    const d = parseInt(singleMatch[2]);
 
-                                        return {
-                                            period: vRangeMatch ? `${vM1}.${vD1}~${vM2}.${vD2}` : `${vM1}.${vD1}`,
-                                            depart: vStartStr,
-                                            isLinked,
-                                            return: vEndStr,
-                                            stayDays: getDatesBetween(vStartDate, vEndDate, false),
-                                            reason: vReason,
-                                            warning
-                                        };
-                                    };
+                                    const endDate = new Date(currentYear, m - 1, d, 12, 0, 0, 0);
+                                    const departDate = new Date(endDate);
+                                    departDate.setDate(endDate.getDate() - 1);
+                                    departDate.setHours(12, 0, 0, 0);
 
-                                    let passReason = passPart.trim();
-                                    passReason = passReason.replace(/^(병장|상병|일병|이병)\s+[가-힣]+\s*/, '');
-                                    passReason = passReason.replace(rangeRegex, '');
-                                    passReason = passReason.replace(singleRegex, '');
-                                    passReason = passReason.replace(/\([^\)]+\)/g, '');
-                                    passReason = passReason.trim();
+                                    memberDates.push(endDate);
 
-                                    if (rangeMatch) {
-                                        // '+' 앞에 날짜 범위 있음 → 외박 처리
-                                        const startM = parseInt(rangeMatch[1]);
-                                        const startD = parseInt(rangeMatch[2]);
-                                        const endM = parseInt(rangeMatch[3]);
-                                        const endD = parseInt(rangeMatch[4]);
+                                    const isDayOff = passPart.match(/(원|투|쓰리|포|파이브)데이/);
+                                    const hasStayKeyword = passPart.includes('잔류');
 
-                                        detectedMonths.push(startM);
-                                        detectedMonths.push(endM);
-
-                                        const startDate = new Date(currentYear, startM - 1, startD, 12, 0, 0, 0);
-                                        const endDate = new Date(currentYear, endM - 1, endD, 12, 0, 0, 0);
-                                        const departDate = new Date(startDate);
-                                        departDate.setDate(startDate.getDate() - 1);
-                                        departDate.setHours(12, 0, 0, 0);
-
-                                        detectedDates.push(startDate);
-                                        detectedDates.push(endDate);
-                                        detectedDates.push(departDate);
-
-                                        // Parse vacation first if vacationRaw exists to check for linkage
-                                        const vacation = vacationRaw ? parseVacation(vacationRaw, `${endM}.${endD}`) : null;
-
-                                        let warning: string | null = null;
+                                    if (hasStayKeyword && !isDayOff) {
+                                        extractedData.push({ name: fullName, type: '잔류', detail: extractStayDetail(passPart) });
+                                    } else {
+                                        const warning: string | null = null;
 
                                         const passData = {
-                                            name: `${rank} ${name}`,
+                                            name: fullName,
                                             type: '외박',
-                                            period: `${startM}.${startD}~${endM}.${endD}`,
+                                            period: `${m}.${d} (원데이)`,
                                             depart: `${departDate.getMonth() + 1}.${departDate.getDate()}`,
-                                            return: `${endM}.${endD}`,
-                                            stayDays: getDatesBetween(startDate, endDate, true),
+                                            return: `${m}.${d}`,
+                                            stayDays: [] as string[],
                                             reason: passReason,
                                             warning
                                         };
 
-                                        if (vacation) {
-                                            extractedData.push({ ...passData, vacation, warning: warning || vacation.warning });
+                                        if (vacationRaw) {
+                                            const vacation = parseVacation(vacationRaw, passData.return);
+                                            if (vacation) {
+                                                extractedData.push({ ...passData, vacation, warning: warning || vacation.warning });
+                                            } else {
+                                                extractedData.push(passData);
+                                            }
                                         } else {
                                             extractedData.push(passData);
                                         }
-                                    } else {
-                                        const singleMatch = passPart.match(singleRegex);
-                                        if (singleMatch) {
-                                            // '+' 앞에 단일 날짜 있음 → 외박(원데이) 처리
-                                            const m = parseInt(singleMatch[1]);
-                                            const d = parseInt(singleMatch[2]);
-
-                                            detectedMonths.push(m);
-
-                                            const endDate = new Date(currentYear, m - 1, d, 12, 0, 0, 0);
-                                            const departDate = new Date(endDate);
-                                            departDate.setDate(endDate.getDate() - 1);
-                                            departDate.setHours(12, 0, 0, 0);
-
-                                            detectedDates.push(endDate);
-                                            detectedDates.push(departDate);
-
-                                            const isDayOff = passPart.match(/(원|투|쓰리|포|파이브)데이/);
-                                            const hasStayKeyword = passPart.includes('잔류');
-
-                                            if (hasStayKeyword && !isDayOff) {
-                                                extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: extractStayDetail(passPart) });
-                                            } else {
-                                                let warning: string | null = null;
-
-                                                const passData = {
-                                                    name: `${rank} ${name}`,
-                                                    type: '외박',
-                                                    period: `${m}.${d} (원데이)`,
-                                                    depart: `${departDate.getMonth() + 1}.${departDate.getDate()}`,
-                                                    return: `${m}.${d}`,
-                                                    stayDays: [] as string[],
-                                                    reason: passReason,
-                                                    warning
-                                                };
-
-                                                if (vacationRaw) {
-                                                    const vacation = parseVacation(vacationRaw, passData.return);
-                                                    if (vacation) {
-                                                        extractedData.push({ ...passData, vacation, warning: warning || vacation.warning });
-                                                    } else {
-                                                        extractedData.push(passData);
-                                                    }
-                                                } else {
-                                                    extractedData.push(passData);
-                                                }
-                                            }
-                                        } else if (vacationRaw) {
-                                            // '+' 앞에 날짜 없음 (잔류 등) → 외박 없이 연가만 처리
-                                            const vacation = parseVacation(vacationRaw);
-                                            if (vacation) {
-                                                extractedData.push({
-                                                    name: `${rank} ${name}`,
-                                                    type: '외박',
-                                                    period: '',
-                                                    depart: '',
-                                                    return: vacation.return,
-                                                    stayDays: [] as string[],
-                                                    reason: '',
-                                                    vacation,
-                                                    warning: vacation.warning
-                                                });
-                                            } else {
-                                                // 연가 날짜도 없으면 잔류 처리
-                                                extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: extractStayDetail(passPart) });
-                                            }
-                                        } else if (passPart.includes('잔류')) {
-                                            extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: extractStayDetail(passPart) });
-                                        } else {
-                                            extractedData.push({ name: `${rank} ${name}`, type: '잔류', detail: '날짜 데이터 없음' });
-                                        }
                                     }
+                                } else if (vacationRaw) {
+                                    const vacation = parseVacation(vacationRaw);
+                                    if (vacation) {
+                                        extractedData.push({
+                                            name: fullName,
+                                            type: '외박',
+                                            period: '',
+                                            depart: '',
+                                            return: vacation.return,
+                                            stayDays: [] as string[],
+                                            reason: '',
+                                            vacation,
+                                            warning: vacation.warning
+                                        });
+                                    } else {
+                                        extractedData.push({ name: fullName, type: '잔류', detail: extractStayDetail(passPart) });
+                                    }
+                                } else if (passPart.includes('잔류')) {
+                                    extractedData.push({ name: fullName, type: '잔류', detail: extractStayDetail(passPart) });
+                                } else {
+                                    extractedData.push({ name: fullName, type: '잔류', detail: '날짜 데이터 없음' });
                                 }
-                            });
-                        } else if (content !== '') {
-                            isCapturing = false;
-                        }
-                    }
+                            }
 
-                    if (isDutyCapturing) {
-                        const lines = content.split('\n');
-                        let matchedAnyInCell = false;
-
-                        lines.forEach(line => {
+                            // 사유(passReason, detail, 또는 cleanLine 전체)에서 당직(금당, 토당 등) 감지 및 당직 목록에 추가
+                            const dutyFromReason = checkAndExtractDutyFromReason(fullName, cleanLine, memberDates);
+                            if (dutyFromReason) {
+                                extractedData.push(dutyFromReason);
+                            }
+                        } else {
+                            // 대원 이름 포맷이 아닌 경우, 구버전 독립 당직 라인 포맷 확인
                             const dutyItem = parseDutyLine(line);
                             if (dutyItem) {
                                 extractedData.push(dutyItem);
-                                matchedAnyInCell = true;
                             }
-                        });
-
-                        if (!matchedAnyInCell && content !== '' && !content.includes('당직')) {
-                            isDutyCapturing = false;
                         }
-                    }
+                    });
                 }
 
                 setParsedData(extractedData);
@@ -822,7 +902,7 @@ export function useMovementSync(baseDate?: Date) {
                 const toISODate = (monthDayStr: string) => {
                     if (!monthDayStr) return '';
                     const clean = monthDayStr.replace(/\(원데이\)/, '').trim();
-                    const parts = clean.split(/[./~]/).map(p => p.trim());
+                    const parts = clean.split(/[./~-]/).map(p => p.trim());
                     if (parts.length < 2) return '';
                     const m = parseInt(parts[0]);
                     const d = parseInt(parts[1]);
@@ -840,7 +920,7 @@ export function useMovementSync(baseDate?: Date) {
                     namesToSync.add(cleanName);
 
                     if (m.period && m.type === '외박') {
-                        const [startStr, endStr] = m.period.split('~').map((s: string) => s.trim());
+                        const [startStr, endStr] = m.period.split(/[~-]/).map((s: string) => s.trim());
                         const startDate = toISODate(startStr);
                         const endDate = endStr ? toISODate(endStr) : startDate;
                         if (startDate && startDate < minDate) minDate = startDate;
@@ -873,7 +953,7 @@ export function useMovementSync(baseDate?: Date) {
                 let mainPassStart = '';
                 let mainPassEnd = '';
                 if (mainPassPeriod) {
-                    const [startStr, endStr] = mainPassPeriod.split('~').map((s: string) => s.trim());
+                    const [startStr, endStr] = mainPassPeriod.split(/[~-]/).map((s: string) => s.trim());
                     mainPassStart = toISODate(startStr);
                     mainPassEnd = endStr ? toISODate(endStr) : mainPassStart;
                     if (mainPassStart && mainPassEnd && mainPassEnd < mainPassStart) {
@@ -896,7 +976,7 @@ export function useMovementSync(baseDate?: Date) {
                     const list = intervalsByMember.get(cleanName)!;
 
                     if (m.period && m.type === '외박') {
-                        const [startStr, endStr] = m.period.split('~').map((s: string) => s.trim());
+                        const [startStr, endStr] = m.period.split(/[~-]/).map((s: string) => s.trim());
                         const startDate = toISODate(startStr);
                         const endDate = endStr ? toISODate(endStr) : startDate;
                         if (startDate && endDate) {
@@ -948,15 +1028,13 @@ export function useMovementSync(baseDate?: Date) {
                             let mStart = '';
                             let mEnd = '';
                             if (m.type === '외박' && m.period) {
-                                const [s, e] = m.period.split('~').map((x: string) => x.trim());
+                                const [s, e] = m.period.split(/[~-]/).map((x: string) => x.trim());
                                 mStart = toISODate(s);
                                 mEnd = e ? toISODate(e) : mStart;
                             } else if (m.vacation) {
                                 mStart = toISODate(m.vacation.depart);
                                 mEnd = toISODate(m.vacation.return);
                             } else if (m.type === '잔류' && m.detail) {
-                                // For stay, we rely on the pass dates which are handled above, but here we can just use the Excel date if needed.
-                                // Actually stay is generated alongside pass.
                                 return false; 
                             }
 
@@ -996,7 +1074,7 @@ export function useMovementSync(baseDate?: Date) {
 
                     // Save pass movement
                     if (m.period && m.type === '외박') {
-                        const [startStr, endStr] = m.period.split('~').map((s: string) => s.trim());
+                        const [startStr, endStr] = m.period.split(/[~-]/).map((s: string) => s.trim());
                         const startDate = toISODate(startStr);
                         const endDate = endStr ? toISODate(endStr) : startDate;
 
