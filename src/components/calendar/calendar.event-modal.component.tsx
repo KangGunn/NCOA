@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Trash2 } from 'lucide-react';
+import { X, Trash2, ArrowLeftRight, Calendar as CalendarIcon, UserCheck } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { db } from '../../lib/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
@@ -191,6 +192,8 @@ export function EventModal(props: EventModalProps) {
         const order = { duty: 1, blc: 2, holiday: 2, kta: 3 };
         return filtered.sort((a, b) => (order[a.type as keyof typeof order] || 0) - (order[b.type as keyof typeof order] || 0));
     };
+
+    const [swapTargetDate, setSwapTargetDate] = useState<string>('');
 
     return createPortal(
         <div className="fixed inset-y-0 left-1/2 -translate-x-1/2 w-full max-w-md z-[100] flex items-center justify-center bg-black/30 backdrop-blur-sm p-4 animate-in fade-in duration-200">
@@ -436,33 +439,77 @@ export function EventModal(props: EventModalProps) {
                                             ))}
                                         </div>
                                     ) : (
-                                        <div className="space-y-1">
-                                            <p className="text-[9px] font-bold text-gray-400 mb-2 ml-1">교환할 다른 날짜의 당직을 선택하세요:</p>
-                                            <div className="grid grid-cols-2 gap-1 max-h-40 overflow-y-auto custom-scrollbar p-1">
-                                                {props.events.filter(other => {
-                                                    if (other.type !== 'duty' || other.id === e.id) return false;
-                                                    const otherDate = new Date(other.startDate);
-                                                    return otherDate.getFullYear() === props.currentDate.getFullYear() &&
-                                                        otherDate.getMonth() === props.currentDate.getMonth();
-                                                }).sort((a, b) => a.startDate.localeCompare(b.startDate)).map(other => (
-                                                    <button
-                                                        key={other.id}
-                                                        onClick={() => props.handleRealSwap(e.id, e.memo, other.id, other.memo)}
-                                                        className="py-2.5 px-3 bg-white border border-gray-100 rounded-xl text-[10px] font-bold text-left hover:border-indigo-300 hover:bg-indigo-50 transition-all flex flex-col"
-                                                    >
-                                                        <span className="text-[8px] text-indigo-400">{other.startDate}</span>
-                                                        <span className="truncate">{other.memo}</span>
-                                                    </button>
-                                                ))}
-                                                {props.events.filter(other => {
-                                                    if (other.type !== 'duty' || other.id === e.id) return false;
-                                                    const otherDate = new Date(other.startDate);
-                                                    return otherDate.getFullYear() === props.currentDate.getFullYear() &&
-                                                        otherDate.getMonth() === props.currentDate.getMonth();
-                                                }).length === 0 && (
-                                                        <div className="col-span-2 py-4 text-center text-[10px] text-gray-400 font-medium italic">이달 내 교환 가능한 다른 당직이 없습니다.</div>
-                                                    )}
+                                        <div className="p-3 bg-indigo-50/70 border border-indigo-100 rounded-xl space-y-3">
+                                            <div>
+                                                <label className="text-[10px] font-black text-indigo-900 flex items-center gap-1.5 mb-1.5">
+                                                    <CalendarIcon className="w-3.5 h-3.5 text-indigo-600" />
+                                                    교환할 날짜 선택
+                                                </label>
+                                                <input
+                                                    type="date"
+                                                    value={swapTargetDate}
+                                                    onChange={(ev) => setSwapTargetDate(ev.target.value)}
+                                                    className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-xs font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+                                                />
                                             </div>
+
+                                            {swapTargetDate ? (() => {
+                                                if (swapTargetDate === e.startDate) {
+                                                    return (
+                                                        <div className="py-2.5 px-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] font-bold text-amber-700 text-center">
+                                                            현재 날짜와 다른 날짜를 선택해주세요.
+                                                        </div>
+                                                    );
+                                                }
+
+                                                const targetDuty = props.events.find(ev => ev.type === 'duty' && ev.startDate === swapTargetDate && ev.id !== e.id);
+
+                                                if (!targetDuty) {
+                                                    return (
+                                                        <div className="py-2.5 px-3 bg-gray-100 border border-gray-200 rounded-xl text-[11px] font-bold text-gray-500 text-center">
+                                                            {swapTargetDate}에는 지정된 당직자가 없습니다.
+                                                        </div>
+                                                    );
+                                                }
+
+                                                return (
+                                                    <div className="space-y-2.5 pt-1">
+                                                        <div className="bg-white p-3 rounded-xl border border-indigo-100 shadow-sm space-y-2">
+                                                            <div className="text-[9px] font-bold text-gray-400">교환 대상 정보</div>
+                                                            <div className="flex items-center justify-between">
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <UserCheck className="w-4 h-4 text-indigo-600" />
+                                                                    <span className="text-xs font-black text-gray-900">{targetDuty.memo}</span>
+                                                                </div>
+                                                                <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-md">
+                                                                    {swapTargetDate}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex items-center justify-center gap-2 text-[10px] font-bold text-indigo-700 bg-indigo-100/50 py-1.5 px-3 rounded-lg">
+                                                            <span>{e.memo} ({e.startDate})</span>
+                                                            <ArrowLeftRight className="w-3 h-3 text-indigo-500" />
+                                                            <span>{targetDuty.memo} ({swapTargetDate})</span>
+                                                        </div>
+
+                                                        <button
+                                                            onClick={() => {
+                                                                props.handleRealSwap(e.id, e.memo, targetDuty.id, targetDuty.memo);
+                                                                setSwapTargetDate('');
+                                                            }}
+                                                            className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black shadow-md shadow-indigo-200 transition-all flex items-center justify-center gap-1.5"
+                                                        >
+                                                            <ArrowLeftRight className="w-3.5 h-3.5" />
+                                                            교환 확정하기
+                                                        </button>
+                                                    </div>
+                                                );
+                                            })() : (
+                                                <p className="text-[10px] text-gray-400 font-medium text-center py-1">
+                                                    교환을 원하는 대상 날짜를 입력하세요.
+                                                </p>
+                                            )}
                                         </div>
                                     )}
                                 </div>
