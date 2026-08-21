@@ -138,6 +138,12 @@ export function MovementSheetView({
 
         target = target || '포상';
 
+        if (isEnclosure && target === '생일') {
+            target = 'Birthday';
+        }
+
+        target = target.replace(/PRT\s*DEMO/gi, 'PRT Demo');
+
         if (dbMember) {
             target = formatReasonWithBatchPrefix(target, dbMember, isEnclosure);
         }
@@ -712,8 +718,8 @@ export function MovementSheetView({
                     const num = index + 1;
                     enclosureText += `${num}.\t${item.rankEnglish} ${item.formattedName} will receive a ${item.count} DAY ${item.typeStr} by using the ${item.reason} compensation.\n`;
                     enclosureHtml += `<tr style="vertical-align: top; border: none; line-height: 1.15; mso-line-height-rule: exactly;">`;
-                    enclosureHtml += `<td style="width: 1.05cm; text-align: right; padding: 0 0.2cm 0 0; margin: 0; border: none; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal; line-height: 1.15; mso-line-height-rule: exactly;">${num}.</td>`;
-                    enclosureHtml += `<td style="width: 15.46cm; text-align: left; padding: 0; margin: 0; border: none; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal; line-height: 1.15; mso-line-height-rule: exactly;">${item.rankEnglish} ${item.formattedName} will receive a ${item.count} DAY ${item.typeStr} by using the ${item.reason} compensation.</td>`;
+                    enclosureHtml += `<td style="width: 1.05cm; text-align: left; vertical-align: top; padding: 0 0.2cm 0 0; margin: 0; border: none; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal; line-height: 1.15; mso-line-height-rule: exactly;">${num}.</td>`;
+                    enclosureHtml += `<td style="width: 15.46cm; text-align: left; vertical-align: top; padding: 0; margin: 0; border: none; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal; line-height: 1.15; mso-line-height-rule: exactly;">${item.rankEnglish} ${item.formattedName} will receive a ${item.count} DAY ${item.typeStr} by using the ${item.reason} compensation.</td>`;
                     enclosureHtml += `</tr>`;
                 });
                 enclosureHtml += `</table>`;
@@ -744,9 +750,15 @@ export function MovementSheetView({
             const formatRankName = (name: string, rank: string, isHtml: boolean) => {
                 const clean = name.replace(/\s+/g, '');
                 if (clean.length === 2) {
-                    return isHtml ? `${clean}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${rank}` : `${clean}   ${rank}`;
+                    if (isHtml) {
+                        return `<span style="display:inline-block; width: 3em; text-align-last: justify; text-justify: inter-character;">${clean[0]}&emsp;${clean[1]}</span>&nbsp;&nbsp;${rank}`;
+                    }
+                    return `${clean[0]}  ${clean[1]}   ${rank}`;
                 }
-                return isHtml ? `${clean}&nbsp;&nbsp;${rank}` : `${clean} ${rank}`;
+                if (isHtml) {
+                    return `<span style="display:inline-block; width: 3em;">${clean}</span>&nbsp;&nbsp;${rank}`;
+                }
+                return `${clean} ${rank}`;
             };
 
             // Format Plain Text Remarks
@@ -784,7 +796,7 @@ export function MovementSheetView({
             if (remarksPassItems.length === 0) {
                 remarksHtml += `-&nbsp;&nbsp;&nbsp;&nbsp;<span style="font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal;">없음</span><br><br>`;
             } else {
-                remarksHtml += `<table style="border-collapse: collapse; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-size: 11pt; font-weight: normal; width: 16.51cm; border: none; margin-bottom: 12pt; line-height: 1.0; mso-line-height-rule: exactly;">`;
+                remarksHtml += `<table style="border-collapse: collapse; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-size: 11pt; font-weight: normal; width: 18.0cm; border: none; margin-bottom: 12pt; line-height: 1.0; mso-line-height-rule: exactly;">`;
                 remarksPassItems.forEach((item, index) => {
                     const num = index + 1;
                     const rankName = formatRankName(item.koreanName, item.rankKo, true);
@@ -792,20 +804,20 @@ export function MovementSheetView({
                     const reasonStr = formatReasonStr(item.reason, item.count);
 
                     remarksHtml += `<tr style="height: 0.53cm; border: none; vertical-align: middle; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly;">`;
-                    remarksHtml += `<td style="width: 1.05cm; height: 0.53cm; text-align: center; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly;">${num}.</td>`;
-                    remarksHtml += `<td style="width: 2.59cm; height: 0.53cm; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly;">${rankNameAndColon}</td>`;
-                    remarksHtml += `<td style="width: 4.16cm; height: 0.53cm; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly;">&nbsp;${item.dateRangeKo}</td>`;
-                    remarksHtml += `<td style="width: 8.71cm; height: 0.53cm; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly;">${reasonStr}</td>`;
+                    remarksHtml += `<td style="width: 0.8cm; height: 0.53cm; text-align: center; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly; white-space: nowrap;">${num}.</td>`;
+                    remarksHtml += `<td style="width: 2.8cm; height: 0.53cm; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly; white-space: nowrap;">${rankNameAndColon}</td>`;
+                    remarksHtml += `<td style="width: 4.5cm; height: 0.53cm; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly; white-space: nowrap;">&nbsp;${item.dateRangeKo}</td>`;
+                    remarksHtml += `<td style="width: 9.9cm; height: 0.53cm; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly; white-space: nowrap;">${reasonStr}</td>`;
                     remarksHtml += `</tr>`;
                 });
-                remarksHtml += `</table>`;
+                remarksHtml += `</table><br>`;
             }
 
             remarksHtml += `<div style="font-size: 12pt; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal; margin-bottom: 6pt;">휴가</div>`;
             if (remarksVacationItems.length === 0) {
                 remarksHtml += `-&nbsp;&nbsp;&nbsp;&nbsp;<span style="font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal;">없음</span><br>`;
             } else {
-                remarksHtml += `<table style="border-collapse: collapse; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-size: 11pt; font-weight: normal; width: 16.51cm; border: none; line-height: 1.0; mso-line-height-rule: exactly;">`;
+                remarksHtml += `<table style="border-collapse: collapse; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-size: 11pt; font-weight: normal; width: 18.0cm; border: none; line-height: 1.0; mso-line-height-rule: exactly;">`;
                 remarksVacationItems.forEach((item, index) => {
                     const num = index + 1;
                     const rankName = formatRankName(item.koreanName, item.rankKo, true);
@@ -813,10 +825,10 @@ export function MovementSheetView({
                     const reasonStr = formatReasonStr(item.reason, item.count, item.typeStr, item.isLinked);
 
                     remarksHtml += `<tr style="height: 0.53cm; border: none; vertical-align: middle; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly;">`;
-                    remarksHtml += `<td style="width: 1.05cm; height: 0.53cm; text-align: center; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly;">${num}.</td>`;
-                    remarksHtml += `<td style="width: 2.59cm; height: 0.53cm; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly;">${rankNameAndColon}</td>`;
-                    remarksHtml += `<td style="width: 4.16cm; height: 0.53cm; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly;">&nbsp;${item.dateRangeKo}</td>`;
-                    remarksHtml += `<td style="width: 8.71cm; height: 0.53cm; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly;">${reasonStr}</td>`;
+                    remarksHtml += `<td style="width: 0.8cm; height: 0.53cm; text-align: center; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly; white-space: nowrap;">${num}.</td>`;
+                    remarksHtml += `<td style="width: 2.8cm; height: 0.53cm; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly; white-space: nowrap;">${rankNameAndColon}</td>`;
+                    remarksHtml += `<td style="width: 4.5cm; height: 0.53cm; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly; white-space: nowrap;">&nbsp;${item.dateRangeKo}</td>`;
+                    remarksHtml += `<td style="width: 9.9cm; height: 0.53cm; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly;">${reasonStr}</td>`;
                     remarksHtml += `</tr>`;
                 });
                 remarksHtml += `</table>`;
