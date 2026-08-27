@@ -28,6 +28,7 @@ export default function MovementTab({ baseDate }: MovementTabProps) {
         sheetMode,
         dbMembers,
         movements,
+        dutySchedules,
         toggleMode,
         handleFileUpload,
         handleSync,
@@ -64,6 +65,7 @@ export default function MovementTab({ baseDate }: MovementTabProps) {
                     dbMembers={dbMembers}
                     baseDate={baseDate}
                     movements={movements}
+                    dutySchedules={dutySchedules}
                 />
             )}
 

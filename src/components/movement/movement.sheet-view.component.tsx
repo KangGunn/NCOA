@@ -13,6 +13,7 @@ interface MovementSheetViewProps {
     dbMembers: any[];
     baseDate?: Date;
     movements: any[];
+    dutySchedules?: any[];
 }
 
 export function MovementSheetView({
@@ -21,7 +22,8 @@ export function MovementSheetView({
     setCurrentWeekIndex,
     dbMembers,
     baseDate,
-    movements
+    movements,
+    dutySchedules = []
 }: MovementSheetViewProps) {
     const [previewData, setPreviewData] = useState<{ html: string; text: string; enclosure: string; enclosureHtml: string; remarks: string; remarksHtml: string } | null>(null);
 
@@ -151,11 +153,14 @@ export function MovementSheetView({
         return target;
     };
 
-    // Helper to collect contiguous date blocks overlapping with weekend
-    const getWeekendBlocks = (memberObj: any, allowedStatuses: string[]) => {
-        const activeDates = timeline.filter((dateStr: string) => {
+    // Helper to collect contiguous date blocks overlapping with weekend within core timeline (Wed~Tue)
+    // If bridgeStatuses is provided (e.g. ['duty', 'recovery']), dates with those statuses connect blocks continuously
+    const getWeekendBlocks = (memberObj: any, allowedStatuses: string[], bridgeStatuses: string[] = []) => {
+        const coreTimeline = timeline.slice(0, 7);
+        const combinedAllowed = [...allowedStatuses, ...bridgeStatuses];
+        const activeDates = coreTimeline.filter((dateStr: string) => {
             const status = memberObj.dayStatuses[dateStr] || 'none';
-            return allowedStatuses.includes(status);
+            return combinedAllowed.includes(status);
         });
 
         const yearVal = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
@@ -172,13 +177,26 @@ export function MovementSheetView({
                 if (diffDays === 1) {
                     currentBlock.push(dateObj);
                 } else {
-                    blocks.push(currentBlock);
+                    // Only push if the block contains at least one allowed status (not just bridge)
+                    const hasAllowed = currentBlock.some(d => {
+                        const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
+                        return allowedStatuses.includes(memberObj.dayStatuses[dStr] || '');
+                    });
+                    if (hasAllowed) {
+                        blocks.push(currentBlock);
+                    }
                     currentBlock = [dateObj];
                 }
             }
         });
         if (currentBlock.length > 0) {
-            blocks.push(currentBlock);
+            const hasAllowed = currentBlock.some(d => {
+                const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
+                return allowedStatuses.includes(memberObj.dayStatuses[dStr] || '');
+            });
+            if (hasAllowed) {
+                blocks.push(currentBlock);
+            }
         }
 
         return blocks;
@@ -224,81 +242,67 @@ export function MovementSheetView({
             const cleanName = member.name.replace(/^(병장|상병|일병|이병)\s*/, '');
             const memberMovements = movements.filter(mov => mov.name === cleanName);
 
-            // 1. Check Pass blocks
+            // 1. Check Pass blocks (bridged by duty/recovery across consecutive pass days)
             const coreTimeline = timeline.slice(0, 7);
-            const passBlocks = getWeekendBlocks(member, ['pass', 'pass-depart', 'recovery-pass-depart']);
+            const passBlocks = getWeekendBlocks(member, ['pass', 'pass-depart', 'recovery-pass-depart'], ['duty', 'recovery']);
             if (passBlocks.length > 0) {
-                const block = passBlocks[0];
-                const passDays = block.filter(d => {
-                    const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
-                    const status = member.dayStatuses[dStr] || '';
-                    return status !== 'pass-depart' && status !== 'recovery-pass-depart';
-                });
+                const processedMovIds = new Set<string>();
 
-                if (passDays.length > 0) {
-                    const matchedMov = findMatchingMovement(memberMovements, passDays, 'pass');
-                    if (matchedMov && isInCoreTimeline(matchedMov.startDate, coreTimeline)) {
-                        let passDayCount = extractDayCountFromText(matchedMov.reason);
-                        const movStart = new Date(matchedMov.startDate);
-                        const movEnd = new Date(matchedMov.endDate);
-                        let totalMovDays = Math.round((movEnd.getTime() - movStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-                        
-                        const hasLinked = Object.values(member.dayStatuses).includes('linked');
-                        if (hasLinked) {
-                            if (passDayCount !== null) passDayCount -= 1;
-                            totalMovDays -= 1;
-                        }
+                passBlocks.forEach(block => {
+                    // Only count actual pass days (exclude depart, duty, recovery)
+                    const passDays = block.filter(d => {
+                        const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
+                        const status = member.dayStatuses[dStr] || '';
+                        return status === 'pass';
+                    });
 
-                        if (passDayCount !== null && passDayCount !== passDays.length) {
-                            activeWeekWarnings.push({
-                                name: cleanName,
-                                message: `외박 사유(${passDayCount + (hasLinked ? 1 : 0)}일)와 입력된 기간(${passDays.length}일)이 일치하지 않습니다.`
-                            });
-                        }
-                        if (passDays.length !== totalMovDays) {
-                            activeWeekWarnings.push({
-                                name: cleanName,
-                                message: `입력된 기간(${passDays.length}일)과 실제로 저장된 기간(${totalMovDays + (hasLinked ? 1 : 0)}일)이 일치하지 않습니다.`
-                            });
-                        } else if (passDayCount !== null && passDayCount !== totalMovDays) {
-                            activeWeekWarnings.push({
-                                name: cleanName,
-                                message: `외박 사유(${passDayCount + (hasLinked ? 1 : 0)}일)와 실제로 저장된 기간(${totalMovDays + (hasLinked ? 1 : 0)}일)이 일치하지 않습니다.`
-                            });
+                    if (passDays.length > 0) {
+                        const matchedMov = findMatchingMovement(memberMovements, passDays, 'pass');
+                        if (matchedMov && isInCoreTimeline(matchedMov.startDate, coreTimeline)) {
+                            const movId = `${matchedMov.startDate}_${matchedMov.endDate}_${matchedMov.reason}`;
+                            if (processedMovIds.has(movId)) return;
+                            processedMovIds.add(movId);
+
+                            const rawPassCount = extractDayCountFromText(matchedMov.reason);
+                            const hasLinked = Object.values(member.dayStatuses).includes('linked');
+                            const passDayCount = rawPassCount !== null ? (rawPassCount - (hasLinked ? 1 : 0)) : null;
+
+                            if (passDayCount !== null && passDayCount !== passDays.length) {
+                                activeWeekWarnings.push({
+                                    name: cleanName,
+                                    message: `외박 사유(${passDayCount + (hasLinked ? 1 : 0)}일)와 입력된 기간(${passDays.length}일)이 일치하지 않습니다.`
+                                });
+                            }
                         }
                     }
-                }
+                });
             }
 
             // 2. Check Vacation blocks
+            // Vacation can extend across weeks, so we check the matched movement's full dates against the reason
             const vacationBlocks = getWeekendBlocks(member, ['vacation', 'linked']);
             if (vacationBlocks.length > 0) {
-                const block = vacationBlocks[0];
-                const matchedMov = findMatchingMovement(memberMovements, block, 'vacation');
-                if (matchedMov && isInCoreTimeline(matchedMov.startDate, coreTimeline)) {
-                    const vacationDayCount = extractDayCountFromText(matchedMov.reason);
-                    const movStart = new Date(matchedMov.startDate);
-                    const movEnd = new Date(matchedMov.endDate);
-                    const totalMovDays = Math.round((movEnd.getTime() - movStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-                    
-                    if (vacationDayCount !== null && vacationDayCount !== block.length) {
-                        activeWeekWarnings.push({
-                            name: cleanName,
-                            message: `휴가 사유(${vacationDayCount}일)와 입력된 기간(${block.length}일)이 일치하지 않습니다.`
-                        });
+                const processedVacationIds = new Set<string>();
+                vacationBlocks.forEach(block => {
+                    const matchedMov = findMatchingMovement(memberMovements, block, 'vacation');
+                    if (matchedMov && isInCoreTimeline(matchedMov.startDate, coreTimeline)) {
+                        const vacId = `${matchedMov.startDate}_${matchedMov.endDate}`;
+                        if (processedVacationIds.has(vacId)) return;
+                        processedVacationIds.add(vacId);
+
+                        const vacationDayCount = extractDayCountFromText(matchedMov.reason);
+                        const movStart = new Date(matchedMov.startDate);
+                        const movEnd = new Date(matchedMov.endDate);
+                        const totalMovDays = Math.round((movEnd.getTime() - movStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+
+                        if (vacationDayCount !== null && vacationDayCount !== totalMovDays) {
+                            activeWeekWarnings.push({
+                                name: cleanName,
+                                message: `휴가 사유(${vacationDayCount}일)와 실제로 저장된 기간(${totalMovDays}일)이 일치하지 않습니다.`
+                            });
+                        }
                     }
-                    if (block.length !== totalMovDays) {
-                        activeWeekWarnings.push({
-                            name: cleanName,
-                            message: `입력된 기간(${block.length}일)과 실제로 저장된 기간(${totalMovDays}일)이 일치하지 않습니다.`
-                        });
-                    } else if (vacationDayCount !== null && vacationDayCount !== totalMovDays) {
-                        activeWeekWarnings.push({
-                            name: cleanName,
-                            message: `휴가 사유(${vacationDayCount}일)와 실제로 저장된 기간(${totalMovDays}일)이 일치하지 않습니다.`
-                        });
-                    }
-                }
+                });
             }
         });
     }
@@ -376,7 +380,8 @@ export function MovementSheetView({
                 const memberMovements = movements.filter(mov => mov.name === cleanName);
                 const coreTimeline = timeline.slice(0, 7); // Wed ~ Tue
                 const remarksList: string[] = [];
-
+                // Group pass dates that share the same reason / context for clean Remarks (e.g. 2 DAY PASS (9.4, 9.7) or 1 DAY PASS (9.4), 1 DAY PASS (9.7))
+                const passSegments: { dates: Date[]; reason: string }[] = [];
                 memberMovements.forEach(mov => {
                     const movStart = new Date(mov.startDate);
                     const movEnd = new Date(mov.endDate);
@@ -395,21 +400,35 @@ export function MovementSheetView({
                         }
 
                         if (overlapDates.length > 0) {
-                            const start = overlapDates[0];
-                            const end = overlapDates[overlapDates.length - 1];
-                            const count = overlapDates.length;
-                            const sM = start.getMonth() + 1;
-                            const sD = start.getDate();
-                            const eM = end.getMonth() + 1;
-                            const eD = end.getDate();
-                            if (count === 1) {
-                                remarksList.push(`1 DAY PASS (${sM}.${sD})`);
-                            } else {
-                                remarksList.push(`${count} DAY PASS (${sM}.${sD}-${eM}.${eD})`);
-                            }
+                            passSegments.push({
+                                dates: overlapDates,
+                                reason: mov.reason || ''
+                            });
                         }
                     }
                 });
+
+                if (passSegments.length === 1) {
+                    const dates = passSegments[0].dates;
+                    const count = dates.length;
+                    const start = dates[0];
+                    const end = dates[dates.length - 1];
+                    const sM = start.getMonth() + 1;
+                    const sD = start.getDate();
+                    const eM = end.getMonth() + 1;
+                    const eD = end.getDate();
+                    if (count === 1) {
+                        remarksList.push(`1 DAY PASS (${sM}.${sD})`);
+                    } else {
+                        remarksList.push(`${count} DAY PASS (${sM}.${sD}-${eM}.${eD})`);
+                    }
+                } else if (passSegments.length > 1) {
+                    // Check if they share the same reward type / reason (e.g. split pass from same holiday)
+                    const totalPassDays = passSegments.reduce((sum, seg) => sum + seg.dates.length, 0);
+                    const allDates = passSegments.flatMap(seg => seg.dates);
+                    const dateStrings = allDates.map(d => `${d.getMonth() + 1}.${d.getDate()}`).join(', ');
+                    remarksList.push(`${totalPassDays} DAY PASS (${dateStrings})`);
+                }
 
                 const remarks = remarksList.join(', ');
 
@@ -585,6 +604,31 @@ export function MovementSheetView({
                 }
             };
 
+            const yearVal = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
+            const coreTimeline = timeline.slice(0, 7);
+            const coreIsoDates = coreTimeline.map((dateStr: string) => {
+                const [m, d] = dateStr.split('.').map(Number);
+                return `${yearVal}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            });
+
+            const matchedHoliday = dutySchedules.find(s => {
+                if (s.type !== 'holiday' || s.holidayType !== 'duty') return false;
+                const hStart = s.startDate;
+                const hEnd = s.endDate || s.startDate;
+                return coreIsoDates.some((iso: string) => iso >= hStart && iso <= hEnd);
+            });
+
+            let holidayDays = 0;
+            let holidayName = '';
+            let holidayNameLower = '';
+            if (matchedHoliday) {
+                const hStart = new Date(matchedHoliday.startDate);
+                const hEnd = new Date(matchedHoliday.endDate || matchedHoliday.startDate);
+                holidayDays = Math.max(1, Math.round((hEnd.getTime() - hStart.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+                holidayName = (matchedHoliday.memo || 'Holiday').trim();
+                holidayNameLower = holidayName.toLowerCase();
+            }
+
             const enclosureItems: any[] = [];
             const remarksPassItems: any[] = [];
             const remarksVacationItems: any[] = [];
@@ -615,43 +659,75 @@ export function MovementSheetView({
                 const memberMovements = movements.filter(mov => mov.name === cleanName);
 
                 // 1. Process PASS blocks
-                const coreTimeline = timeline.slice(0, 7);
                 const passBlocks = getWeekendBlocks(member, ['pass', 'pass-depart', 'recovery-pass-depart']);
                 if (passBlocks.length > 0) {
-                    const block = passBlocks[0];
-                    const passDays = block.filter(d => {
-                        const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
-                        const status = member.dayStatuses[dStr] || '';
-                        return status !== 'pass-depart' && status !== 'recovery-pass-depart';
+                    const memberPassItems: { dateRangeKo: string; mov: any }[] = [];
+                    let firstReason = '';
+                    let totalPassDaysSum = 0;
+
+                    passBlocks.forEach(block => {
+                        const passDays = block.filter(d => {
+                            const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
+                            const status = member.dayStatuses[dStr] || '';
+                            return status !== 'pass-depart' && status !== 'recovery-pass-depart';
+                        });
+
+                        if (passDays.length > 0) {
+                            const matchedMov = findMatchingMovement(memberMovements, passDays, 'pass');
+                            if (matchedMov && isInCoreTimeline(matchedMov.startDate, coreTimeline)) {
+                                const movStart = new Date(matchedMov.startDate);
+                                const movEnd = new Date(matchedMov.endDate);
+                                const movDays = Math.round((movEnd.getTime() - movStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                                totalPassDaysSum += movDays;
+                                if (!firstReason) firstReason = matchedMov.reason || '';
+                                const dateRangeKo = formatRemarksDateRange(matchedMov, true);
+                                memberPassItems.push({ dateRangeKo, mov: matchedMov });
+                            }
+                        }
                     });
 
-                    if (passDays.length > 0) {
-                        const matchedMov = findMatchingMovement(memberMovements, passDays, 'pass');
+                    if (memberPassItems.length > 0) {
+                        const reason = firstReason;
+                        const rewardTypeEnclosure = extractRewardType(reason, dbMember, true);
+                        let rewardTypeRemarks = extractRewardType(reason, dbMember, false);
+                        const totalMovDays = totalPassDaysSum;
 
-                        if (matchedMov && isInCoreTimeline(matchedMov.startDate, coreTimeline)) {
-                            const reason = matchedMov.reason;
-                            const rewardTypeEnclosure = extractRewardType(reason, dbMember, true);
-                            const rewardTypeRemarks = extractRewardType(reason, dbMember, false);
-                            const dateRangeKo = formatRemarksDateRange(matchedMov, true);
-                            const movStart = new Date(matchedMov.startDate);
-                            const movEnd = new Date(matchedMov.endDate);
-                            const totalMovDays = Math.round((movEnd.getTime() - movStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                        enclosureItems.push({
+                            enlistmentDate,
+                            koreanName: cleanName,
+                            rankEnglish,
+                            formattedName: formattedEnglishName,
+                            count: totalMovDays,
+                            typeStr: 'PASS',
+                            reason: rewardTypeEnclosure
+                        });
 
-                            enclosureItems.push({
-                                enlistmentDate,
-                                koreanName: cleanName,
-                                rankEnglish,
-                                formattedName: formattedEnglishName,
-                                count: totalMovDays,
-                                typeStr: 'PASS',
-                                reason: rewardTypeEnclosure
-                            });
+                        // Check if this pass should be included in 출타 특이사항
+                        let shouldIncludeInRemarks = true;
+                        if (matchedHoliday) {
+                            const rawReasonLower = reason.toLowerCase();
+                            const isHolidayReason = rawReasonLower.includes(holidayNameLower);
+                            const isDutyReduced = /(월|화|수|목|금|토|일)\s*당으로\s*인한/i.test(reason) && isHolidayReason && totalMovDays < holidayDays;
+                            const isGeneralPass = rawReasonLower.includes('일반');
 
+                            if (isDutyReduced) {
+                                rewardTypeRemarks = '당직근무';
+                                shouldIncludeInRemarks = true;
+                            } else if (isGeneralPass) {
+                                rewardTypeRemarks = '일반';
+                                shouldIncludeInRemarks = true;
+                            } else if (isHolidayReason && totalMovDays >= holidayDays) {
+                                shouldIncludeInRemarks = false;
+                            }
+                        }
+
+                        if (shouldIncludeInRemarks) {
+                            const combinedDateRangeKo = memberPassItems.map(p => p.dateRangeKo).join(', ');
                             remarksPassItems.push({
                                 enlistmentDate,
                                 koreanName: cleanName,
                                 rankKo,
-                                dateRangeKo,
+                                dateRangeKo: combinedDateRangeKo,
                                 reason: rewardTypeRemarks,
                                 count: totalMovDays,
                                 typeStr: 'PASS'
@@ -709,7 +785,48 @@ export function MovementSheetView({
             let enclosureText = 'ENCLOSURE\n\n';
             let enclosureHtml = '<div style="font-family: Arial, \'Malgun Gothic\', \'맑은 고딕\', sans-serif; font-size: 12pt; line-height: 1.15; font-weight: normal;">ENCLOSURE</div><br>';
 
-            if (enclosureItems.length === 0) {
+            if (matchedHoliday) {
+                // Items whose reason does not contain the holiday name or '일반' are other compensation reasons
+                const hasGeneralPassKatusas = enclosureItems.some(item => {
+                    const rLower = (item.reason || '').toLowerCase();
+                    return rLower.includes('일반');
+                });
+
+                const nonHolidayItems = enclosureItems.filter(item => {
+                    const rLower = (item.reason || '').toLowerCase();
+                    return !rLower.includes(holidayNameLower) && !rLower.includes('일반');
+                });
+
+                enclosureText += `• All KATUSAs would be on the ${holidayName} ${holidayDays} DAY PASS and exceptions are due to:\n\t• Staff Duty\n`;
+                if (hasGeneralPassKatusas) {
+                    enclosureText += `\t• 포데이 나가지 않는 인원들의 사유 작성\n`;
+                }
+
+                enclosureHtml += `<ul style="font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-size: 12pt; line-height: 1.15; font-weight: normal; width: 16.51cm; margin: 0; padding-left: 1.27cm; list-style-type: disc; mso-line-height-rule: exactly;">
+  <li style="margin: 0; padding: 0; line-height: 1.15; mso-line-height-rule: exactly;">
+    All KATUSAs would be on the ${holidayName} ${holidayDays} DAY PASS and exceptions are due to:
+    <ul style="margin: 0; padding-left: 1.27cm; list-style-type: circle; line-height: 1.15; mso-line-height-rule: exactly;">
+      <li style="margin: 0; padding: 0; line-height: 1.15; mso-line-height-rule: exactly;">Staff Duty</li>${hasGeneralPassKatusas ? '\n      <li style="margin: 0; padding: 0; line-height: 1.15; mso-line-height-rule: exactly;">포데이 나가지 않는 인원들의 사유 작성</li>' : ''}
+    </ul>
+  </li>
+</ul>`;
+
+                if (nonHolidayItems.length > 0) {
+                    enclosureText += `\n`;
+                    enclosureHtml += `<br><table style="border-collapse: collapse; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-size: 12pt; font-weight: normal; border: none; width: 16.51cm; line-height: 1.15; mso-line-height-rule: exactly;">`;
+
+                    nonHolidayItems.forEach((item, index) => {
+                        const num = index + 1;
+                        enclosureText += `${num}.\t${item.rankEnglish} ${item.formattedName} will receive a ${item.count} DAY ${item.typeStr} by using the ${item.reason} compensation.\n`;
+                        enclosureHtml += `<tr style="vertical-align: top; border: none; line-height: 1.15; mso-line-height-rule: exactly;">`;
+                        enclosureHtml += `<td style="width: 1.05cm; text-align: left; vertical-align: top; padding: 0 0.2cm 0 0; margin: 0; border: none; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal; line-height: 1.15; mso-line-height-rule: exactly;">${num}.</td>`;
+                        enclosureHtml += `<td style="width: 15.46cm; text-align: left; vertical-align: top; padding: 0; margin: 0; border: none; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal; line-height: 1.15; mso-line-height-rule: exactly;">${item.rankEnglish} ${item.formattedName} will receive a ${item.count} DAY ${item.typeStr} by using the ${item.reason} compensation.</td>`;
+                        enclosureHtml += `</tr>`;
+                    });
+
+                    enclosureHtml += `</table>`;
+                }
+            } else if (enclosureItems.length === 0) {
                 enclosureText = 'ENCLOSURE\n\n(No eligible items)';
                 enclosureHtml += '<div style="font-family: Arial, \'Malgun Gothic\', \'맑은 고딕\', sans-serif; font-size: 12pt; line-height: 1.15; font-weight: normal;">(No eligible items)</div>';
             } else {
@@ -738,8 +855,14 @@ export function MovementSheetView({
                     return `${reason} ${count}일 사용, 외휴연계 ${isLinked ? 'O' : 'X'}`;
                 }
                 let cleanReason = reason.trim();
-                if (cleanReason.includes('으로 인한')) {
+                if (cleanReason.includes('으로 인한') || cleanReason.includes('로 인한')) {
                     return cleanReason;
+                }
+                if (cleanReason === '당직근무' || cleanReason.includes('당직근무')) {
+                    return `당직근무로 인한 ${count} 데이`;
+                }
+                if (cleanReason === '일반' || cleanReason.includes('일반')) {
+                    return `(사유 작성)로 인한 일반 ${count} 데이`;
                 }
                 if (!cleanReason.includes('컴펜') && !cleanReason.toLowerCase().includes('compensation')) {
                     cleanReason = `${cleanReason} 컴펜`;
@@ -751,14 +874,14 @@ export function MovementSheetView({
                 const clean = name.replace(/\s+/g, '');
                 if (clean.length === 2) {
                     if (isHtml) {
-                        return `<span style="display:inline-block; width: 3em; text-align-last: justify; text-justify: inter-character;">${clean[0]}&emsp;${clean[1]}</span>&nbsp;&nbsp;${rank}`;
+                        return `<span style="font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif;">${clean}&emsp;&nbsp;${rank}</span>`;
                     }
-                    return `${clean[0]}  ${clean[1]}   ${rank}`;
+                    return `${clean}　 ${rank}`;
                 }
                 if (isHtml) {
-                    return `<span style="display:inline-block; width: 3em;">${clean}</span>&nbsp;&nbsp;${rank}`;
+                    return `<span style="font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif;">${clean}&nbsp;&nbsp;${rank}</span>`;
                 }
-                return `${clean} ${rank}`;
+                return `${clean}  ${rank}`;
             };
 
             // Format Plain Text Remarks
