@@ -1,12 +1,14 @@
 import { useState, useRef } from 'react';
 import { cn } from '../../lib/utils';
 import type { Member } from '../../types/member/member.type';
+import { calculateRank } from '../../lib/rankUtils';
 
 interface RollCallMentionInputProps {
     label: string;
     value: string;
     onChange: (val: string) => void;
     members: Member[];
+    asOf?: Date;
     minHeight?: string;
 }
 
@@ -15,11 +17,20 @@ export function RollCallMentionInput({
     value,
     onChange,
     members,
+    asOf = new Date(),
     minHeight = "min-h-[50px]"
 }: RollCallMentionInputProps) {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const [mentionSearch, setMentionSearch] = useState<{ query: string, cursor: number } | null>(null);
     const [mentionSuggestions, setMentionSuggestions] = useState<Member[]>([]);
+
+    const getEffectiveRank = (member: Member): string => {
+        if (member.role === 'runner' || !member.enlistmentDate) {
+            return (member.rank || '').split(' ')[0];
+        }
+        const fullRank = calculateRank(new Date(member.enlistmentDate), member.earlyPromotion || 0, asOf);
+        return fullRank.split(' ')[0];
+    };
 
     const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         const newValue = e.target.value;
@@ -48,7 +59,7 @@ export function RollCallMentionInput({
         const before = value.substring(0, mentionSearch.cursor - mentionSearch.query.length);
         const after = value.substring(mentionSearch.cursor);
 
-        const cleanRank = member.rank.split(' ')[0];
+        const cleanRank = getEffectiveRank(member);
         const textToInsert = `${member.name} ${cleanRank} `;
         const newText = before + textToInsert + after;
 
@@ -81,7 +92,7 @@ export function RollCallMentionInput({
                             className="w-full text-left px-3 py-2 hover:bg-blue-50 rounded-xl transition-colors flex items-center justify-between"
                         >
                             <span className="text-xs font-black text-gray-900">{m.name}</span>
-                            <span className="text-[10px] font-bold text-blue-500">{m.rank.split(' ')[0]}</span>
+                            <span className="text-[10px] font-bold text-blue-500">{getEffectiveRank(m)}</span>
                         </button>
                     ))}
                 </div>

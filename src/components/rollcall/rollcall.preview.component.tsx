@@ -10,8 +10,38 @@ interface RollCallPreviewProps {
 export function RollCallPreview({ eveningReportText, morningReportText }: RollCallPreviewProps) {
     const [copiedType, setCopiedType] = useState<'evening' | 'morning' | null>(null);
 
-    const handleCopy = (text: string, type: 'evening' | 'morning') => {
-        navigator.clipboard.writeText(text);
+    const handleCopy = async (text: string, type: 'evening' | 'morning') => {
+        // 텔레그램 등의 메신저에서 마크다운 취소선(~텍스트~)으로 오인되어 가로선이 그어지는 현상 방지:
+        // ASCII '~'를 외관상 동일한 유니코드 물결표('〜', U+301C)로 치환하고, 줄바꿈을 표준 CRLF(\r\n)로 정규화
+        const sanitizedText = text
+            .replace(/~/g, '〜')
+            .replace(/\r?\n/g, '\r\n');
+
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                if (typeof ClipboardItem !== 'undefined') {
+                    const blob = new Blob([sanitizedText], { type: 'text/plain;charset=utf-8' });
+                    const item = new ClipboardItem({ 'text/plain': blob });
+                    await navigator.clipboard.write([item]);
+                } else {
+                    await navigator.clipboard.writeText(sanitizedText);
+                }
+            } else {
+                throw new Error('Clipboard API unavailable');
+            }
+        } catch {
+            const textArea = document.createElement('textarea');
+            textArea.value = sanitizedText;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-999999px';
+            textArea.style.top = '-999999px';
+            textArea.setAttribute('readonly', '');
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+        }
+
         setCopiedType(type);
         setTimeout(() => setCopiedType(null), 2000);
     };

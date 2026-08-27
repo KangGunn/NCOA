@@ -457,12 +457,24 @@ export function useMovementSync(baseDate?: Date) {
                                 new Date(currentYear, endM - 1, endD, 12, 0, 0, 0)
                             );
                         } else {
-                            const singleMatch = passPart.match(singleRegex);
-                            if (singleMatch) {
-                                const m = parseInt(singleMatch[1]);
-                                const d = parseInt(singleMatch[2]);
+                            const splitGlobalRegex = /(\d{1,2})[./](\d{1,2})/g;
+                            let sMatch: RegExpExecArray | null;
+                            let foundAny = false;
+                            while ((sMatch = splitGlobalRegex.exec(passPart)) !== null) {
+                                const m = parseInt(sMatch[1]);
+                                const d = parseInt(sMatch[2]);
                                 allDetectedMonths.push(m);
                                 allDetectedDates.push(new Date(currentYear, m - 1, d, 12, 0, 0, 0));
+                                foundAny = true;
+                            }
+                            if (!foundAny) {
+                                const singleMatch = passPart.match(singleRegex);
+                                if (singleMatch) {
+                                    const m = parseInt(singleMatch[1]);
+                                    const d = parseInt(singleMatch[2]);
+                                    allDetectedMonths.push(m);
+                                    allDetectedDates.push(new Date(currentYear, m - 1, d, 12, 0, 0, 0));
+                                }
                             }
                         }
 
@@ -728,13 +740,70 @@ export function useMovementSync(baseDate?: Date) {
                             let passReason = passPart.trim();
                             passReason = passReason.replace(/^(병장|상병|일병|이병)\s+[가-힣]+\s*/, '');
                             passReason = passReason.replace(rangeRegex, '');
-                            passReason = passReason.replace(singleRegex, '');
-                            passReason = passReason.replace(/\([^\)]+\)/g, '');
+                            // Remove all date tokens like 9/4(목출금복), 9/7(일출월복), 9/4, 9.7 etc.
+                            passReason = passReason.replace(/\d{1,2}[./]\d{1,2}(?:\s*\([^)]*\))?/g, '');
+                            passReason = passReason.replace(/\([^)]+\)/g, '');
+                            passReason = passReason.replace(/^[,~/\-\s]+/, '');
                             passReason = passReason.trim();
 
                             const memberDates: Date[] = [];
 
-                            if (rangeMatch) {
+                            // Check if passPart contains multiple single date segments, e.g. "9/4(목출금복), 9/7(일출월복)"
+                            const splitTokenRegex = /(\d{1,2})[./](\d{1,2})(?:\s*\(([^)]+)\))?/g;
+                            const splitMatches: { m: number; d: number; note?: string }[] = [];
+                            if (!rangeMatch) {
+                                let match: RegExpExecArray | null;
+                                while ((match = splitTokenRegex.exec(passPart)) !== null) {
+                                    splitMatches.push({
+                                        m: parseInt(match[1]),
+                                        d: parseInt(match[2]),
+                                        note: match[3]
+                                    });
+                                }
+                            }
+
+                            if (splitMatches.length > 1) {
+                                // Multi-segment single date passes (e.g. 9/4(목출금복), 9/7(일출월복))
+                                splitMatches.forEach(item => {
+                                    const m = item.m;
+                                    const d = item.d;
+                                    const endDate = new Date(currentYear, m - 1, d, 12, 0, 0, 0);
+                                    const departDate = new Date(endDate);
+                                    departDate.setDate(endDate.getDate() - 1);
+                                    departDate.setHours(12, 0, 0, 0);
+
+                                    memberDates.push(endDate);
+
+                                    const passData = {
+                                        name: fullName,
+                                        type: '외박',
+                                        period: `${m}.${d} (원데이)`,
+                                        depart: `${departDate.getMonth() + 1}.${departDate.getDate()}`,
+                                        return: `${m}.${d}`,
+                                        stayDays: [] as string[],
+                                        reason: passReason,
+                                        warning: null
+                                    };
+                                    extractedData.push(passData);
+                                });
+
+                                if (vacationRaw) {
+                                    const vacation = parseVacation(vacationRaw);
+                                    if (vacation) {
+                                        extractedData.push({
+                                            name: fullName,
+                                            type: '외박',
+                                            period: '',
+                                            depart: '',
+                                            return: vacation.return,
+                                            stayDays: [] as string[],
+                                            reason: '',
+                                            vacation,
+                                            warning: vacation.warning
+                                        });
+                                    }
+                                }
+                            } else if (rangeMatch) {
                                 const startM = parseInt(rangeMatch[1]);
                                 const startD = parseInt(rangeMatch[2]);
                                 const endM = parseInt(rangeMatch[3]);
@@ -1260,6 +1329,7 @@ export function useMovementSync(baseDate?: Date) {
         sheetMode,
         dbMembers,
         movements,
+        dutySchedules,
         toggleMode,
         handleFileUpload,
         handleSync,

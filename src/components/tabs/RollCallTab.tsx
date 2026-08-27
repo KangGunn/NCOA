@@ -101,6 +101,7 @@ export default function RollCallTab({
                 value={healthNote}
                 onChange={setHealthNote}
                 members={members}
+                asOf={baseDate}
             />
 
             <RollCallMentionInput
@@ -108,6 +109,7 @@ export default function RollCallTab({
                 value={tomorrowNote}
                 onChange={setTomorrowNote}
                 members={members}
+                asOf={baseDate}
             />
 
             <section className="space-y-4">

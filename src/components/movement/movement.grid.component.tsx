@@ -133,55 +133,89 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                         activeCardIndex === idx ? "flex" : "hidden"
                                     )}>
                                         <div className="bg-gray-950 text-white text-[11px] font-medium rounded-lg py-1.5 px-2.5 whitespace-nowrap shadow-xl leading-tight text-center border border-gray-800 space-y-1">
-                                            {[...memberMovements]
-                                                .sort((a, b) => {
-                                                    if (a.type === b.type) return a.startDate.localeCompare(b.startDate);
-                                                    const order: Record<string, number> = { pass: 1, stay: 2, vacation: 3 };
-                                                    return (order[a.type] || 9) - (order[b.type] || 9);
-                                                })
-                                                .filter(m => m.reason)
-                                                .map((mov, mIdx) => (
-                                                    <div key={mIdx} className={mIdx > 0 ? "border-t border-gray-800 pt-1 mt-1" : ""}>
-                                                        <div className="text-[9px] text-gray-400 font-bold mb-0.5">
-                                                            {mov.type === 'pass' ? '외박' : mov.type === 'stay' ? '잔류' : '휴가'} ({
-                                                                mov.startDate === mov.endDate
-                                                                    ? mov.startDate.slice(5).replace('-', '.')
-                                                                    : `${mov.startDate.slice(5).replace('-', '.')} ~ ${mov.endDate.slice(5).replace('-', '.')}`
-                                                            })
-                                                        </div>
-                                                        <div className="text-gray-100 font-semibold">
-                                                            {mov.type === 'vacation'
-                                                                ? (() => {
-                                                                      const startD = new Date(mov.startDate);
-                                                                      const endD = new Date(mov.endDate);
-                                                                      const days = Math.round((endD.getTime() - startD.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-                                                                      
-                                                                      let isLinked = false;
-                                                                      const tempDate = new Date(startD);
-                                                                      while (tempDate <= endD) {
-                                                                          const dStr = `${tempDate.getMonth() + 1}.${tempDate.getDate()}`;
-                                                                          if (member.dayStatuses[dStr] === 'linked') {
-                                                                              isLinked = true;
-                                                                              break;
-                                                                          }
-                                                                          tempDate.setDate(tempDate.getDate() + 1);
-                                                                      }
-                                                                      
-                                                                      let cleanReason = mov.reason.replace(/외휴연계\s*[OX]?/gi, '').trim();
-                                                                      const dayPattern = /(\d+(\.\d+)?\s*(데이|일)|(원|투|쓰리|포|파이브|식스|세븐|에잇|나인|텐)\s*데이)/ig;
-                                                                      cleanReason = cleanReason.replace(dayPattern, '').trim();
-                                                                      cleanReason = cleanReason.replace(/사용/gi, '').trim();
-                                                                      cleanReason = cleanReason.replace(/,/gi, '').trim();
-                                                                      if (!cleanReason) cleanReason = '휴가';
+                                            {(() => {
+                                                const sorted = [...memberMovements]
+                                                    .sort((a, b) => {
+                                                        if (a.type === b.type) return a.startDate.localeCompare(b.startDate);
+                                                        const order: Record<string, number> = { pass: 1, stay: 2, vacation: 3 };
+                                                        return (order[a.type] || 9) - (order[b.type] || 9);
+                                                    })
+                                                    .filter(m => m.reason);
 
-                                                                      return `${cleanReason} ${days}일, 외휴연계 ${isLinked ? 'O' : 'X'}`;
-                                                                  })()
-                                                                : mov.reason
+                                                // Group movements with identical type and reason
+                                                const grouped: {
+                                                    type: string;
+                                                    reason: string;
+                                                    dateLabels: string[];
+                                                    items: MovementRecord[];
+                                                }[] = [];
+
+                                                sorted.forEach(mov => {
+                                                    const dateLabel = mov.startDate === mov.endDate
+                                                        ? mov.startDate.slice(5).replace('-', '.')
+                                                        : `${mov.startDate.slice(5).replace('-', '.')} ~ ${mov.endDate.slice(5).replace('-', '.')}`;
+
+                                                    const existing = grouped.find(g => g.type === mov.type && g.reason.trim() === mov.reason.trim());
+                                                    if (existing) {
+                                                        if (!existing.dateLabels.includes(dateLabel)) {
+                                                            existing.dateLabels.push(dateLabel);
+                                                        }
+                                                        existing.items.push(mov);
+                                                    } else {
+                                                        grouped.push({
+                                                            type: mov.type,
+                                                            reason: mov.reason,
+                                                            dateLabels: [dateLabel],
+                                                            items: [mov]
+                                                        });
+                                                    }
+                                                });
+
+                                                return grouped.map((group, gIdx) => {
+                                                    const headerType = group.type === 'pass' ? '외박' : group.type === 'stay' ? '잔류' : '휴가';
+                                                    const dateStr = group.dateLabels.join(', ');
+
+                                                    let displayReason = group.reason;
+                                                    if (group.type === 'vacation') {
+                                                        let totalDays = 0;
+                                                        let isLinked = false;
+                                                        group.items.forEach(mov => {
+                                                            const startD = new Date(mov.startDate);
+                                                            const endD = new Date(mov.endDate);
+                                                            totalDays += Math.round((endD.getTime() - startD.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                                                            const tempDate = new Date(startD);
+                                                            while (tempDate <= endD) {
+                                                                const dStr = `${tempDate.getMonth() + 1}.${tempDate.getDate()}`;
+                                                                if (member.dayStatuses[dStr] === 'linked') {
+                                                                    isLinked = true;
+                                                                    break;
+                                                                }
+                                                                tempDate.setDate(tempDate.getDate() + 1);
                                                             }
+                                                        });
+
+                                                        let cleanReason = group.reason.replace(/외휴연계\s*[OX]?/gi, '').trim();
+                                                        const dayPattern = /(\d+(\.\d+)?\s*(데이|일)|(원|투|쓰리|포|파이브|식스|세븐|에잇|나인|텐)\s*데이)/ig;
+                                                        cleanReason = cleanReason.replace(dayPattern, '').trim();
+                                                        cleanReason = cleanReason.replace(/사용/gi, '').trim();
+                                                        cleanReason = cleanReason.replace(/,/gi, '').trim();
+                                                        if (!cleanReason) cleanReason = '휴가';
+
+                                                        displayReason = `${cleanReason} ${totalDays}일, 외휴연계 ${isLinked ? 'O' : 'X'}`;
+                                                    }
+
+                                                    return (
+                                                        <div key={gIdx} className={gIdx > 0 ? "border-t border-gray-800 pt-1 mt-1" : ""}>
+                                                            <div className="text-[9px] text-gray-400 font-bold mb-0.5">
+                                                                {headerType} ({dateStr})
+                                                            </div>
+                                                            <div className="text-gray-100 font-semibold">
+                                                                {displayReason}
+                                                            </div>
                                                         </div>
-                                                    </div>
-                                                ))
-                                            }
+                                                    );
+                                                });
+                                            })()}
                                         </div>
                                         <div className="w-1.5 h-1.5 bg-gray-950 rotate-45 -mt-[3.5px] border-r border-b border-gray-800" />
                                     </div>
