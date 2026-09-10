@@ -7,7 +7,7 @@ export interface MemberDoc {
     name: string;
     rank: string;
     enlistmentDate: string;
-    role?: 'member' | 'runner';
+    role?: 'member' | 'runner' | 'holdover';
     sections?: string[];
     earlyPromotion?: number;
     joinDate?: string;
@@ -26,7 +26,7 @@ export interface MemberDoc {
 export function usePersonnel(baseDate: Date) {
     const [members, setMembers] = useState<MemberDoc[]>([]);
     const [addOpen, setAddOpen] = useState(false);
-    const [addingRunner, setAddingRunner] = useState(false);
+    const [addingRole, setAddingRole] = useState<'member' | 'runner' | 'holdover'>('member');
     const [selectedId, setSelectedId] = useState<string | null>(null);
 
     useEffect(() => {
@@ -57,8 +57,9 @@ export function usePersonnel(baseDate: Date) {
         return 0;
     });
 
-    const regularMembers = sortedMembers.filter(m => m.role !== 'runner');
+    const regularMembers = sortedMembers.filter(m => m.role !== 'runner' && m.role !== 'holdover');
     const runners = sortedMembers.filter(m => m.role === 'runner');
+    const holdovers = sortedMembers.filter(m => m.role === 'holdover');
     const activeRegularCount = regularMembers.filter(m => !m.joinDate || dateStr >= m.joinDate).length;
 
     const detailMember = selectedId
@@ -69,13 +70,16 @@ export function usePersonnel(baseDate: Date) {
         members,
         addOpen,
         setAddOpen,
-        addingRunner,
-        setAddingRunner,
+        addingRunner: addingRole === 'runner',
+        setAddingRunner: (val: boolean) => setAddingRole(val ? 'runner' : 'member'),
+        addingRole,
+        setAddingRole,
         selectedId,
         setSelectedId,
         detailMember,
         regularMembers,
         runners,
+        holdovers,
         activeRegularCount,
     };
 }

@@ -23,6 +23,7 @@ interface PersonnelFormModalProps {
     title: string;
     initial?: MemberDoc;
     isRunner?: boolean;
+    isHoldover?: boolean;
     onClose: () => void;
     onSaved: () => void;
 }
@@ -31,6 +32,7 @@ export function PersonnelFormModal({
     title,
     initial,
     isRunner,
+    isHoldover,
     onClose,
     onSaved,
 }: PersonnelFormModalProps) {
@@ -48,7 +50,7 @@ export function PersonnelFormModal({
     const handleSave = async () => {
         let n = name.trim();
         if (!n) {
-            if (!isRunner && joinDate) {
+            if (!isRunner && !isHoldover && joinDate) {
                 const secStr = sections.join('/');
                 n = secStr ? `${secStr} 신병` : '신병';
             } else {
@@ -56,7 +58,7 @@ export function PersonnelFormModal({
                 return;
             }
         }
-        if (!isRunner && !enlistmentDate) {
+        if (!isRunner && !isHoldover && !enlistmentDate) {
             alert('군 입대일을 입력해 주세요.');
             return;
         }
@@ -67,17 +69,22 @@ export function PersonnelFormModal({
         
         setSaving(true);
         try {
-            const calculatedRank = isRunner ? rank.trim() : calculateRank(new Date(enlistmentDate), earlyPromotion);
+            const calculatedRank = isHoldover 
+                ? '이병' 
+                : isRunner 
+                    ? rank.trim() 
+                    : calculateRank(new Date(enlistmentDate), earlyPromotion);
+            const role = isHoldover ? 'holdover' : isRunner ? 'runner' : 'member';
             const dataToSave = {
                 name: n,
-                englishName: isRunner ? '' : englishName.trim(),
-                phoneNumber: isRunner ? '' : phoneNumber.trim(),
-                enlistmentDate: isRunner ? '' : enlistmentDate,
-                joinDate: isRunner ? '' : joinDate,
+                englishName: (isRunner || isHoldover) ? '' : englishName.trim(),
+                phoneNumber: (isRunner || isHoldover) ? '' : phoneNumber.trim(),
+                enlistmentDate: (isRunner || isHoldover) ? '' : enlistmentDate,
+                joinDate: (isRunner || isHoldover) ? '' : joinDate,
                 rank: calculatedRank,
-                role: isRunner ? 'runner' : 'member',
-                sections: isRunner ? [] : sections,
-                earlyPromotion: isRunner ? 0 : earlyPromotion,
+                role,
+                sections: (isRunner || isHoldover) ? [] : sections,
+                earlyPromotion: (isRunner || isHoldover) ? 0 : earlyPromotion,
                 updatedAt: serverTimestamp(),
             };
 
@@ -134,7 +141,7 @@ export function PersonnelFormModal({
                             className="w-full px-4 py-3 sm:px-5 sm:py-4 rounded-2xl bg-gray-50 border border-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-base sm:text-lg font-bold"
                         />
                     </div>
-                    {!isRunner && (
+                    {!isRunner && !isHoldover && (
                         <>
                             <div className="space-y-2">
                                 <label className="text-sm font-bold text-gray-700 ml-1">영문 이름</label>
@@ -158,7 +165,14 @@ export function PersonnelFormModal({
                             </div>
                         </>
                     )}
-                    {isRunner ? (
+                    {isHoldover ? (
+                        <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200">
+                            <p className="text-xs text-amber-700 font-bold leading-relaxed">
+                                유급생은 계급이 <strong>이병</strong>으로 자동 지정됩니다.<br />
+                                등록 후 상세 정보에서 외박 및 휴가 기간을 추가할 수 있습니다.
+                            </p>
+                        </div>
+                    ) : isRunner ? (
                         <div className="space-y-2">
                             <label className="text-sm font-bold text-gray-700 ml-1">계급</label>
                             <input
@@ -206,7 +220,7 @@ export function PersonnelFormModal({
                         </div>
                     )}
 
-                    {!isRunner && (
+                    {!isRunner && !isHoldover && (
                         <div className="space-y-3 pt-4 border-t border-gray-100">
                             <label className="text-sm font-bold text-gray-700 ml-1">조기진급 설정</label>
                             <div className="flex gap-2">
@@ -231,7 +245,7 @@ export function PersonnelFormModal({
                         </div>
                     )}
 
-                    {!isRunner && (
+                    {!isRunner && !isHoldover && (
                         <div className="space-y-3 pt-4 border-t border-gray-100">
                             <label className="text-sm font-bold text-gray-700 ml-1">소속 섹션 설정 (다중 선택 가능)</label>
                             <div className="flex flex-wrap gap-2">

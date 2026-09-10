@@ -46,12 +46,17 @@ export function RollCallScheduleList({
         tomorrowDt.setDate(tomorrowDt.getDate() + 1);
         const tomStr = `${tomorrowDt.getFullYear()}-${String(tomorrowDt.getMonth() + 1).padStart(2, '0')}-${String(tomorrowDt.getDate()).padStart(2, '0')}`;
         const sheetEvents = rollCallData?.sheetEvents || [];
-        const isAway = sheetEvents.filter((e: SheetEvent) =>
+        const isSheetAway = sheetEvents.filter((e: SheetEvent) =>
             e.startDate === tomStr && (
                 !e.isDepartDay ||
                 (e.isDepartDay && e.isConsecutive)
             )
         ).some((e: SheetEvent) => e.memo === m.name);
+
+        const isMorningVacation = (rollCallData?.morning?.vacations || []).some((name: string) => name.startsWith(m.name));
+        const isMorningPass = (rollCallData?.morning?.passes || []).some((name: string) => name.startsWith(m.name));
+
+        const isAway = isSheetAway || isMorningVacation || isMorningPass;
 
         return {
             member: m,
@@ -102,13 +107,20 @@ export function RollCallScheduleList({
                             ) : targetSection === 'HQ' ? (
                                 <div className="space-y-3">
                                     <div className="flex flex-wrap gap-2">
-                                        {sectionMembers.filter(m => !m.sections?.includes('BLC')).map(m => (
+                                        {sectionMembers.filter(m => m.role !== 'holdover' && !m.sections?.includes('BLC')).map(m => (
                                             <RollCallMemberButton key={m.name} {...getMemberProps(m, category)} />
                                         ))}
                                     </div>
-                                    {sectionMembers.some(m => m.sections?.includes('BLC')) && (
+                                    {sectionMembers.some(m => m.role !== 'holdover' && m.sections?.includes('BLC')) && (
                                         <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
-                                            {sectionMembers.filter(m => m.sections?.includes('BLC')).map(m => (
+                                            {sectionMembers.filter(m => m.role !== 'holdover' && m.sections?.includes('BLC')).map(m => (
+                                                <RollCallMemberButton key={m.name} {...getMemberProps(m, category)} />
+                                            ))}
+                                        </div>
+                                    )}
+                                    {sectionMembers.some(m => m.role === 'holdover') && (
+                                        <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
+                                            {sectionMembers.filter(m => m.role === 'holdover').map(m => (
                                                 <RollCallMemberButton key={m.name} {...getMemberProps(m, category)} />
                                             ))}
                                         </div>
