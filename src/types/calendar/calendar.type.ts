@@ -22,7 +22,7 @@ export interface CalendarMember {
     id: string;
     name: string;
     enlistmentDate: string;
-    role?: 'member' | 'runner';
+    role?: 'member' | 'runner' | 'holdover';
     rank?: string;
     sections?: string[];
     dutyCompleted?: boolean;

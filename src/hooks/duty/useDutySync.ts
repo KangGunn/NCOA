@@ -72,10 +72,10 @@ export function useDutySync(showToast: (message: string, type?: 'success' | 'err
 
         const qMembers = query(collection(db, 'members'));
         const unsubMembers = onSnapshot(qMembers, (snapshot) => {
-            const data = snapshot.docs.map(d => ({
+            const data = (snapshot.docs.map(d => ({
                 id: d.id,
                 ...d.data()
-            })) as CalendarMember[];
+            })) as CalendarMember[]).filter(m => m.role !== 'holdover');
 
             // 1차 정렬: 당직 완료 여부 (완료된 사람은 맨 아래로)
             data.sort((a, b) => {

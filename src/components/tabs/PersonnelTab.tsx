@@ -14,12 +14,13 @@ export default function PersonnelTab({ baseDate }: PersonnelTabProps) {
     const {
         addOpen,
         setAddOpen,
-        addingRunner,
-        setAddingRunner,
+        addingRole,
+        setAddingRole,
         setSelectedId,
         detailMember,
         regularMembers,
         runners,
+        holdovers,
         activeRegularCount,
     } = usePersonnel(baseDate);
 
@@ -30,7 +31,7 @@ export default function PersonnelTab({ baseDate }: PersonnelTabProps) {
             <PersonnelHeader
                 regularMembersCount={activeRegularCount}
                 onAddClick={() => {
-                    setAddingRunner(false);
+                    setAddingRole('member');
                     setAddOpen(true);
                 }}
             />
@@ -89,11 +90,64 @@ export default function PersonnelTab({ baseDate }: PersonnelTabProps) {
                 )}
             </div>
 
+            {/* 유급생 섹션 (미군 러너 위) */}
+            <div className="mt-12 flex items-center justify-between pb-3 border-b-2 border-amber-100">
+                <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-black text-amber-950">유급생</h2>
+                    <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-black">
+                        {holdovers.length}명
+                    </span>
+                </div>
+                <button
+                    type="button"
+                    onClick={() => { setAddingRole('holdover'); setAddOpen(true); }}
+                    className="text-sm font-bold text-amber-700 flex items-center gap-1.5 hover:text-amber-800 transition-colors"
+                >
+                    <Plus className="w-4 h-4" /> 유급생 추가
+                </button>
+            </div>
+            
+            <div className="flex flex-col gap-2.5 mt-4">
+                {holdovers.length === 0 ? (
+                    <p className="text-center text-gray-400 font-medium py-10 px-4 rounded-2xl border-2 border-dashed border-amber-100/70 bg-amber-50/20">
+                        등록된 유급생이 없습니다.
+                    </p>
+                ) : (
+                    holdovers.map((m) => (
+                        <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => setSelectedId(m.id)}
+                            className={cn(
+                                'w-full px-5 py-4 rounded-2xl border-2 text-left font-bold transition-all flex items-center justify-between gap-3',
+                                'bg-amber-50/40 border-amber-200/70 text-amber-950 hover:border-amber-300 active:scale-[0.99]'
+                            )}
+                        >
+                            <div className="flex flex-col min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-base font-black truncate text-gray-900">{m.name}</span>
+                                    <span className="px-1.5 py-0.5 rounded bg-amber-100 border border-amber-200 text-amber-800 text-[10px] font-extrabold shrink-0">
+                                        유급생
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                    <span className="text-sm font-bold text-amber-800/80 shrink-0">
+                                        이병
+                                    </span>
+                                </div>
+                            </div>
+                            <ChevronRight className="w-5 h-5 text-amber-400 shrink-0" />
+                        </button>
+                    ))
+                )}
+            </div>
+
+            {/* 미군 러너 섹션 */}
             <div className="mt-12 flex items-center justify-between pb-3 border-b-2 border-gray-100">
                 <h2 className="text-xl font-black text-gray-900">미군 러너</h2>
                 <button
                     type="button"
-                    onClick={() => { setAddingRunner(true); setAddOpen(true); }}
+                    onClick={() => { setAddingRole('runner'); setAddOpen(true); }}
                     className="text-sm font-bold text-blue-600 flex items-center gap-1.5 hover:text-blue-700 transition-colors"
                 >
                     <Plus className="w-4 h-4" /> 러너 추가
@@ -139,8 +193,15 @@ export default function PersonnelTab({ baseDate }: PersonnelTabProps) {
 
             {addOpen && (
                 <PersonnelFormModal
-                    title={addingRunner ? "미군 러너 추가" : "부대원 추가"}
-                    isRunner={addingRunner}
+                    title={
+                        addingRole === 'holdover'
+                            ? "유급생 추가"
+                            : addingRole === 'runner'
+                                ? "미군 러너 추가"
+                                : "부대원 추가"
+                    }
+                    isRunner={addingRole === 'runner'}
+                    isHoldover={addingRole === 'holdover'}
                     onClose={() => setAddOpen(false)}
                     onSaved={() => setAddOpen(false)}
                 />
