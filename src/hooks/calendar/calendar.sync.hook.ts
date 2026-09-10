@@ -33,13 +33,13 @@ export function useCalendarSync() {
                     setEvents(data);
                 });
 
-                // 2. Members
+                // 2. Members (유급생은 캘린더/당직 기능에서 제외)
                 const qMembers = query(collection(db, 'members'));
                 unsubscribeMembers = onSnapshot(qMembers, (snapshot) => {
-                    const data = snapshot.docs.map(doc => ({
+                    const data = (snapshot.docs.map(doc => ({
                         id: doc.id,
                         ...doc.data()
-                    })) as CalendarMember[];
+                    })) as CalendarMember[]).filter(m => m.role !== 'holdover');
                     data.sort((a, b) => {
                         if (a.role === 'runner' && b.role !== 'runner') return 1;
                         if (a.role !== 'runner' && b.role === 'runner') return -1;

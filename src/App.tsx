@@ -60,7 +60,7 @@ function App() {
     addCustomSchedule,
     removeCustomSchedule,
     toggleMember
-  } = useRollCallSchedule();
+  } = useRollCallSchedule(baseDate);
   const [ktaBatches, setKtaBatches] = useState<{ batch: string, startDate: string, ktaType?: 'A' | 'B', memo?: string }[]>([]);
   const [ktaTemplate, setKtaTemplate] = useState<any>(null);
   const [blcBatches, setBlcBatches] = useState<{ batch: string, startDate: string, memo?: string }[]>([]);
