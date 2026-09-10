@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, onSnapshot, serverTimestamp, collection } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import type { RollCallData } from '../../types/rollcall/rollcall.type';
 
@@ -25,8 +25,9 @@ export function useRollCallSync(baseDate: Date) {
 
     const [sheetMode, setSheetMode] = useState<'test' | 'prod'>('test');
     const [sheetUpdatedAt, setSheetUpdatedAt] = useState<string>('0');
+    const [firestoreVersion, setFirestoreVersion] = useState<number>(0);
 
-    // 실시간 스프레드시트 업데이트 감지
+    // 1. 실시간 스프레드시트 업데이트 감지
     useEffect(() => {
         const unsub = onSnapshot(doc(db, 'settings', 'spreadsheet'), (docSnap) => {
             if (docSnap.exists()) {
@@ -46,6 +47,33 @@ export function useRollCallSync(baseDate: Date) {
             }
         });
         return () => unsub();
+    }, []);
+
+    // 2. 실시간 Firestore (members, schedules) 변경 감지
+    useEffect(() => {
+        let isInitialMembers = true;
+        let isInitialSchedules = true;
+
+        const unsubMembers = onSnapshot(collection(db, 'members'), () => {
+            if (isInitialMembers) {
+                isInitialMembers = false;
+                return;
+            }
+            setFirestoreVersion(v => v + 1);
+        });
+
+        const unsubSchedules = onSnapshot(collection(db, 'schedules'), () => {
+            if (isInitialSchedules) {
+                isInitialSchedules = false;
+                return;
+            }
+            setFirestoreVersion(v => v + 1);
+        });
+
+        return () => {
+            unsubMembers();
+            unsubSchedules();
+        };
     }, []);
 
     // 백엔드 API 호출 함수
@@ -152,24 +180,30 @@ export function useRollCallSync(baseDate: Date) {
         }
     }, [dateStr]);
 
-    // 데이터 로드 로직
+    const lastLoadedFirestoreVersionRef = useRef<number>(0);
+
+    // 데이터 로드 로직 (시트 업데이트, 날짜 변경, Firestore 변경)
     useEffect(() => {
         const isInitialLoad = lastLoadedTimestampRef.current === '0';
         const isModeChange = sheetMode !== lastLoadedModeRef.current;
         const isDateChange = dateStr !== lastLoadedDateRef.current;
         const isTimestampChange = !isInitialLoad && !isModeChange && !isDateChange && sheetUpdatedAt !== '0' && sheetUpdatedAt !== lastLoadedTimestampRef.current;
+        const isFirestoreChange = !isInitialLoad && !isModeChange && !isDateChange && firestoreVersion !== lastLoadedFirestoreVersionRef.current;
 
-        const delay = isTimestampChange ? 4000 : 0;
+        // 시트 편집은 4초, Firestore 편집은 2.5초 디바운스
+        const delay = isTimestampChange ? 4000 : (isFirestoreChange ? 2500 : 0);
 
         const timer = setTimeout(() => {
-            fetchData(sheetMode, sheetUpdatedAt);
+            // Firestore 변경인 경우 캐시를 우회하여 최신 계산을 가져옴
+            fetchData(sheetMode, sheetUpdatedAt, isFirestoreChange);
             lastLoadedTimestampRef.current = sheetUpdatedAt;
             lastLoadedModeRef.current = sheetMode;
             lastLoadedDateRef.current = dateStr;
+            lastLoadedFirestoreVersionRef.current = firestoreVersion;
         }, delay);
 
         return () => clearTimeout(timer);
-    }, [baseDate, dateStr, sheetMode, sheetUpdatedAt, fetchData]);
+    }, [baseDate, dateStr, sheetMode, sheetUpdatedAt, firestoreVersion, fetchData]);
 
     // iOS 모바일 웹앱 백그라운드 복귀 감지 (화면 켜지거나 다시 진입 시 자동 새로고침)
     useEffect(() => {
