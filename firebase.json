@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "ncoa-seniorkatusa",
     "public": "dist",
     "ignore": [
       "firebase.json",
