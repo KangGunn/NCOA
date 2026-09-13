@@ -26,10 +26,9 @@ export function useCalendarSync() {
                 // 1. Schedules
                 const qSchedules = query(collection(db, "schedules"));
                 unsubscribeSchedules = onSnapshot(qSchedules, (snapshot) => {
-                    const data = snapshot.docs.map(doc => ({
-                        id: doc.id,
-                        ...doc.data()
-                    })) as CalendarEvent[];
+                    const data = snapshot.docs
+                        .map(doc => ({ id: doc.id, ...doc.data() } as any))
+                        .filter(e => ['duty', 'kta', 'blc', 'holiday'].includes(e.type)) as CalendarEvent[];
                     setEvents(data);
                 });
 

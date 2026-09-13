@@ -1,5 +1,8 @@
-name: Deploy to Firebase on Merge
+name: Deploy to Firebase on Merge or Push
 on:
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
@@ -8,7 +11,7 @@ on:
 
 jobs:
   deploy:
-    if: github.event.pull_request.merged == true
+    if: github.event_name == 'push' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repo
@@ -20,19 +23,19 @@ jobs:
           node-version: 20
           cache: 'npm'
 
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SENIORKATUSA_AA594 }}
+
       # ----------------------------------------------------
       # Front-End (FE) Deploy
       # ----------------------------------------------------
       - name: Install Frontend Dependencies & Build
         run: npm ci && npm run build
 
-      - name: Deploy to Firebase Hosting
-        uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SENIORKATUSA_AA594 }}
-          channelId: live
-          projectId: seniorkatusa-aa594
+      - name: Deploy to Firebase Hosting (All Sites)
+        run: npx firebase-tools deploy --only hosting --project seniorkatusa-aa594
 
       # ----------------------------------------------------
       # Back-End (BE) Deploy
