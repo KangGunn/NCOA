@@ -120,7 +120,9 @@ export function useMovementSync(baseDate?: Date) {
         });
 
         const unsubMembers = onSnapshot(collection(db, 'members'), (snap) => {
-            const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            const rows = snap.docs
+                .map(d => ({ id: d.id, ...d.data() }))
+                .filter((m: any) => m.role !== 'holdover');
             setDbMembers(rows);
         });
 

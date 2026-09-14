@@ -33,8 +33,9 @@ export async function parseAndSaveDayPass(utterance: string, todayStr: string): 
         getSheetData().catch(() => []),
     ]);
 
+    const validMembers = members.filter((m) => m.role !== "holdover" && m.role !== "runner");
     const memberNames = new Set([
-        ...members.map((m) => m.name),
+        ...validMembers.map((m) => m.name),
         ...sheetData.map((s) => s.name),
     ]);
 
@@ -102,9 +103,14 @@ export async function getDayPassReport(todayStr: string): Promise<string> {
 
     const lines = logs.map((log) => {
         const member = members.find((m) => m.name === log.name);
+        if (member && (member.role === "holdover" || member.role === "runner")) return null; // 유급생 제외
         const rank = member ? getRankName(member, dateObj) : "병장";
         return `${rank} / ${log.name} / ${log.reason} / ${dateText} / ${log.departTime} / ${log.returnTime}`;
-    });
+    }).filter(Boolean);
+
+    if (lines.length === 0) {
+        return "⚠️ 금일 등록된 유효한 외출 기록이 없습니다.";
+    }
 
     reportText += lines.join("\n\n") + `\n\n이상입니다.`;
     return reportText;
@@ -130,8 +136,9 @@ export async function cancelDayPassEntriesFromMessage(replyText: string, todaySt
         getSheetData().catch(() => []),
     ]);
 
+    const validMembers = members.filter((m) => m.role !== "holdover" && m.role !== "runner");
     const memberNames = new Set([
-        ...members.map((m) => m.name),
+        ...validMembers.map((m) => m.name),
         ...sheetData.map((s) => s.name),
     ]);
 

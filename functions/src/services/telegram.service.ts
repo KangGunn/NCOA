@@ -4,19 +4,28 @@ import { FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { getKSTDateStr, getKSTTimeStr } from "../utils/date.util";
 import { getMemberDisplayName } from "../utils/rank.util";
-import { parseSheetEvents, parseScheduleEvents } from "../utils/sheet.util";
+import { parseSheetEvents } from "../utils/sheet.util";
 import { deleteDailyReturns } from "../repositories/return.repository";
-import { getAllSchedules } from "../repositories/schedule.repository";
 import { getDebugSetting, updateDebugSetting, getSeniorSetting, updateSeniorSetting, getSpreadsheetSetting, updateSpreadsheetSetting } from "../repositories/setting.repository";
 import { getSheetData } from "../repositories/sheet.repository";
 import { parseAndSaveDayPass, getDayPassReport, clearDayPassReport, cancelDayPassEntriesFromMessage } from "./daypass.service";
 import { db } from "../config/firebase.config";
 
+import { getAllMembers } from "../repositories/member.repository";
+
 const TELEGRAM_TOKEN = "8760934378:AAFl26uGt5sj6fhlz2peBYkr0kJcqwCtxgI";
 
 export async function getTodayReturneesHelper(todayStr: string) {
     const docRef = db.collection("dailyReturns").doc(todayStr);
-    const docSnap = await docRef.get();
+    const [docSnap, members] = await Promise.all([
+        docRef.get(),
+        getAllMembers(),
+    ]);
+
+    // 유급생(holdover)과 미군 러너(runner)는 복귀 대상자에서 제외
+    const excludedNames = new Set(
+        members.filter((m) => m.role === "holdover" || m.role === "runner").map((m) => m.name)
+    );
 
     const settingsSnap = await db.collection("settings").doc("spreadsheet").get();
     const sheetUpdatedAt = settingsSnap.exists ? settingsSnap.data()?.updatedAt?.toMillis() || 0 : 0;
@@ -33,16 +42,18 @@ export async function getTodayReturneesHelper(todayStr: string) {
         tomorrow.setDate(tomorrow.getDate() + 1);
         const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
 
-        const [sheetData, schedules] = await Promise.all([
-            getSheetData(),
-            getAllSchedules(),
-        ]);
+        const sheetData = await getSheetData();
         const sheetEvents = parseSheetEvents(sheetData, sheetData, sheetData, todayStr, tomorrowStr);
-        const scheduleEvents = parseScheduleEvents(schedules, [todayStr, tomorrowStr]);
-        const allMovementEvents = [...sheetEvents, ...scheduleEvents];
 
-        const vacationReturns = allMovementEvents.filter((e: any) => e.type === "vacation" && e.startDate === todayStr && e.isReturnDay).map((e: any) => e.memo);
-        const passReturns = allMovementEvents.filter((e: any) => e.type === "pass" && e.startDate === todayStr && e.isReturnDay).map((e: any) => e.memo);
+        const vacationReturns = sheetEvents
+            .filter((e: any) => e.type === "vacation" && e.startDate === todayStr && e.isReturnDay)
+            .map((e: any) => e.memo)
+            .filter((name: string) => !excludedNames.has(name));
+
+        const passReturns = sheetEvents
+            .filter((e: any) => e.type === "pass" && e.startDate === todayStr && e.isReturnDay)
+            .map((e: any) => e.memo)
+            .filter((name: string) => !excludedNames.has(name));
 
         data = {
             ...data,
@@ -51,6 +62,15 @@ export async function getTodayReturneesHelper(todayStr: string) {
             updatedAt: FieldValue.serverTimestamp()
         };
         await docRef.set(data, { merge: true });
+    } else {
+        // 이미 저장된 캐시 문서에 유급생이 남아있는 경우 즉시 제외
+        data = {
+            ...data,
+            expectedVacation: (data.expectedVacation || []).filter((n: string) => !excludedNames.has(n)),
+            expectedPass: (data.expectedPass || []).filter((n: string) => !excludedNames.has(n)),
+            returnedVacation: (data.returnedVacation || []).filter((n: string) => !excludedNames.has(n)),
+            returnedPass: (data.returnedPass || []).filter((n: string) => !excludedNames.has(n)),
+        };
     }
 
     return { data, docRef };
@@ -433,8 +453,15 @@ export async function processTelegramMessage(body: any) {
                     });
                 };
 
-                const sortedVacation = sortMembers(returnedVacation, membersList);
-                const sortedPass = sortMembers(returnedPass, membersList);
+                const excludedNames = new Set(
+                    membersList.filter((m: any) => m.role === "holdover" || m.role === "runner").map((m: any) => m.name)
+                );
+
+                const validReturnedVacation = returnedVacation.filter((n: string) => !excludedNames.has(n));
+                const validReturnedPass = returnedPass.filter((n: string) => !excludedNames.has(n));
+
+                const sortedVacation = sortMembers(validReturnedVacation, membersList);
+                const sortedPass = sortMembers(validReturnedPass, membersList);
 
                 let msg = `대장님, `;
                 if (sortedPass.length > 0 && sortedVacation.length > 0) {
@@ -460,12 +487,13 @@ export async function processTelegramMessage(body: any) {
                     text: msg
                 });
 
-                const ev = updatedData.expectedVacation || [];
-                const ep = updatedData.expectedPass || [];
+                // 유급생을 제외한 순수 정규 대원 기준 expected 명단
+                const ev = (updatedData.expectedVacation || []).filter((n: string) => !excludedNames.has(n));
+                const ep = (updatedData.expectedPass || []).filter((n: string) => !excludedNames.has(n));
                 const totalExpected = ev.length + ep.length;
                 const isAllReturned = totalExpected > 0 &&
-                    ev.every((n: string) => returnedVacation.includes(n)) &&
-                    ep.every((n: string) => returnedPass.includes(n));
+                    ev.every((n: string) => validReturnedVacation.includes(n)) &&
+                    ep.every((n: string) => validReturnedPass.includes(n));
 
                 if (isAllReturned) {
                     const seniorSetting = await getSeniorSetting();
@@ -500,8 +528,8 @@ export async function processTelegramMessage(body: any) {
                             });
                         };
 
-                        const pTimes = sortAndFormatWithTime(returnedPass, membersList);
-                        const vTimes = sortAndFormatWithTime(returnedVacation, membersList);
+                        const pTimes = sortAndFormatWithTime(validReturnedPass, membersList);
+                        const vTimes = sortAndFormatWithTime(validReturnedVacation, membersList);
 
                         if (pTimes.length > 0) {
                             allReportTimesMsg += `*외박 복귀*\n${pTimes.join("\n")}\n\n`;
@@ -651,21 +679,33 @@ export async function processTelegramMessage(body: any) {
                 const sheetData = await getSheetData();
                 const sheetEvents = parseSheetEvents(sheetData, sheetData, sheetData, todayStr, tomorrowStr);
 
-                const vacationReturns = sheetEvents.filter((e: any) => e.type === "vacation" && e.startDate === todayStr && e.isReturnDay);
-                const passReturns = sheetEvents.filter((e: any) => e.type === "pass" && e.startDate === todayStr && e.isReturnDay);
+                const membersSnap = await db.collection("members").get();
+                const excludedNames = new Set(
+                    membersSnap.docs.map(doc => doc.data()).filter((m: any) => m.role === "holdover" || m.role === "runner").map((m: any) => m.name)
+                );
+
+                const vacationReturns = sheetEvents
+                    .filter((e: any) => e.type === "vacation" && e.startDate === todayStr && e.isReturnDay)
+                    .map((e: any) => e.memo)
+                    .filter((name: string) => !excludedNames.has(name));
+
+                const passReturns = sheetEvents
+                    .filter((e: any) => e.type === "pass" && e.startDate === todayStr && e.isReturnDay)
+                    .map((e: any) => e.memo)
+                    .filter((name: string) => !excludedNames.has(name));
 
                 let responseMsg = `📅 *[${todayStr}] 복귀 예정 인원*\n\n`;
 
                 responseMsg += `🚶 *외박 복귀 (${passReturns.length}명)*\n`;
                 if (passReturns.length > 0) {
-                    responseMsg += passReturns.map((e: any) => `• ${e.memo}`).join("\n");
+                    responseMsg += passReturns.map((name: string) => `• ${name}`).join("\n");
                 } else {
                     responseMsg += `• 없음`;
                 }
 
                 responseMsg += `\n\n🏠 *휴가 복귀 (${vacationReturns.length}명)*\n`;
                 if (vacationReturns.length > 0) {
-                    responseMsg += vacationReturns.map((e: any) => `• ${e.memo}`).join("\n");
+                    responseMsg += vacationReturns.map((name: string) => `• ${name}`).join("\n");
                 } else {
                     responseMsg += `• 없음`;
                 }
