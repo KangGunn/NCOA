@@ -12,7 +12,7 @@ export interface CalendarEvent {
 
 export interface PenaltyItem {
     id: string;
-    type: 'weekday' | 'friSun' | 'sat';
+    type: 'weekday' | 'friSun' | 'sat' | 'warning';
     date?: string;
     reason: string;
     createdAt?: string;
