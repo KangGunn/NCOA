@@ -76,6 +76,62 @@ export function parseSheetEvents(prevData: any[], currData: any[], nextData: any
     return parsed;
 }
 
+/**
+ * schedules (유급생 및 캘린더 일정) 데이터를 sheetEvents와 100% 동일한 형식의 일일 이벤트로 변환합니다.
+ * - 외박: 시작일 전날(departDay) 저녁 출발 ~ 복귀일(returnDay) 저녁 복귀
+ * - 휴가: 시작일 당일(departDay) 출발 ~ 복귀일(returnDay) 저녁 복귀
+ */
+export function parseScheduleEvents(schedules: any[], targetDates: string[]): any[] {
+    const parsed: any[] = [];
+
+    schedules.forEach((s) => {
+        if (s.type !== "vacation" && s.type !== "pass") return;
+
+        const start = s.startDate; // YYYY-MM-DD
+        const end = s.endDate || s.startDate; // YYYY-MM-DD
+
+        // dateText 생성 (예: 9.12~9.15 또는 9.12)
+        const ps = start.split("-");
+        const pe = end.split("-");
+        const dateText = start === end
+            ? `${Number(ps[1])}.${Number(ps[2])}`
+            : `${Number(ps[1])}.${Number(ps[2])}~${Number(pe[1])}.${Number(pe[2])}`;
+
+        // 외박 출발일: 시작일 전날
+        // 휴가 출발일: 시작일 당일
+        let departDateStr = start;
+        if (s.type === "pass") {
+            const d = new Date(start);
+            d.setDate(d.getDate() - 1);
+            departDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        }
+        const returnDateStr = end;
+
+        targetDates.forEach((targetDate) => {
+            // 해당 targetDate가 이 일정의 활동 범위에 포함되는지 확인
+            // 활동 범위: [departDateStr, returnDateStr]
+            if (targetDate < departDateStr || targetDate > returnDateStr) return;
+
+            const isDepartDay = (targetDate === departDateStr);
+            const isReturnDay = (targetDate === returnDateStr);
+
+            parsed.push({
+                id: `schedule-${s.type}-${s.memo}-${targetDate}`,
+                type: s.type,
+                memo: s.memo,
+                startDate: targetDate,
+                endDate: targetDate,
+                isDepartDay,
+                isReturnDay,
+                isConsecutive: false,
+                dateText,
+            });
+        });
+    });
+
+    return parsed;
+}
+
 export function getA1Address(colIdx: number, rowIdx: number, sheetName: string = "NEW") {
     let temp = colIdx;
     let letter = "";

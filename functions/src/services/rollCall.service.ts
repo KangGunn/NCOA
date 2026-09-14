@@ -2,7 +2,7 @@
 import { getAllMembers } from "../repositories/member.repository";
 import { getAllSchedules } from "../repositories/schedule.repository";
 import { getSheetData } from "../repositories/sheet.repository";
-import { parseSheetEvents } from "../utils/sheet.util";
+import { parseSheetEvents, parseScheduleEvents } from "../utils/sheet.util";
 import { getMemberDisplayName } from "../utils/rank.util";
 
 export async function processRollCallData(dateStr: string) {
@@ -20,6 +20,11 @@ export async function processRollCallData(dateStr: string) {
 
     const sheetData = await getSheetData();
     const sheetEvents = parseSheetEvents(sheetData, sheetData, sheetData, todayStr, tomorrowStr);
+    // schedules (유급생 등) 데이터를 sheetEvents와 100% 동일한 규격의 일일 이벤트로 변환
+    const scheduleEvents = parseScheduleEvents(schedules, [todayStr, tomorrowStr]);
+
+    // 부대원(시트)과 유급생(캘린더) 데이터를 완전 일치된 단일 이벤트 배열로 통합
+    const allMovementEvents = [...sheetEvents, ...scheduleEvents];
 
     // 기준일(todayStr) 기준으로 전입일(joinDate)이 미래인 신병들을 백엔드 레벨에서 제외
     const activeMembers = members.filter((m) => !m.joinDate || todayStr >= m.joinDate);
@@ -30,23 +35,14 @@ export async function processRollCallData(dateStr: string) {
     const todayDuties = schedules.filter((e) => e.type === "duty" && e.startDate === todayStr);
     const tomorrowDuties = schedules.filter((e) => e.type === "duty" && e.startDate === tomorrowStr);
 
-    const todayVacations = [
-        ...sheetEvents.filter((e) => e.type === "vacation" && e.startDate === todayStr && !e.isReturnDay),
-        ...schedules.filter((e) => e.type === "vacation" && e.startDate <= todayStr && e.endDate >= todayStr),
-    ].filter((e) => activeMembers.find((m) => m.name === e.memo)?.role !== "runner");
+    // 부대원과 유급생 모두 100% 동일한 단일 점호 로직 적용
+    const todayVacations = allMovementEvents
+        .filter((e) => e.type === "vacation" && e.startDate === todayStr && !e.isReturnDay)
+        .filter((e) => activeMembers.find((m) => m.name === e.memo)?.role !== "runner");
 
-    const todayPasses = [
-        ...sheetEvents.filter((e) => e.type === "pass" && e.startDate === todayStr && !e.isReturnDay),
-        ...schedules.filter((e) => {
-            if (e.type !== "pass") return false;
-            // 일반 대원 외박: 오늘이 시작일~종료일 사이
-            if (e.startDate <= todayStr && e.endDate >= todayStr) return true;
-            // 유급생(holdover) 외박: 외박 시작일 전날 저녁 점호에도 외박 처리 (전날 외박 출발)
-            const member = activeMembers.find((m) => m.name === e.memo);
-            if (member?.role === "holdover" && e.startDate === tomorrowStr) return true;
-            return false;
-        }),
-    ].filter((e) => activeMembers.find((m) => m.name === e.memo)?.role !== "runner");
+    const todayPasses = allMovementEvents
+        .filter((e) => e.type === "pass" && e.startDate === todayStr && !e.isReturnDay)
+        .filter((e) => activeMembers.find((m) => m.name === e.memo)?.role !== "runner");
 
     const todayDutiesFilteredForStats = todayDuties.filter((d) => activeMembers.find((m) => m.name === d.memo)?.role !== "runner");
 
@@ -56,7 +52,7 @@ export async function processRollCallData(dateStr: string) {
     const offCount = dutyCount + vacationCount + passCount;
     const presentCount = totalCount - offCount;
 
-    const tomorrowDeparts = sheetEvents.filter(
+    const tomorrowDeparts = allMovementEvents.filter(
         (e) => e.startDate === tomorrowStr && e.isDepartDay && e.type === "vacation"
     );
 
@@ -112,17 +108,14 @@ export async function processRollCallData(dateStr: string) {
             tomorrowStr,
             duties: [...tomorrowDuties].sort((a, b) => compareMembers(a.memo, b.memo)).map((d) => getMorningDisplayName(d.memo)),
             recoveries: [...todayDuties].sort((a, b) => compareMembers(a.memo, b.memo)).map((d) => getMorningDisplayName(d.memo)),
-            vacations: [
-                ...sheetEvents.filter((e: any) => e.type === "vacation" && e.startDate === tomorrowStr && !e.isDepartDay),
-                ...schedules.filter((e: any) => e.type === "vacation" && e.startDate <= tomorrowStr && e.endDate >= tomorrowStr),
-            ]
+            vacations: allMovementEvents
+                .filter((e: any) => e.type === "vacation" && e.startDate === tomorrowStr && !e.isDepartDay)
                 .filter((e: any) => activeMembers.find((m) => m.name === e.memo)?.role !== "runner")
                 .sort((a: any, b: any) => compareMembers(a.memo, b.memo))
                 .map((e: any) => getMorningDisplayName(e.memo)),
             passes: [
-                ...sheetEvents.filter((e: any) => e.type === "pass" && e.startDate === tomorrowStr && !e.isDepartDay),
-                ...sheetEvents.filter((e: any) => e.type === "vacation" && e.startDate === tomorrowStr && e.isDepartDay && e.isConsecutive),
-                ...schedules.filter((e: any) => e.type === "pass" && e.startDate <= tomorrowStr && e.endDate >= tomorrowStr),
+                ...allMovementEvents.filter((e: any) => e.type === "pass" && e.startDate === tomorrowStr && !e.isDepartDay),
+                ...allMovementEvents.filter((e: any) => e.type === "vacation" && e.startDate === tomorrowStr && e.isDepartDay && e.isConsecutive),
             ]
                 .filter((e: any) => activeMembers.find((m) => m.name === e.memo)?.role !== "runner")
                 .sort((a: any, b: any) => compareMembers(a.memo, b.memo))
@@ -132,20 +125,20 @@ export async function processRollCallData(dateStr: string) {
                     const name = m.name;
                     const isDuty = tomorrowDuties.some((d: any) => d.memo === name);
                     const isRecovery = todayDuties.some((d: any) => d.memo === name);
-                    const isVacation = [
-                        ...schedules.filter((e: any) => e.type === "vacation" && e.startDate <= tomorrowStr && e.endDate >= tomorrowStr),
-                        ...sheetEvents.filter((e: any) => e.type === "vacation" && e.startDate === tomorrowStr && !e.isDepartDay),
-                    ].some((e: any) => e.memo === name);
-                    const isPass = [
-                        ...schedules.filter((e: any) => e.type === "pass" && e.startDate <= tomorrowStr && e.endDate >= tomorrowStr),
-                        ...sheetEvents.filter((e: any) => e.type === "pass" && e.startDate === tomorrowStr && !e.isDepartDay),
-                        ...sheetEvents.filter((e: any) => e.type === "vacation" && e.startDate === tomorrowStr && e.isDepartDay && e.isConsecutive),
-                    ].some((e: any) => e.memo === name);
+                    const isVacation = allMovementEvents.some(
+                        (e: any) => e.type === "vacation" && e.startDate === tomorrowStr && !e.isDepartDay && e.memo === name
+                    );
+                    const isPass = allMovementEvents.some(
+                        (e: any) => (
+                            (e.type === "pass" && e.startDate === tomorrowStr && !e.isDepartDay) ||
+                            (e.type === "vacation" && e.startDate === tomorrowStr && e.isDepartDay && e.isConsecutive)
+                        ) && e.memo === name
+                    );
                     return !isDuty && !isRecovery && !isVacation && !isPass;
                 })
                 .sort((a, b) => compareMembers(a.name, b.name))
                 .map((m) => getMemberDisplayName(m, tomorrow)),
         },
-        sheetEvents,
+        sheetEvents: allMovementEvents,
     };
 }

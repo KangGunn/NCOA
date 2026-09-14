@@ -190,12 +190,13 @@ export function useRollCallSync(baseDate: Date) {
         const isTimestampChange = !isInitialLoad && !isModeChange && !isDateChange && sheetUpdatedAt !== '0' && sheetUpdatedAt !== lastLoadedTimestampRef.current;
         const isFirestoreChange = !isInitialLoad && !isModeChange && !isDateChange && firestoreVersion !== lastLoadedFirestoreVersionRef.current;
 
-        // 시트 편집은 4초, Firestore 편집은 2.5초 디바운스
+        // 날짜 변경 또는 강제 갱신은 딜레이 없이 즉시 실행, 시트 편집은 4초, Firestore 편집은 2.5초 디바운스
         const delay = isTimestampChange ? 4000 : (isFirestoreChange ? 2500 : 0);
 
         const timer = setTimeout(() => {
-            // Firestore 변경인 경우 캐시를 우회하여 최신 계산을 가져옴
-            fetchData(sheetMode, sheetUpdatedAt, isFirestoreChange);
+            // 날짜 변경(isDateChange)이거나 Firestore 변경인 경우 항상 최신 계산을 새로고침(force=true)
+            const shouldForce = isDateChange || isFirestoreChange;
+            fetchData(sheetMode, sheetUpdatedAt, shouldForce);
             lastLoadedTimestampRef.current = sheetUpdatedAt;
             lastLoadedModeRef.current = sheetMode;
             lastLoadedDateRef.current = dateStr;

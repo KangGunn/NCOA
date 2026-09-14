@@ -4,8 +4,9 @@ import { FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { getKSTDateStr, getKSTTimeStr } from "../utils/date.util";
 import { getMemberDisplayName } from "../utils/rank.util";
-import { parseSheetEvents } from "../utils/sheet.util";
+import { parseSheetEvents, parseScheduleEvents } from "../utils/sheet.util";
 import { deleteDailyReturns } from "../repositories/return.repository";
+import { getAllSchedules } from "../repositories/schedule.repository";
 import { getDebugSetting, updateDebugSetting, getSeniorSetting, updateSeniorSetting, getSpreadsheetSetting, updateSpreadsheetSetting } from "../repositories/setting.repository";
 import { getSheetData } from "../repositories/sheet.repository";
 import { parseAndSaveDayPass, getDayPassReport, clearDayPassReport, cancelDayPassEntriesFromMessage } from "./daypass.service";
@@ -32,11 +33,16 @@ export async function getTodayReturneesHelper(todayStr: string) {
         tomorrow.setDate(tomorrow.getDate() + 1);
         const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
 
-        const sheetData = await getSheetData();
+        const [sheetData, schedules] = await Promise.all([
+            getSheetData(),
+            getAllSchedules(),
+        ]);
         const sheetEvents = parseSheetEvents(sheetData, sheetData, sheetData, todayStr, tomorrowStr);
+        const scheduleEvents = parseScheduleEvents(schedules, [todayStr, tomorrowStr]);
+        const allMovementEvents = [...sheetEvents, ...scheduleEvents];
 
-        const vacationReturns = sheetEvents.filter((e: any) => e.type === "vacation" && e.startDate === todayStr && e.isReturnDay).map((e: any) => e.memo);
-        const passReturns = sheetEvents.filter((e: any) => e.type === "pass" && e.startDate === todayStr && e.isReturnDay).map((e: any) => e.memo);
+        const vacationReturns = allMovementEvents.filter((e: any) => e.type === "vacation" && e.startDate === todayStr && e.isReturnDay).map((e: any) => e.memo);
+        const passReturns = allMovementEvents.filter((e: any) => e.type === "pass" && e.startDate === todayStr && e.isReturnDay).map((e: any) => e.memo);
 
         data = {
             ...data,
