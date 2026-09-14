@@ -21,7 +21,7 @@ export function PenaltyDutyModal({
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedMemberToAdd, setSelectedMemberToAdd] = useState<CalendarMember | null>(null);
-    const [penaltyTypeToAdd, setPenaltyTypeToAdd] = useState<'weekday' | 'friSun' | 'sat'>('weekday');
+    const [penaltyTypeToAdd, setPenaltyTypeToAdd] = useState<'weekday' | 'friSun' | 'sat' | 'warning'>('warning');
     const [penaltyDateToAdd, setPenaltyDateToAdd] = useState<string>(() => {
         const today = new Date();
         return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -79,6 +79,7 @@ export function PenaltyDutyModal({
     });
 
     const typeLabels = {
+        warning: '경고',
         weekday: '평당 추가',
         friSun: '금일당 추가',
         sat: '토당 추가'
@@ -92,7 +93,7 @@ export function PenaltyDutyModal({
             const [, m, d] = penaltyDateToAdd.split('-');
             formattedDate = `${m}/${d}`;
         }
-        const cleanReason = penaltyReasonToAdd.trim() || '페널티 당직';
+        const cleanReason = penaltyReasonToAdd.trim() || (penaltyTypeToAdd === 'warning' ? '주의 / 경고' : '페널티 당직');
 
         const newItem: PenaltyItem = {
             id: Date.now().toString(),
@@ -104,7 +105,7 @@ export function PenaltyDutyModal({
 
         const existingPenalties = selectedMemberToAdd.penalties || [];
         const updatedPenalties = [...existingPenalties, newItem];
-        const newOffset = updatedPenalties.length;
+        const newOffset = updatedPenalties.filter(p => p.type !== 'warning').length;
 
         setSavingMemberId(selectedMemberToAdd.id);
         try {
@@ -128,7 +129,7 @@ export function PenaltyDutyModal({
     const handleDeletePenaltyItem = async (member: CalendarMember, penaltyId: string) => {
         const existingPenalties = member.penalties || [];
         const updatedPenalties = existingPenalties.filter(p => p.id !== penaltyId);
-        const newOffset = updatedPenalties.length;
+        const newOffset = updatedPenalties.filter(p => p.type !== 'warning').length;
 
         setSavingMemberId(member.id);
         try {
@@ -188,11 +189,13 @@ export function PenaltyDutyModal({
                                     id: `legacy-${idx}`,
                                     type: 'weekday' as const,
                                     date: '',
-                                    reason: '기존 페널티 당직'
+                                    reason: '기존 페널티 당직',
+                                    createdAt: ''
                                 }));
 
                             // Breakdown count by duty type
                             const counts = {
+                                warning: memberPenalties.filter(p => p.type === 'warning').length,
                                 weekday: memberPenalties.filter(p => p.type === 'weekday').length,
                                 friSun: memberPenalties.filter(p => p.type === 'friSun').length,
                                 sat: memberPenalties.filter(p => p.type === 'sat').length
@@ -209,6 +212,11 @@ export function PenaltyDutyModal({
                                         </span>
 
                                         <div className="flex items-center gap-1.5 shrink-0">
+                                            {counts.warning > 0 && (
+                                                <span className="px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded-lg text-xs font-black">
+                                                    경고 {counts.warning}회
+                                                </span>
+                                            )}
                                             {counts.weekday > 0 && (
                                                 <span className="px-2 py-0.5 bg-amber-100/70 text-amber-800 rounded-lg text-xs font-black">
                                                     평당 +{counts.weekday}
@@ -225,6 +233,18 @@ export function PenaltyDutyModal({
                                                 </span>
                                             )}
                                             <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setSelectedMemberToAdd(m);
+                                                    setIsAddSelectOpen(true);
+                                                    setIsDropdownOpen(false);
+                                                }}
+                                                className="p-1.5 text-orange-500 hover:text-orange-700 hover:bg-orange-100 rounded-lg transition-colors"
+                                                title="이 인원에 페널티/경고 추가"
+                                            >
+                                                <Plus className="w-3.5 h-3.5" />
+                                            </button>
+                                            <button
                                                 disabled={isSaving}
                                                 onClick={() => handleClearAllPenalties(m)}
                                                 className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors ml-0.5"
@@ -235,9 +255,32 @@ export function PenaltyDutyModal({
                                         </div>
                                     </div>
 
-                                    {/* Penalty items detail: 당직 -> 날짜 -> 사유 */}
+                                    {/* Penalty items detail: 당직 -> 날짜 -> 사유 (날짜 순 정렬: 과거 -> 최신) */}
                                     <div className="space-y-1.5 pt-1">
-                                        {memberPenalties.map(item => {
+                                        {[...memberPenalties].sort((a, b) => {
+                                            const getEffectiveDate = (item: typeof a) => {
+                                                if (item.date) {
+                                                    const parts = item.date.split('/');
+                                                    if (parts.length === 2) {
+                                                        const m = parts[0].padStart(2, '0');
+                                                        const d = parts[1].padStart(2, '0');
+                                                        return `9999-${m}-${d}`;
+                                                    }
+                                                    return item.date;
+                                                }
+                                                if (item.reason) {
+                                                    const match = item.reason.match(/^(\d{1,2})\/(\d{1,2})/);
+                                                    if (match) {
+                                                        return `9999-${match[1].padStart(2, '0')}-${match[2].padStart(2, '0')}`;
+                                                    }
+                                                }
+                                                if (item.createdAt) return item.createdAt;
+                                                return '0000-00-00';
+                                            };
+                                            const dateComp = getEffectiveDate(a).localeCompare(getEffectiveDate(b));
+                                            if (dateComp !== 0) return dateComp;
+                                            return (a.createdAt || '').localeCompare(b.createdAt || '');
+                                        }).map(item => {
                                             // Extract date and clean reason
                                             let displayDate = item.date || '';
                                             let displayReason = item.reason;
@@ -258,6 +301,7 @@ export function PenaltyDutyModal({
                                                     <div className="flex items-center gap-2.5 min-w-0 pr-1">
                                                         {/* 1. 당직 종류 */}
                                                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-black shrink-0 ${
+                                                            item.type === 'warning' ? 'bg-yellow-50 text-yellow-700 border border-yellow-200' :
                                                             item.type === 'friSun' ? 'bg-sky-50 text-sky-600 border border-sky-100' :
                                                             item.type === 'sat' ? 'bg-rose-50 text-rose-600 border border-rose-100' :
                                                             'bg-amber-50 text-amber-700 border border-amber-100'
@@ -376,8 +420,9 @@ export function PenaltyDutyModal({
                             </div>
 
                             {/* Penalty Type Selection */}
-                            <div className="grid grid-cols-3 gap-1.5">
+                            <div className="grid grid-cols-4 gap-1.5">
                                 {([
+                                    { key: 'warning', label: '경고' },
                                     { key: 'weekday', label: '평당' },
                                     { key: 'friSun', label: '금일당' },
                                     { key: 'sat', label: '토당' }
@@ -388,7 +433,9 @@ export function PenaltyDutyModal({
                                         onClick={() => setPenaltyTypeToAdd(t.key)}
                                         className={`py-2 rounded-xl text-xs font-black border transition-all ${
                                             penaltyTypeToAdd === t.key
-                                                ? 'bg-orange-600 text-white border-orange-600 shadow-xs'
+                                                ? t.key === 'warning'
+                                                    ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
+                                                    : 'bg-orange-600 text-white border-orange-600 shadow-xs'
                                                 : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100'
                                         }`}
                                     >
