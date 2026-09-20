@@ -13,7 +13,7 @@ import { db } from "../config/firebase.config";
 
 import { getAllMembers } from "../repositories/member.repository";
 
-const TELEGRAM_TOKEN = "8760934378:AAFl26uGt5sj6fhlz2peBYkr0kJcqwCtxgI";
+const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 
 export async function getTodayReturneesHelper(todayStr: string) {
     const docRef = db.collection("dailyReturns").doc(todayStr);
