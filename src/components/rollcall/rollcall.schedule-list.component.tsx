@@ -127,10 +127,19 @@ export function RollCallScheduleList({
                                     )}
                                 </div>
                             ) : (
-                                <div className="flex flex-wrap gap-2">
-                                    {sectionMembers.map(m => (
-                                        <RollCallMemberButton key={m.name} {...getMemberProps(m, category)} />
-                                    ))}
+                                <div className="space-y-3">
+                                    <div className="flex flex-wrap gap-2">
+                                        {sectionMembers.filter(m => m.role !== 'holdover').map(m => (
+                                            <RollCallMemberButton key={m.name} {...getMemberProps(m, category)} />
+                                        ))}
+                                    </div>
+                                    {sectionMembers.some(m => m.role === 'holdover') && (
+                                        <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
+                                            {sectionMembers.filter(m => m.role === 'holdover').map(m => (
+                                                <RollCallMemberButton key={m.name} {...getMemberProps(m, category)} />
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -139,7 +148,8 @@ export function RollCallScheduleList({
 
                 {/* 임시 추가 일정 카드 */}
                 {customSchedules.map(schedule => {
-                    const allNonRunners = members.filter(m => m.role !== 'runner');
+                    const regularMembers = members.filter(m => m.role !== 'runner' && m.role !== 'holdover');
+                    const holdoverMembers = members.filter(m => m.role === 'holdover');
                     return (
                         <div key={schedule.name} className="p-5 bg-white border border-indigo-200 rounded-3xl shadow-sm">
                             <div className="flex items-center justify-between mb-3">
@@ -151,10 +161,19 @@ export function RollCallScheduleList({
                                     삭제
                                 </button>
                             </div>
-                            <div className="flex flex-wrap gap-2">
-                                {allNonRunners.map(m => (
-                                    <RollCallMemberButton key={m.name} {...getMemberProps(m, schedule.name)} />
-                                ))}
+                            <div className="space-y-3">
+                                <div className="flex flex-wrap gap-2">
+                                    {regularMembers.map(m => (
+                                        <RollCallMemberButton key={m.name} {...getMemberProps(m, schedule.name)} />
+                                    ))}
+                                </div>
+                                {holdoverMembers.length > 0 && (
+                                    <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
+                                        {holdoverMembers.map(m => (
+                                            <RollCallMemberButton key={m.name} {...getMemberProps(m, schedule.name)} />
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     );

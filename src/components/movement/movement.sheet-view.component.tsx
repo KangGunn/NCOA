@@ -144,6 +144,10 @@ export function MovementSheetView({
             target = 'Birthday';
         }
 
+        if (isEnclosure) {
+            target = target.replace(/수료/g, '').trim();
+        }
+
         target = target.replace(/PRT\s*DEMO/gi, 'PRT Demo');
 
         if (dbMember) {
