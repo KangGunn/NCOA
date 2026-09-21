@@ -5,7 +5,7 @@ import { getSheetData } from "../repositories/sheet.repository";
 import { parseSheetEvents, parseScheduleEvents } from "../utils/sheet.util";
 import { getMemberDisplayName } from "../utils/rank.util";
 
-export async function processRollCallData(dateStr: string) {
+export async function processRollCallData(dateStr: string, options: { excludeHoldover?: boolean } = {}) {
     const baseDate = new Date(dateStr);
     const tomorrow = new Date(baseDate);
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -27,7 +27,10 @@ export async function processRollCallData(dateStr: string) {
     const allMovementEvents = [...sheetEvents, ...scheduleEvents];
 
     // 기준일(todayStr) 기준으로 전입일(joinDate)이 미래인 신병들을 백엔드 레벨에서 제외
-    const activeMembers = members.filter((m) => !m.joinDate || todayStr >= m.joinDate);
+    let activeMembers = members.filter((m) => !m.joinDate || todayStr >= m.joinDate);
+    if (options.excludeHoldover) {
+        activeMembers = activeMembers.filter((m) => m.role !== "holdover");
+    }
 
     const nonRunnerMembers = activeMembers.filter((m) => m.role !== "runner");
     const totalCount = nonRunnerMembers.length;
@@ -38,13 +41,22 @@ export async function processRollCallData(dateStr: string) {
     // 부대원과 유급생 모두 100% 동일한 단일 점호 로직 적용
     const todayVacations = allMovementEvents
         .filter((e) => e.type === "vacation" && e.startDate === todayStr && !e.isReturnDay)
-        .filter((e) => activeMembers.find((m) => m.name === e.memo)?.role !== "runner");
+        .filter((e) => {
+            const m = activeMembers.find((member) => member.name === e.memo);
+            return m && m.role !== "runner";
+        });
 
     const todayPasses = allMovementEvents
         .filter((e) => e.type === "pass" && e.startDate === todayStr && !e.isReturnDay)
-        .filter((e) => activeMembers.find((m) => m.name === e.memo)?.role !== "runner");
+        .filter((e) => {
+            const m = activeMembers.find((member) => member.name === e.memo);
+            return m && m.role !== "runner";
+        });
 
-    const todayDutiesFilteredForStats = todayDuties.filter((d) => activeMembers.find((m) => m.name === d.memo)?.role !== "runner");
+    const todayDutiesFilteredForStats = todayDuties.filter((d) => {
+        const m = activeMembers.find((member) => member.name === d.memo);
+        return m && m.role !== "runner";
+    });
 
     const dutyCount = todayDutiesFilteredForStats.length;
     const vacationCount = todayVacations.length;

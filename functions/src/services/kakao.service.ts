@@ -20,7 +20,7 @@ export async function getKakaoRollCallStatus(todayStr: string) {
     const prevDate = new Date(previousDateStr);
     const prevDayLabel = dayLabels[prevDate.getDay()];
 
-    const rollCallData = await processRollCallData(previousDateStr);
+    const rollCallData = await processRollCallData(previousDateStr, { excludeHoldover: true });
     const { total, present, absent, dutyCount, vacationCount, passCount } = rollCallData.stats;
 
     const details: string[] = [];
@@ -99,7 +99,7 @@ export async function getKakaoWeeklyRollCallStatus(todayStr: string) {
         const prevMm = String(prev.getMonth() + 1).padStart(2, "0");
         const prevDd = String(prev.getDate()).padStart(2, "0");
         const queryDateStr = `${prevYyyy}-${prevMm}-${prevDd}`;
-        const prevDayLabel = `${dayLabels[prev.getDay()]}저`;
+        const prevDayLabel = `${dayLabels[prev.getDay()]}요일 저녁`;
 
         weekDates.push({ displayDateStr, queryDateStr, label, prevDayLabel });
     }
@@ -107,14 +107,14 @@ export async function getKakaoWeeklyRollCallStatus(todayStr: string) {
     const monLabel = weekDates[0].label;
     const friLabel = weekDates[4].label;
 
-    // 병렬로 5일간 데이터 일괄 조회 (전날 저녁 점호 기준)
+    // 병렬로 5일간 데이터 일괄 조회 (전날 저녁 점호 기준, 유급생 제외)
     const weekResults = await Promise.all(
-        weekDates.map((w) => processRollCallData(w.queryDateStr))
+        weekDates.map((w) => processRollCallData(w.queryDateStr, { excludeHoldover: true }))
     );
 
-    let text = `📅 [${monLabel} ~ ${friLabel}] 이번 주 점호 현황\n\n`;
+    let text = `📅 [${monLabel} ~ ${friLabel}] 이번 주 점호 현황 (전날 저녁 점호 기준)\n\n`;
 
-    weekDates.forEach(({ label, prevDayLabel }, idx) => {
+    weekDates.forEach(({ label }, idx) => {
         const rollCallData = weekResults[idx];
         const { total, present, absent, dutyCount, vacationCount, passCount } = rollCallData.stats;
 
@@ -125,7 +125,7 @@ export async function getKakaoWeeklyRollCallStatus(todayStr: string) {
 
         const detailText = details.length > 0 ? ` (${details.join(", ")})` : "";
 
-        text += `• ${label} (${prevDayLabel} 기준)\n`;
+        text += `• ${label}\n`;
         text += `  - 총원: ${total}명 / 현재원: ${present}명\n`;
         text += `  - 열외: ${absent}명${detailText}\n\n`;
     });
