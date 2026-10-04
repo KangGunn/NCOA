@@ -54,6 +54,71 @@ export const getRankDetails = (enlistmentDate: Date, asOf: Date = new Date(), ea
     return { rank: tier, hobong, totalMonths: baseMonths + 1 };
 };
 
+/**
+ * 짬순(호봉순) 정렬을 위한 계급/호봉 절대 점수 계산
+ * 조기진급(earlyPromotionMonths)이 반영된 계급 및 호봉을 수치화하여
+ * 높은 계급/호봉일수록 더 큰 값을 반환합니다.
+ */
+export const getSeniorityRankScore = (
+    enlistmentDate?: string | Date | null,
+    earlyPromotionMonths: number = 0,
+    asOf: Date = new Date()
+): number => {
+    if (!enlistmentDate) return -1;
+    const date = typeof enlistmentDate === 'string' ? new Date(enlistmentDate) : enlistmentDate;
+    if (isNaN(date.getTime())) return -1;
+
+    const { rank, hobong } = getRankDetails(date, asOf, earlyPromotionMonths);
+    const tierWeight: Record<RankTier, number> = {
+        '이병': 100,
+        '일병': 200,
+        '상병': 300,
+        '병장': 400
+    };
+    return (tierWeight[rank as RankTier] || 0) + hobong;
+};
+
+/**
+ * 조기진급을 고려한 짬순 비교 함수
+ * 1. 호봉순 (높은 호봉이 먼저 = 내림차순)
+ * 2. 호봉이 같다면 입대일 순 (빠른 입대일 = 오름차순)
+ * 3. 이름 가나다 순 (오름차순)
+ */
+export const compareMembersByHobong = <T extends { name?: string; enlistmentDate?: string; earlyPromotion?: number; role?: string }>(
+    a: T,
+    b: T,
+    asOf: Date = new Date()
+): number => {
+    // 유급생(holdover)은 기간병보다 아래 (holdover = 1, regular = 0)
+    const isHoldoverA = a?.role === 'holdover' ? 1 : 0;
+    const isHoldoverB = b?.role === 'holdover' ? 1 : 0;
+    if (isHoldoverA !== isHoldoverB) return isHoldoverA - isHoldoverB;
+
+    const scoreA = getSeniorityRankScore(a.enlistmentDate, a.earlyPromotion || 0, asOf);
+    const scoreB = getSeniorityRankScore(b.enlistmentDate, b.earlyPromotion || 0, asOf);
+
+    // 1. 호봉 점수 비교 (높은 호봉 = 선임 = 먼저)
+    if (scoreA !== scoreB) {
+        return scoreB - scoreA;
+    }
+
+    // 2. 입대일 비교 (빠른 입대일 = 선임 = 먼저)
+    const dateA = typeof a.enlistmentDate === 'string' ? a.enlistmentDate.trim() : '';
+    const dateB = typeof b.enlistmentDate === 'string' ? b.enlistmentDate.trim() : '';
+    if (dateA || dateB) {
+        if (!dateA) return 1;
+        if (!dateB) return -1;
+        if (dateA !== dateB) {
+            return dateA.localeCompare(dateB);
+        }
+    }
+
+    // 3. 이름 가나다 순
+    const nameA = typeof a.name === 'string' ? a.name.trim() : '';
+    const nameB = typeof b.name === 'string' ? b.name.trim() : '';
+    return nameA.localeCompare(nameB, 'ko');
+};
+
 export const calculateRank = (enlistmentDate: Date, earlyPromotionMonths: number = 0, asOf: Date = new Date()): string => {
     const discharge = getExpectedDischargeDate(enlistmentDate);
     const dischargeMidnight = new Date(discharge.getFullYear(), discharge.getMonth(), discharge.getDate()).getTime();

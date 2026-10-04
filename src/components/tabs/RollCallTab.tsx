@@ -5,6 +5,7 @@ import { cn } from '../../lib/utils';
 import { useMembers } from '../../hooks/member/member.subscription.hook';
 import { useRollCallSync } from '../../hooks/rollcall/rollcall.sync.hook';
 import { generateEveningReportText, generateMorningReportText } from '../../utils/rollcall/rollcall.parser.util';
+import { compareMembersByHobong } from '../../lib/rankUtils';
 
 import { RollCallHeader } from '../rollcall/rollcall.header.component';
 import { RollCallPreview } from '../rollcall/rollcall.preview.component';
@@ -47,9 +48,11 @@ export default function RollCallTab({
     const { rollCallData: rawRollCallData, handleManualRefresh } = useRollCallSync(baseDate);
     const { members: allMembers } = useMembers();
 
-    // baseDate 기준으로 전입일(joinDate)이 미래인 부대원 필터링 (없는 사람 취급)
+    // baseDate 기준으로 전입일(joinDate)이 미래인 부대원 필터링 (없는 사람 취급) 및 호봉순(짬순) 정렬
     const dateStr = `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, '0')}-${String(baseDate.getDate()).padStart(2, '0')}`;
-    const members = allMembers.filter(m => !m.joinDate || dateStr >= m.joinDate);
+    const members = allMembers
+        .filter(m => !m.joinDate || dateStr >= m.joinDate)
+        .sort((a, b) => compareMembersByHobong(a, b, baseDate));
 
     const rollCallData = rawRollCallData;
 
@@ -72,16 +75,19 @@ export default function RollCallTab({
             baseDate,
             healthNote,
             tomorrowNote,
-            scheduleText
+            scheduleText,
+            members
         });
     };
 
     const generateMorningReport = () => {
         return generateMorningReportText({
             rollCallData,
+            baseDate,
             healthNote,
             scheduleParticipants,
-            customSchedules
+            customSchedules,
+            members
         });
     };
 

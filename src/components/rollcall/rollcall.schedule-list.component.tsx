@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { UserPlus, ChevronUp } from 'lucide-react';
+import { cn } from '../../lib/utils';
 import type { Member } from '../../types/member/member.type';
 import type { SheetEvent } from '../../types/rollcall/rollcall.type';
 import { RollCallMemberButton } from './rollcall.member-button.component';
@@ -25,10 +27,33 @@ export function RollCallScheduleList({
     rollCallData
 }: RollCallScheduleListProps) {
     const [newScheduleName, setNewScheduleName] = useState('');
+    const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
 
     const handleAddCustomSchedule = () => {
         addCustomSchedule(newScheduleName);
         setNewScheduleName('');
+    };
+
+    const toggleCategoryExpanded = (category: string) => {
+        setExpandedCategories(prev => ({
+            ...prev,
+            [category]: !prev[category]
+        }));
+    };
+
+    const getDefaultSectionMembers = (category: string) => {
+        const targetSection = category.split(' ')[0]; // 'HQ', 'KTA', 'MEDIC', 'BLC', 'PAO'
+        if (targetSection === 'HQ') {
+            const excludeList = ['KTA', 'MEDIC', 'RSO'];
+            return members.filter(m =>
+                m.role !== 'runner' &&
+                (!m.sections || !m.sections.some(s => excludeList.includes(s)))
+            );
+        }
+        return members.filter(m =>
+            m.role !== 'runner' &&
+            m.sections?.includes(targetSection)
+        );
     };
 
     const getMemberProps = (m: Member, currentCategory: string) => {
@@ -77,27 +102,57 @@ export function RollCallScheduleList({
             </div>
             <div className="flex flex-col gap-4">
                 {Object.keys(scheduleParticipants).map(category => {
+                    const sectionMembers = getDefaultSectionMembers(category);
+                    const sectionMemberNames = new Set(sectionMembers.map(m => m.name));
+
+                    // 기본 제공 인원 외 나머지 대원 목록 (짬순 정렬)
+                    const remainingMembers = members.filter(m =>
+                        m.role !== 'runner' && !sectionMemberNames.has(m.name)
+                    );
+
+                    const isExpanded = !!expandedCategories[category];
+                    const selectedInThisCategory = scheduleParticipants[category] || [];
+                    const selectedRemainingMembers = remainingMembers.filter(m =>
+                        selectedInThisCategory.includes(m.name)
+                    );
                     const targetSection = category.split(' ')[0]; // 'HQ', 'KTA', 'MEDIC', 'BLC', 'PAO'
 
-                    let sectionMembers: Member[] = [];
-                    if (targetSection === 'HQ') {
-                        const excludeList = ['KTA', 'MEDIC', 'RSO'];
-                        sectionMembers = members.filter(m =>
-                            m.role !== 'runner' &&
-                            (!m.sections || !m.sections.some(s => excludeList.includes(s)))
-                        );
-                    } else {
-                        sectionMembers = members.filter(m =>
-                            m.role !== 'runner' &&
-                            m.sections?.includes(targetSection)
-                        );
-                    }
-
                     return (
-                        <div key={category} className="p-5 bg-white border border-gray-200 rounded-3xl shadow-sm">
-                            <h3 className="text-sm font-black text-gray-900 mb-3 flex items-center justify-between">
-                                {category}
-                            </h3>
+                        <div key={category} className="p-5 bg-white border border-gray-200 rounded-3xl shadow-sm transition-all">
+                            {/* Card Header */}
+                            <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                    <h3 className="text-sm font-black text-gray-900">
+                                        {category}
+                                    </h3>
+                                    {selectedInThisCategory.length > 0 && (
+                                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100">
+                                            {selectedInThisCategory.length}명 참여
+                                        </span>
+                                    )}
+                                </div>
+                                {remainingMembers.length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => toggleCategoryExpanded(category)}
+                                        aria-label={isExpanded ? "접기" : "인원 추가"}
+                                        className={cn(
+                                            "flex items-center justify-center rounded-lg p-1.5 transition-all active:scale-95 border shadow-sm",
+                                            isExpanded
+                                                ? "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
+                                                : "text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border-indigo-200"
+                                        )}
+                                    >
+                                        {isExpanded ? (
+                                            <ChevronUp className="w-4 h-4" />
+                                        ) : (
+                                            <UserPlus className="w-4 h-4" />
+                                        )}
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* 기본 제공 인원 버튼 목록 */}
                             {sectionMembers.length === 0 ? (
                                 <p className="text-xs text-gray-400 font-bold bg-gray-50 p-3 rounded-xl border border-dashed border-gray-200">
                                     {targetSection === 'HQ'
@@ -142,6 +197,40 @@ export function RollCallScheduleList({
                                     )}
                                 </div>
                             )}
+
+                            {/* 접기 상태일 때: 이미 선택된 추가 인원이 있다면 보여주기 */}
+                            {!isExpanded && selectedRemainingMembers.length > 0 && (
+                                <div className="pt-2.5 mt-2.5 border-t border-dashed border-blue-200 space-y-1.5 animate-in fade-in duration-200">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-[10px] font-black text-blue-600 flex items-center gap-1">
+                                            <span>+ 선택된 추가 인원</span>
+                                            <span className="text-blue-400 font-bold">({selectedRemainingMembers.length}명)</span>
+                                        </span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {selectedRemainingMembers.map(m => (
+                                            <RollCallMemberButton key={m.name} {...getMemberProps(m, category)} />
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* 펼치기(확장) 상태: 구분선과 함께 나머지 전체 인원 표시 */}
+                            {isExpanded && remainingMembers.length > 0 && (
+                                <div className="pt-3 mt-3 border-t border-dashed border-indigo-200 space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-[11px] font-black text-indigo-700 flex items-center gap-1">
+                                            <span>+ 추가 인원</span>
+                                            <span className="text-indigo-400 font-bold">({remainingMembers.length}명)</span>
+                                        </span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {remainingMembers.map(m => (
+                                            <RollCallMemberButton key={m.name} {...getMemberProps(m, category)} />
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     );
                 })}
@@ -150,10 +239,18 @@ export function RollCallScheduleList({
                 {customSchedules.map(schedule => {
                     const regularMembers = members.filter(m => m.role !== 'runner' && m.role !== 'holdover');
                     const holdoverMembers = members.filter(m => m.role === 'holdover');
+                    const selectedCount = (schedule.participants || []).length;
                     return (
                         <div key={schedule.name} className="p-5 bg-white border border-indigo-200 rounded-3xl shadow-sm">
                             <div className="flex items-center justify-between mb-3">
-                                <h3 className="text-sm font-black text-indigo-700">{schedule.name}</h3>
+                                <div className="flex items-center gap-2">
+                                    <h3 className="text-sm font-black text-indigo-700">{schedule.name}</h3>
+                                    {selectedCount > 0 && (
+                                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100">
+                                            {selectedCount}명 참여
+                                        </span>
+                                    )}
+                                </div>
                                 <button
                                     onClick={() => removeCustomSchedule(schedule.name)}
                                     className="text-[10px] font-black text-red-400 hover:text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2 py-1 transition-all"

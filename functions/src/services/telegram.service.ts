@@ -3,7 +3,7 @@ import axios from "axios";
 import { FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { getKSTDateStr, getKSTTimeStr } from "../utils/date.util";
-import { getMemberDisplayName } from "../utils/rank.util";
+import { getMemberDisplayName, compareMembersByHobong } from "../utils/rank.util";
 import { parseSheetEvents } from "../utils/sheet.util";
 import { deleteDailyReturns } from "../repositories/return.repository";
 import { getDebugSetting, updateDebugSetting, getSeniorSetting, updateSeniorSetting, getSpreadsheetSetting, updateSpreadsheetSetting } from "../repositories/setting.repository";
@@ -265,12 +265,7 @@ export async function processTelegramMessage(body: any) {
                 const verifiedList = membersSnap.docs
                     .map(doc => ({ id: doc.id, ...doc.data() } as any))
                     .filter((m: any) => m.telegramId && m.name)
-                    .sort((a: any, b: any) => {
-                        const dateA = a.enlistmentDate || "9999-99-99";
-                        const dateB = b.enlistmentDate || "9999-99-99";
-                        if (dateA !== dateB) return dateA.localeCompare(dateB);
-                        return a.name.localeCompare(b.name);
-                    })
+                    .sort((a: any, b: any) => compareMembersByHobong(a, b))
                     .map((m: any) => {
                         const displayName = getMemberDisplayName(m);
                         return `- [${displayName}](tg://user?id=${m.telegramId})`;
@@ -442,12 +437,7 @@ export async function processTelegramMessage(body: any) {
                     return names.map((n: string) => {
                         const m = allMembers.find((mem: any) => mem.name === n);
                         return m ? m : { name: n, enlistmentDate: "9999-99-99" };
-                    }).sort((a: any, b: any) => {
-                        const dateA = a.enlistmentDate || "9999-99-99";
-                        const dateB = b.enlistmentDate || "9999-99-99";
-                        if (dateA !== dateB) return dateA.localeCompare(dateB);
-                        return a.name.localeCompare(b.name);
-                    }).map((m: any) => {
+                    }).sort((a: any, b: any) => compareMembersByHobong(a, b)).map((m: any) => {
                         const fullMember = allMembers.find((mem: any) => mem.name === m.name);
                         return fullMember ? getMemberDisplayName(fullMember) : m.name;
                     });
@@ -515,12 +505,7 @@ export async function processTelegramMessage(body: any) {
                             return names.map((n: string) => {
                                 const m = allMembers.find((mem: any) => mem.name === n);
                                 return m ? m : { name: n, enlistmentDate: "9999-99-99" };
-                            }).sort((a: any, b: any) => {
-                                const dateA = a.enlistmentDate || "9999-99-99";
-                                const dateB = b.enlistmentDate || "9999-99-99";
-                                if (dateA !== dateB) return dateA.localeCompare(dateB);
-                                return a.name.localeCompare(b.name);
-                            }).map((m: any) => {
+                            }).sort((a: any, b: any) => compareMembersByHobong(a, b)).map((m: any) => {
                                 const fullMember = allMembers.find((mem: any) => mem.name === m.name);
                                 const displayName = fullMember ? getMemberDisplayName(fullMember) : m.name;
                                 const reportTime = returnTimes[m.name] || "-";
@@ -680,8 +665,9 @@ export async function processTelegramMessage(body: any) {
                 const sheetEvents = parseSheetEvents(sheetData, sheetData, sheetData, todayStr, tomorrowStr);
 
                 const membersSnap = await db.collection("members").get();
+                const membersList = membersSnap.docs.map(doc => doc.data() as any);
                 const excludedNames = new Set(
-                    membersSnap.docs.map(doc => doc.data()).filter((m: any) => m.role === "holdover" || m.role === "runner").map((m: any) => m.name)
+                    membersList.filter((m: any) => m.role === "holdover" || m.role === "runner").map((m: any) => m.name)
                 );
 
                 const vacationReturns = sheetEvents
@@ -694,18 +680,31 @@ export async function processTelegramMessage(body: any) {
                     .map((e: any) => e.memo)
                     .filter((name: string) => !excludedNames.has(name));
 
+                const sortExpected = (names: string[]) => {
+                    return names.map((n: string) => {
+                        const m = membersList.find((mem: any) => mem.name === n);
+                        return m ? m : { name: n, enlistmentDate: "9999-99-99" };
+                    }).sort((a: any, b: any) => compareMembersByHobong(a, b, new Date(todayStr))).map((m: any) => {
+                        const fullMember = membersList.find((mem: any) => mem.name === m.name);
+                        return fullMember ? getMemberDisplayName(fullMember, new Date(todayStr)) : m.name;
+                    });
+                };
+
+                const sortedPassReturns = sortExpected(passReturns);
+                const sortedVacationReturns = sortExpected(vacationReturns);
+
                 let responseMsg = `📅 *[${todayStr}] 복귀 예정 인원*\n\n`;
 
-                responseMsg += `🚶 *외박 복귀 (${passReturns.length}명)*\n`;
-                if (passReturns.length > 0) {
-                    responseMsg += passReturns.map((name: string) => `• ${name}`).join("\n");
+                responseMsg += `🚶 *외박 복귀 (${sortedPassReturns.length}명)*\n`;
+                if (sortedPassReturns.length > 0) {
+                    responseMsg += sortedPassReturns.map((name: string) => `• ${name}`).join("\n");
                 } else {
                     responseMsg += `• 없음`;
                 }
 
-                responseMsg += `\n\n🏠 *휴가 복귀 (${vacationReturns.length}명)*\n`;
-                if (vacationReturns.length > 0) {
-                    responseMsg += vacationReturns.map((name: string) => `• ${name}`).join("\n");
+                responseMsg += `\n\n🏠 *휴가 복귀 (${sortedVacationReturns.length}명)*\n`;
+                if (sortedVacationReturns.length > 0) {
+                    responseMsg += sortedVacationReturns.map((name: string) => `• ${name}`).join("\n");
                 } else {
                     responseMsg += `• 없음`;
                 }

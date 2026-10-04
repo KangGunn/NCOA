@@ -1,5 +1,7 @@
 import { processRollCallData } from "./rollCall.service";
 import { getTodayReturneesHelper } from "./telegram.service";
+import { getAllMembers } from "../repositories/member.repository";
+import { compareMembersByHobong, getMemberDisplayName } from "../utils/rank.util";
 
 function getPreviousDateStr(dateStr: string): string {
     const d = new Date(dateStr);
@@ -55,10 +57,25 @@ export async function getKakaoUnreturnedStatus(todayStr: string) {
     const uv = (returnsData.expectedVacation || []).filter((n: string) => !rv.includes(n));
     const up = (returnsData.expectedPass || []).filter((n: string) => !rp.includes(n));
 
-    const totalUnreturned = uv.length + up.length;
+    const members = await getAllMembers();
+    const asOfDate = new Date(todayStr);
+    const sortMembers = (names: string[]) => {
+        return names.map((n: string) => {
+            const m = members.find((mem) => mem.name === n);
+            return m ? m : { name: n, enlistmentDate: "9999-99-99" };
+        }).sort((a, b) => compareMembersByHobong(a, b, asOfDate)).map((m) => {
+            const fullMember = members.find((mem) => mem.name === m.name);
+            return fullMember ? getMemberDisplayName(fullMember, asOfDate) : m.name;
+        });
+    };
+
+    const sortedUp = sortMembers(up);
+    const sortedUv = sortMembers(uv);
+
+    const totalUnreturned = sortedUv.length + sortedUp.length;
     let text = `🚨 [${todayStr}] 미복귀자 명단 (총 ${totalUnreturned}명)\n\n`;
-    text += `• 외박 (${up.length}명)\n` + (up.length > 0 ? up.map((n: string) => `- ${n}`).join("\n") : `- 없음`) + "\n\n";
-    text += `• 휴가 (${uv.length}명)\n` + (uv.length > 0 ? uv.map((n: string) => `- ${n}`).join("\n") : `- 없음`);
+    text += `• 외박 (${sortedUp.length}명)\n` + (sortedUp.length > 0 ? sortedUp.map((n: string) => `- ${n}`).join("\n") : `- 없음`) + "\n\n";
+    text += `• 휴가 (${sortedUv.length}명)\n` + (sortedUv.length > 0 ? sortedUv.map((n: string) => `- ${n}`).join("\n") : `- 없음`);
 
     return {
         version: "2.0",

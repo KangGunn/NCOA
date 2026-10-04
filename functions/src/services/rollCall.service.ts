@@ -3,7 +3,7 @@ import { getAllMembers } from "../repositories/member.repository";
 import { getAllSchedules } from "../repositories/schedule.repository";
 import { getSheetData } from "../repositories/sheet.repository";
 import { parseSheetEvents, parseScheduleEvents } from "../utils/sheet.util";
-import { getMemberDisplayName } from "../utils/rank.util";
+import { getMemberDisplayName, compareMembersByHobong } from "../utils/rank.util";
 
 export async function processRollCallData(dateStr: string, options: { excludeHoldover?: boolean } = {}) {
     const baseDate = new Date(dateStr);
@@ -68,18 +68,20 @@ export async function processRollCallData(dateStr: string, options: { excludeHol
         (e) => e.startDate === tomorrowStr && e.isDepartDay && e.type === "vacation"
     );
 
-    const compareMembers = (nameA: string, nameB: string) => {
+    const compareMembers = (nameA: string, nameB: string, asOfDate: Date = baseDate) => {
         const mA = activeMembers.find((m) => m.name === nameA);
         const mB = activeMembers.find((m) => m.name === nameB);
         const isHoldoverA = mA?.role === "holdover" ? 1 : 0;
         const isHoldoverB = mB?.role === "holdover" ? 1 : 0;
         // 유급생은 무조건 기간병보다 아래 (holdover = 1, regular = 0)
         if (isHoldoverA !== isHoldoverB) return isHoldoverA - isHoldoverB;
-        // 기간병끼리는 짬순 (입대일 오름차순: 빠른 입대일 = 선임이 먼저)
-        const enlistA = mA?.enlistmentDate || "";
-        const enlistB = mB?.enlistmentDate || "";
-        if (enlistA !== enlistB) return enlistA.localeCompare(enlistB);
-        return nameA.localeCompare(nameB);
+        // 기간병끼리는 조기진급을 적용한 호봉순 (호봉 > 입대일 > 이름 가나다 순)
+        if (mA && mB) {
+            return compareMembersByHobong(mA, mB, asOfDate);
+        }
+        if (mA) return -1;
+        if (mB) return 1;
+        return nameA.localeCompare(nameB, "ko");
     };
 
     const getEveningDisplayName = (memoName: string) => {
@@ -118,19 +120,19 @@ export async function processRollCallData(dateStr: string, options: { excludeHol
         },
         morning: {
             tomorrowStr,
-            duties: [...tomorrowDuties].sort((a, b) => compareMembers(a.memo, b.memo)).map((d) => getMorningDisplayName(d.memo)),
-            recoveries: [...todayDuties].sort((a, b) => compareMembers(a.memo, b.memo)).map((d) => getMorningDisplayName(d.memo)),
+            duties: [...tomorrowDuties].sort((a, b) => compareMembers(a.memo, b.memo, tomorrow)).map((d) => getMorningDisplayName(d.memo)),
+            recoveries: [...todayDuties].sort((a, b) => compareMembers(a.memo, b.memo, tomorrow)).map((d) => getMorningDisplayName(d.memo)),
             vacations: allMovementEvents
                 .filter((e: any) => e.type === "vacation" && e.startDate === tomorrowStr && !e.isDepartDay)
                 .filter((e: any) => activeMembers.find((m) => m.name === e.memo)?.role !== "runner")
-                .sort((a: any, b: any) => compareMembers(a.memo, b.memo))
+                .sort((a: any, b: any) => compareMembers(a.memo, b.memo, tomorrow))
                 .map((e: any) => getMorningDisplayName(e.memo)),
             passes: [
                 ...allMovementEvents.filter((e: any) => e.type === "pass" && e.startDate === tomorrowStr && !e.isDepartDay),
                 ...allMovementEvents.filter((e: any) => e.type === "vacation" && e.startDate === tomorrowStr && e.isDepartDay && e.isConsecutive),
             ]
                 .filter((e: any) => activeMembers.find((m) => m.name === e.memo)?.role !== "runner")
-                .sort((a: any, b: any) => compareMembers(a.memo, b.memo))
+                .sort((a: any, b: any) => compareMembers(a.memo, b.memo, tomorrow))
                 .map((e: any) => getMorningDisplayName(e.memo)),
             presentMembers: nonRunnerMembers
                 .filter((m) => {
@@ -148,7 +150,7 @@ export async function processRollCallData(dateStr: string, options: { excludeHol
                     );
                     return !isDuty && !isRecovery && !isVacation && !isPass;
                 })
-                .sort((a, b) => compareMembers(a.name, b.name))
+                .sort((a, b) => compareMembers(a.name, b.name, tomorrow))
                 .map((m) => getMemberDisplayName(m, tomorrow)),
         },
         sheetEvents: allMovementEvents,

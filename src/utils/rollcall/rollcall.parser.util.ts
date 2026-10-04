@@ -1,4 +1,6 @@
 import type { RollCallData } from '../../types/rollcall/rollcall.type';
+import type { Member } from '../../types/member/member.type';
+import { compareMembersByHobong } from '../../lib/rankUtils';
 
 export interface EveningReportParams {
     rollCallData: RollCallData | null;
@@ -6,6 +8,40 @@ export interface EveningReportParams {
     healthNote: string;
     tomorrowNote: string;
     scheduleText: string;
+    members?: Member[];
+}
+
+function getMemberForName(displayName: string, members: Member[]): Member | undefined {
+    const rawName = displayName.split(' ')[0].trim();
+    return members.find(m => m.name === rawName || m.name === displayName.trim());
+}
+
+function sortDisplayNames(names: string[], members: Member[] | undefined, asOf: Date): string[] {
+    if (!members || members.length === 0) return names;
+    return [...names].sort((a, b) => {
+        const mA = getMemberForName(a, members);
+        const mB = getMemberForName(b, members);
+        if (mA && mB) return compareMembersByHobong(mA, mB, asOf);
+        if (mA) return -1;
+        if (mB) return 1;
+        return a.localeCompare(b, 'ko');
+    });
+}
+
+function sortVacationsOrPasses<T extends { name: string; dateText?: string }>(
+    list: T[],
+    members: Member[] | undefined,
+    asOf: Date
+): T[] {
+    if (!members || members.length === 0) return list;
+    return [...list].sort((a, b) => {
+        const mA = getMemberForName(a.name, members);
+        const mB = getMemberForName(b.name, members);
+        if (mA && mB) return compareMembersByHobong(mA, mB, asOf);
+        if (mA) return -1;
+        if (mB) return 1;
+        return a.name.localeCompare(b.name, 'ko');
+    });
 }
 
 export function generateEveningReportText({
@@ -13,7 +49,8 @@ export function generateEveningReportText({
     baseDate,
     healthNote,
     tomorrowNote,
-    scheduleText
+    scheduleText,
+    members
 }: EveningReportParams): string {
     if (!rollCallData) return '데이터를 불러오는 중입니다...';
 
@@ -45,10 +82,14 @@ export function generateEveningReportText({
     // 익일 특이사항
     report += `<익일 특이사항>\n`;
     let hasSpecial = false;
-    (evening.tomorrowDuties || []).forEach((name: string) => { report += `-${name} 당직\n`; hasSpecial = true; });
-    (evening.recoveries || []).forEach((name: string) => { report += `-${name} 리커버리\n`; hasSpecial = true; });
-    if ((evening.tomorrowDeparts || []).length > 0) {
-        report += `-${evening.tomorrowDeparts.join(', ')} 휴가 출발\n`;
+    const sortedTomorrowDuties = sortDisplayNames(evening.tomorrowDuties || [], members, baseDate);
+    const sortedRecoveries = sortDisplayNames(evening.recoveries || [], members, baseDate);
+    const sortedTomorrowDeparts = sortDisplayNames(evening.tomorrowDeparts || [], members, baseDate);
+
+    sortedTomorrowDuties.forEach((name: string) => { report += `-${name} 당직\n`; hasSpecial = true; });
+    sortedRecoveries.forEach((name: string) => { report += `-${name} 리커버리\n`; hasSpecial = true; });
+    if (sortedTomorrowDeparts.length > 0) {
+        report += `-${sortedTomorrowDeparts.join(', ')} 휴가 출발\n`;
         hasSpecial = true;
     }
     if (tomorrowNote.trim()) {
@@ -70,8 +111,9 @@ export function generateEveningReportText({
 
     // 휴가
     report += `<휴가>\n`;
-    if ((evening.vacations || []).length > 0) {
-        evening.vacations.forEach((v: any) => { report += `-${v.name}${v.dateText ? `(${v.dateText})` : ''}\n`; });
+    const sortedVacations = sortVacationsOrPasses(evening.vacations || [], members, baseDate);
+    if (sortedVacations.length > 0) {
+        sortedVacations.forEach((v: any) => { report += `-${v.name}${v.dateText ? `(${v.dateText})` : ''}\n`; });
         report += `\n`;
     } else {
         report += `-없음\n\n`;
@@ -79,8 +121,9 @@ export function generateEveningReportText({
 
     // 외박
     report += `<외박>\n`;
-    if ((evening.passes || []).length > 0) {
-        evening.passes.forEach((p: any) => { report += `-${p.name}${p.dateText ? `(${p.dateText})` : ''}\n`; });
+    const sortedPasses = sortVacationsOrPasses(evening.passes || [], members, baseDate);
+    if (sortedPasses.length > 0) {
+        sortedPasses.forEach((p: any) => { report += `-${p.name}${p.dateText ? `(${p.dateText})` : ''}\n`; });
         report += `\n`;
     } else {
         report += `-없음\n\n`;
@@ -88,8 +131,9 @@ export function generateEveningReportText({
 
     // 듀티
     report += `<듀티>\n`;
-    if ((evening.duties || []).length > 0) {
-        evening.duties.forEach((name: string) => { report += `-${name}\n`; });
+    const sortedDuties = sortDisplayNames(evening.duties || [], members, baseDate);
+    if (sortedDuties.length > 0) {
+        sortedDuties.forEach((name: string) => { report += `-${name}\n`; });
     } else {
         report += `-없음\n`;
     }
@@ -100,20 +144,26 @@ export function generateEveningReportText({
 
 export interface MorningReportParams {
     rollCallData: RollCallData | null;
+    baseDate?: Date;
     healthNote: string;
     scheduleParticipants: Record<string, string[]>;
     customSchedules: { name: string; participants: string[] }[];
+    members?: Member[];
 }
 
 export function generateMorningReportText({
     rollCallData,
+    baseDate,
     healthNote,
     scheduleParticipants,
-    customSchedules
+    customSchedules,
+    members
 }: MorningReportParams): string {
     if (!rollCallData) return '데이터를 불러오는 중입니다...';
 
     const { morning } = rollCallData;
+    const tomorrow = new Date(baseDate || new Date());
+    tomorrow.setDate(tomorrow.getDate() + 1);
 
     // 스케줄 참여 인원은 프런트에서만 관리 (실시간 선택 UI)
     const scheduleOffNames = [
@@ -129,9 +179,10 @@ export function generateMorningReportText({
     ]);
 
     // 아침점호 출석 인원 = 백엔드가 보낸 전체 인원 중 열외자 제외
-    const presentMembers = (morning.presentMembers || []).filter(
+    const rawPresentMembers = (morning.presentMembers || []).filter(
         (name: string) => !Array.from(allOffNames).some(off => name.startsWith(off.split(' ')[0]))
     );
+    const presentMembers = sortDisplayNames(rawPresentMembers, members, tomorrow);
 
     const totalCount = rollCallData.stats.total;
     const offCount = allOffNames.size;

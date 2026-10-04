@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
+import { compareMembersByHobong } from '../../lib/rankUtils';
 
 export interface MemberDoc {
     id: string;
@@ -43,18 +44,7 @@ export function usePersonnel(baseDate: Date) {
     const dateStr = `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, '0')}-${String(baseDate.getDate()).padStart(2, '0')}`;
     
     const sortedMembers = [...members].sort((a, b) => {
-        const dateA = typeof a.enlistmentDate === 'string' ? a.enlistmentDate.trim() : '';
-        const dateB = typeof b.enlistmentDate === 'string' ? b.enlistmentDate.trim() : '';
-        if (dateA !== dateB) {
-            return dateA < dateB ? -1 : 1;
-        }
-        
-        const nameA = typeof a.name === 'string' ? a.name.trim() : '';
-        const nameB = typeof b.name === 'string' ? b.name.trim() : '';
-        if (nameA !== nameB) {
-            return nameA < nameB ? -1 : 1;
-        }
-        return 0;
+        return compareMembersByHobong(a, b, baseDate);
     });
 
     const regularMembers = sortedMembers.filter(m => m.role !== 'runner' && m.role !== 'holdover');
