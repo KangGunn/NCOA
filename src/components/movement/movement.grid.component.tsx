@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { History, Pencil } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { MovementRecord } from '../../types/movement/movement.type';
+import { extractPureMemberName } from '../../utils/movement.utils';
 import { MovementHistoryModal } from './movement.history-modal.component';
 import { MovementEditModal } from './movement.edit-modal.component';
 
@@ -53,8 +54,8 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
     const currentYear = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
 
     const sortedEntries = [...dataList].sort((a, b) => {
-        const cleanA = a.name.replace(/^(병장|상병|일병|이병)\s*/, '');
-        const cleanB = b.name.replace(/^(병장|상병|일병|이병)\s*/, '');
+        const cleanA = extractPureMemberName(a.name);
+        const cleanB = extractPureMemberName(b.name);
 
         const memA = dbMembers.find(m => m.name === cleanA);
         const memB = dbMembers.find(m => m.name === cleanB);
@@ -82,7 +83,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
     return (
         <div className="grid gap-2">
             {sortedEntries.map((member, idx) => {
-                const cleanName = member.name.replace(/^(병장|상병|일병|이병)\s*/, '');
+                const cleanName = extractPureMemberName(member.name);
                 
                 if (!timeline || timeline.length === 0) return null;
                 const [firstM, firstD] = timeline[0].split('.').map(Number);

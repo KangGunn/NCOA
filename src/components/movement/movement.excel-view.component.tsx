@@ -1,6 +1,8 @@
+import { useMemo } from 'react';
 import { CheckCircle2, Send, AlertTriangle } from 'lucide-react';
 import { MovementGrid } from './movement.grid.component';
 import type { MovementRecord } from '../../types/movement/movement.type';
+import { extractPureMemberName, applyDutySchedulesToDataList } from '../../utils/movement.utils';
 
 interface MovementExcelViewProps {
     parsedData: any[];
@@ -11,6 +13,7 @@ interface MovementExcelViewProps {
     getExcelTimelineAndData: () => { timeline: string[]; dataList: any[] };
     dbMembers: any[];
     baseDate?: Date;
+    dutySchedules?: any[];
 }
 
 export function MovementExcelView({
@@ -21,13 +24,25 @@ export function MovementExcelView({
     cancelSync,
     getExcelTimelineAndData,
     dbMembers,
-    baseDate
+    baseDate,
+    dutySchedules = []
 }: MovementExcelViewProps) {
     const { timeline, dataList } = getExcelTimelineAndData();
 
+    // 저장된 당직자 목록(dutySchedules)을 실시간으로 읽어와 현재 주차 타임라인에 디스플레이 (시트에는 쓰지 않음)
+    const displayDataList = useMemo(() => {
+        return applyDutySchedulesToDataList(
+            dataList,
+            timeline,
+            dutySchedules,
+            dbMembers,
+            baseDate
+        );
+    }, [dataList, timeline, dutySchedules, dbMembers, baseDate]);
+
     // Construct temporary movements for hover tooltips prior to Firestore sync
     const tempMovements: MovementRecord[] = parsedData.flatMap((item: any) => {
-        const cleanName = item.name.replace(/^(병장|상병|일병|이병)\s*/, '');
+        const cleanName = extractPureMemberName(item.name);
         const records: MovementRecord[] = [];
         const currentYear = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
 
@@ -142,7 +157,7 @@ export function MovementExcelView({
 
             <MovementGrid
                 timeline={timeline}
-                dataList={dataList}
+                dataList={displayDataList}
                 dbMembers={dbMembers}
                 baseDate={baseDate}
                 movements={tempMovements}

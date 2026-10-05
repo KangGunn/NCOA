@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Copy, AlertTriangle } from 'lucide-react';
 import { MovementGrid } from './movement.grid.component';
 import { MovementPreviewModal } from './movement.preview-modal.component';
-import { extractDayCountFromText } from '../../utils/movement.utils';
+import { extractDayCountFromText, applyDutySchedulesToDataList, extractPureMemberName } from '../../utils/movement.utils';
 import { calculateRank } from '../../lib/rankUtils';
 
 interface MovementSheetViewProps {
@@ -31,6 +31,17 @@ export function MovementSheetView({
 
     const currentWeek = sheetWeeks[currentWeekIndex];
     const timeline = currentWeek ? (currentWeek.timeline || []) : [];
+
+    // 저장된 당직자 목록(dutySchedules)을 실시간으로 읽어와 현재 주차 타임라인에 디스플레이 (시트에는 쓰지 않음)
+    const displayDataList = useMemo(() => {
+        return applyDutySchedulesToDataList(
+            currentWeek?.data || [],
+            timeline,
+            dutySchedules,
+            dbMembers,
+            baseDate
+        );
+    }, [currentWeek?.data, timeline, dutySchedules, dbMembers, baseDate]);
 
     // Helper to check if a reason is eligible (has @@ reward type and is not excluded)
     const isEligibleReason = (reasonStr: string | undefined | null): boolean => {
@@ -360,12 +371,12 @@ export function MovementSheetView({
 
     const handleCopyTable = async () => {
         try {
-            const dataList = currentWeek.data || [];
+            const dataList = displayDataList;
 
             // Sort logic matching MovementGrid
             const sortedEntries = [...dataList].sort((a, b) => {
-                const cleanA = a.name.replace(/^(병장|상병|일병|이병)\s*/, '');
-                const cleanB = b.name.replace(/^(병장|상병|일병|이병)\s*/, '');
+                const cleanA = extractPureMemberName(a.name);
+                const cleanB = extractPureMemberName(b.name);
 
                 const memA = dbMembers.find(m => m.name === cleanA);
                 const memB = dbMembers.find(m => m.name === cleanB);
@@ -392,7 +403,7 @@ export function MovementSheetView({
 
             // Map rows with details
             const finalRows = sortedEntries.map((member) => {
-                const cleanName = member.name.replace(/^(병장|상병|일병|이병)\s*/, '');
+                const cleanName = extractPureMemberName(member.name);
                 const dbMember = dbMembers.find(m => m.name === cleanName);
 
                 const englishName = dbMember?.englishName || cleanName;
@@ -1091,7 +1102,7 @@ export function MovementSheetView({
 
             <MovementGrid
                 timeline={currentWeek.timeline}
-                dataList={currentWeek.data}
+                dataList={displayDataList}
                 dbMembers={dbMembers}
                 baseDate={baseDate}
                 movements={movements}

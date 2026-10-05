@@ -82,6 +82,7 @@ export default function MovementTab({ baseDate }: MovementTabProps) {
                     getExcelTimelineAndData={getExcelTimelineAndData}
                     dbMembers={dbMembers}
                     baseDate={baseDate}
+                    dutySchedules={dutySchedules}
                 />
             )}
 
