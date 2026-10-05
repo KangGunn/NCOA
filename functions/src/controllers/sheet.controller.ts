@@ -3,12 +3,22 @@ import { onRequest } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 import { FieldValue } from "firebase-admin/firestore";
 import { corsHandler, db } from "../config/firebase.config";
-import { syncMovements } from "../services/sheetSync.service";
+import { syncMovements, updateMemberScheduleInSheet } from "../services/sheetSync.service";
 
 export const syncMovementToSheet = onRequest((req, res) => {
     return corsHandler(req, res, async () => {
         try {
-            const { movements } = req.body;
+            const { movements, memberUpdate } = req.body;
+            if (memberUpdate) {
+                const { memberName, dayStatuses } = memberUpdate;
+                if (!memberName || !dayStatuses) {
+                    return res.status(400).json({ status: "error", message: "memberName과 dayStatuses 데이터가 필요합니다." });
+                }
+                logger.info(`syncMovementToSheet(memberUpdate) called for ${memberName}`);
+                const result = await updateMemberScheduleInSheet(memberName, dayStatuses);
+                return res.json(result);
+            }
+
             if (!movements || !Array.isArray(movements)) {
                 return res.status(400).json({ status: "error", message: "movements 데이터가 필요합니다." });
             }
@@ -24,6 +34,24 @@ export const syncMovementToSheet = onRequest((req, res) => {
             return res.json(result);
         } catch (error: any) {
             logger.error("syncMovementToSheet error:", error);
+            return res.status(500).json({ status: "error", message: error.message });
+        }
+    });
+});
+
+export const updateMemberSchedule = onRequest((req, res) => {
+    return corsHandler(req, res, async () => {
+        try {
+            const { memberName, dayStatuses } = req.body;
+            if (!memberName || !dayStatuses) {
+                return res.status(400).json({ status: "error", message: "memberName과 dayStatuses 데이터가 필요합니다." });
+            }
+
+            logger.info(`updateMemberSchedule called for ${memberName}`);
+            const result = await updateMemberScheduleInSheet(memberName, dayStatuses);
+            return res.json(result);
+        } catch (error: any) {
+            logger.error("updateMemberSchedule error:", error);
             return res.status(500).json({ status: "error", message: error.message });
         }
     });

@@ -6,7 +6,7 @@ import axios from 'axios';
 import { doc, onSnapshot, setDoc, serverTimestamp, collection, getDoc, writeBatch, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import type { MovementRecord } from '../../types/movement/movement.type';
-import { extractDayCountFromText } from '../../utils/movement.utils';
+import { extractDayCountFromText, extractPureMemberName } from '../../utils/movement.utils';
 
 
 const SPREADSHEET_URLS = {
@@ -557,11 +557,11 @@ export function useMovementSync(baseDate?: Date) {
 
                     const warnings: string[] = [];
                     const savedDuty = dutySchedules.find((s: any) => (s.type === 'duty' || !s.type) && s.startDate === targetDateISO);
-                    const cleanName = fullName.replace(/^(병장|상병|일병|이병)\s*/, '').trim();
+                    const cleanName = extractPureMemberName(fullName);
 
                     if (savedDuty && savedDuty.memo) {
-                        const savedNameClean = savedDuty.memo.replace(/^(병장|상병|일병|이병)\s*/, '').replace(/\(.*\)/, '').replace(/당직.*/, '').trim();
-                        if (!savedNameClean.includes(cleanName) && !cleanName.includes(savedNameClean)) {
+                        const savedNameClean = extractPureMemberName(savedDuty.memo);
+                        if (savedNameClean && cleanName && savedNameClean !== cleanName) {
                             warnings.push(`${m}.${d}일 캘린더 등록 당직자('${savedDuty.memo}')와 엑셀 입력 당직자('${fullName}')가 일치하지 않습니다.`);
                         }
                     }
@@ -642,9 +642,9 @@ export function useMovementSync(baseDate?: Date) {
                         const targetDateISO = `${currentYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                         const savedDuty = dutySchedules.find((s: any) => (s.type === 'duty' || !s.type) && s.startDate === targetDateISO);
                         if (savedDuty && savedDuty.memo) {
-                            const excelNameClean = name.trim();
-                            const savedNameClean = savedDuty.memo.replace(/^(병장|상병|일병|이병)\s*/, '').replace(/\(.*\)/, '').replace(/당직.*/, '').trim();
-                            if (!savedNameClean.includes(excelNameClean) && !excelNameClean.includes(savedNameClean)) {
+                            const excelNameClean = extractPureMemberName(name);
+                            const savedNameClean = extractPureMemberName(savedDuty.memo);
+                            if (savedNameClean && excelNameClean && savedNameClean !== excelNameClean) {
                                 warnings.push(`${m}.${d}일 캘린더 등록 당직자('${savedDuty.memo}')와 엑셀 입력 당직자('${fullName}')가 일치하지 않습니다.`);
                             }
                         }
@@ -1243,9 +1243,10 @@ export function useMovementSync(baseDate?: Date) {
             if (d.date) allDates.push(d.date);
         });
 
+        const currentYear = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
         const dateObjects = Array.from(new Set(allDates)).map(d => {
             const [m, day] = d.split('.').map(Number);
-            return { str: d, date: new Date(2026, m - 1, day, 12, 0, 0, 0) };
+            return { str: d, date: new Date(currentYear, m - 1, day, 12, 0, 0, 0) };
         }).sort((a, b) => a.date.getTime() - b.date.getTime());
 
         if (dateObjects.length === 0) return { timeline: [], dataList: [] };
@@ -1257,8 +1258,12 @@ export function useMovementSync(baseDate?: Date) {
         startDate.setDate(startDate.getDate() - diffToWed);
         startDate.setHours(12, 0, 0, 0);
 
-        const endDate = new Date(dateObjects[dateObjects.length - 1].date);
-        endDate.setHours(12, 0, 0, 0);
+        const defaultEnd = new Date(startDate);
+        defaultEnd.setDate(startDate.getDate() + 9);
+        defaultEnd.setHours(12, 0, 0, 0);
+
+        const lastDetectedDate = dateObjects[dateObjects.length - 1].date;
+        const endDate = lastDetectedDate.getTime() > defaultEnd.getTime() ? lastDetectedDate : defaultEnd;
         const timeline: string[] = [];
         const curr = new Date(startDate);
         curr.setHours(12, 0, 0, 0);

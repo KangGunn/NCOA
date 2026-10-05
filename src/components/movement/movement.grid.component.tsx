@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { History } from 'lucide-react';
+import { History, Pencil } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { MovementRecord } from '../../types/movement/movement.type';
+import { extractPureMemberName } from '../../utils/movement.utils';
 import { MovementHistoryModal } from './movement.history-modal.component';
+import { MovementEditModal } from './movement.edit-modal.component';
 
 export interface DbMember {
     name: string;
@@ -25,6 +27,11 @@ interface MovementGridProps {
 export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movements = [], sheetWeeks = [] }: MovementGridProps) {
     const [activeCardIndex, setActiveCardIndex] = useState<number | null>(null);
     const [historyMember, setHistoryMember] = useState<{ name: string; fullName: string } | null>(null);
+    const [editingMember, setEditingMember] = useState<{
+        name: string;
+        fullName: string;
+        dayStatuses: Record<string, string>;
+    } | null>(null);
 
     useEffect(() => {
         const handleOutsideClick = () => {
@@ -47,8 +54,8 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
     const currentYear = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
 
     const sortedEntries = [...dataList].sort((a, b) => {
-        const cleanA = a.name.replace(/^(병장|상병|일병|이병)\s*/, '');
-        const cleanB = b.name.replace(/^(병장|상병|일병|이병)\s*/, '');
+        const cleanA = extractPureMemberName(a.name);
+        const cleanB = extractPureMemberName(b.name);
 
         const memA = dbMembers.find(m => m.name === cleanA);
         const memB = dbMembers.find(m => m.name === cleanB);
@@ -76,7 +83,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
     return (
         <div className="grid gap-2">
             {sortedEntries.map((member, idx) => {
-                const cleanName = member.name.replace(/^(병장|상병|일병|이병)\s*/, '');
+                const cleanName = extractPureMemberName(member.name);
                 
                 if (!timeline || timeline.length === 0) return null;
                 const [firstM, firstD] = timeline[0].split('.').map(Number);
@@ -296,18 +303,36 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                             </div>
                         </div>
 
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                const rankMatch = member.name.match(/^(병장|상병|일병|이병)\s*(.*)$/);
-                                const formattedName = rankMatch ? `${rankMatch[2]} ${rankMatch[1]}` : member.name;
-                                setHistoryMember({ name: cleanName, fullName: formattedName });
-                            }}
-                            className="flex items-center justify-center p-1.5 rounded-lg text-gray-400 shrink-0"
-                            title="출타 히스토리"
-                        >
-                            <History className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center gap-1 shrink-0">
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    const rankMatch = member.name.match(/^(병장|상병|일병|이병)\s*(.*)$/);
+                                    const formattedName = rankMatch ? `${rankMatch[2]} ${rankMatch[1]}` : member.name;
+                                    setHistoryMember({ name: cleanName, fullName: formattedName });
+                                }}
+                                className="flex items-center justify-center p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0"
+                                title="출타 히스토리"
+                            >
+                                <History className="w-4 h-4" />
+                            </button>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    const rankMatch = member.name.match(/^(병장|상병|일병|이병)\s*(.*)$/);
+                                    const formattedName = rankMatch ? `${rankMatch[2]} ${rankMatch[1]}` : member.name;
+                                    setEditingMember({
+                                        name: cleanName,
+                                        fullName: formattedName,
+                                        dayStatuses: { ...member.dayStatuses }
+                                    });
+                                }}
+                                className="flex items-center justify-center p-1.5 rounded-lg bg-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0"
+                                title="출타 및 잔디 수정"
+                            >
+                                <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                        </div>
                     </div>
                 );
             })}
@@ -320,6 +345,26 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                     baseDate={baseDate}
                     sheetWeeks={sheetWeeks}
                     timeline={timeline}
+                />
+            )}
+            {editingMember && (
+                <MovementEditModal
+                    memberName={editingMember.name}
+                    fullNameWithRank={editingMember.fullName}
+                    timeline={timeline}
+                    initialDayStatuses={editingMember.dayStatuses}
+                    movements={movements}
+                    baseDate={baseDate}
+                    onClose={() => setEditingMember(null)}
+                    onSaveSuccess={(updatedStatuses) => {
+                        const target = dataList.find(d => {
+                            const c = d.name.replace(/^(병장|상병|일병|이병)\s*/, '');
+                            return c === editingMember.name;
+                        });
+                        if (target) {
+                            target.dayStatuses = { ...target.dayStatuses, ...updatedStatuses };
+                        }
+                    }}
                 />
             )}
         </div>
