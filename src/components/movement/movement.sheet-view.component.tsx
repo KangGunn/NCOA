@@ -27,8 +27,6 @@ export function MovementSheetView({
 }: MovementSheetViewProps) {
     const [previewData, setPreviewData] = useState<{ html: string; text: string; enclosure: string; enclosureHtml: string; remarks: string; remarksHtml: string } | null>(null);
 
-    if (sheetWeeks.length === 0) return null;
-
     const currentWeek = sheetWeeks[currentWeekIndex];
     const timeline = currentWeek ? (currentWeek.timeline || []) : [];
 
@@ -42,6 +40,8 @@ export function MovementSheetView({
             baseDate
         );
     }, [currentWeek?.data, timeline, dutySchedules, dbMembers, baseDate]);
+
+    if (sheetWeeks.length === 0) return null;
 
     // Helper to check if a reason is eligible (has @@ reward type and is not excluded)
     const isEligibleReason = (reasonStr: string | undefined | null): boolean => {
