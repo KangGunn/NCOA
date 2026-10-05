@@ -49,11 +49,7 @@ function App() {
   const [healthNote, setHealthNote] = useState('');
   const [tomorrowNote, setTomorrowNote] = useState('');
   const [baseDate, setBaseDate] = useState(new Date());
-  const [scheduleText, setScheduleText] = useState(() => {
-    const today = new Date();
-    const day = today.getDay();
-    return (day >= 0 && day <= 4) ? '0620 HQ PT' : '';
-  });
+  const [scheduleText, setScheduleText] = useState('');
   const {
     scheduleParticipants,
     customSchedules,
@@ -138,20 +134,9 @@ function App() {
     };
   }, []);
 
-  // 점호 탭 3번(주요일정) 자동 입력 로직 (HQ PT + 다중 KTA 기수)
+  // 점호 탭 3번(주요일정) 자동 입력 로직 (다중 KTA/BLC 기수)
   useEffect(() => {
-    const tomorrow = new Date(baseDate);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowDay = tomorrow.getDay();
-    // 일~목(0~4)에 점호를 하면 내일이 월~금(1~5)이므로 PT가 있음
-    const isTomorrowWeekday = tomorrowDay >= 1 && tomorrowDay <= 5;
-    const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
-    const isDutyHoliday = dutyHolidays.some((h: any) => tomorrowStr >= h.startDate && tomorrowStr <= h.endDate);
-
     let scheduleLines: string[] = [];
-    if (isTomorrowWeekday && !isDutyHoliday) {
-      scheduleLines.push('0620 HQ PT');
-    }
 
     // 2. KTA 일정 추가 로직 (모든 활성 기수에 대해 검사)
     if (ktaBatches.length > 0 && ktaTemplate) {

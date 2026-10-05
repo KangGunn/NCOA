@@ -159,10 +159,14 @@ export function MovementSheetView({
 
     // Helper to collect contiguous date blocks overlapping with weekend within core timeline (Wed~Tue)
     // If bridgeStatuses is provided (e.g. ['duty', 'recovery']), dates with those statuses connect blocks continuously
-    const getWeekendBlocks = (memberObj: any, allowedStatuses: string[], bridgeStatuses: string[] = []) => {
-        const coreTimeline = timeline.slice(0, 7);
+    const getWeekendBlocks = (
+        memberObj: any, 
+        allowedStatuses: string[], 
+        bridgeStatuses: string[] = [], 
+        searchTimeline: string[] = timeline.slice(0, 7)
+    ) => {
         const combinedAllowed = [...allowedStatuses, ...bridgeStatuses];
-        const activeDates = coreTimeline.filter((dateStr: string) => {
+        const activeDates = searchTimeline.filter((dateStr: string) => {
             const status = memberObj.dayStatuses[dateStr] || 'none';
             return combinedAllowed.includes(status);
         });
@@ -238,6 +242,16 @@ export function MovementSheetView({
         return coreTimelineList.includes(mDStr);
     };
 
+    const overlapsTimeline = (mov: any, timelineList: string[]) => {
+        if (!mov || !timelineList || timelineList.length === 0) return false;
+        const yearVal = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
+        const [firstM, firstD] = timelineList[0].split('.').map(Number);
+        const [lastM, lastD] = timelineList[timelineList.length - 1].split('.').map(Number);
+        const tStartIso = `${yearVal}-${String(firstM).padStart(2, '0')}-${String(firstD).padStart(2, '0')}`;
+        const tEndIso = `${yearVal}-${String(lastM).padStart(2, '0')}-${String(lastD).padStart(2, '0')}`;
+        return mov.startDate <= tEndIso && mov.endDate >= tStartIso;
+    };
+
     // Validate day counts for the active week
     const activeWeekWarnings: { name: string; message: string }[] = [];
     if (currentWeek && currentWeek.data) {
@@ -283,14 +297,22 @@ export function MovementSheetView({
             }
 
             // 2. Check Vacation blocks
-            // Vacation can extend across weeks, so we check the matched movement's full dates against the reason
-            const vacationBlocks = getWeekendBlocks(member, ['vacation', 'linked']);
+            // Vacation can occur across the entire visible timeline
+            const vacationBlocks = getWeekendBlocks(member, ['vacation', 'linked'], [], timeline);
             if (vacationBlocks.length > 0) {
                 const processedVacationIds = new Set<string>();
                 vacationBlocks.forEach(block => {
-                    const matchedMov = findMatchingMovement(memberMovements, block, 'vacation');
-                    if (matchedMov && isInCoreTimeline(matchedMov.startDate, coreTimeline)) {
-                        const vacId = `${matchedMov.startDate}_${matchedMov.endDate}`;
+                    const vacationDays = block.filter(d => {
+                        const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
+                        const status = member.dayStatuses[dStr] || '';
+                        return status === 'vacation' || status === 'linked';
+                    });
+
+                    if (vacationDays.length === 0) return;
+
+                    const matchedMov = findMatchingMovement(memberMovements, vacationDays, 'vacation');
+                    if (matchedMov && overlapsTimeline(matchedMov, timeline)) {
+                        const vacId = `${matchedMov.startDate}_${matchedMov.endDate}_${matchedMov.reason}`;
                         if (processedVacationIds.has(vacId)) return;
                         processedVacationIds.add(vacId);
 
@@ -299,10 +321,35 @@ export function MovementSheetView({
                         const movEnd = new Date(matchedMov.endDate);
                         const totalMovDays = Math.round((movEnd.getTime() - movStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
 
+                        // 1) Movement record vs Reason text
                         if (vacationDayCount !== null && vacationDayCount !== totalMovDays) {
                             activeWeekWarnings.push({
                                 name: cleanName,
                                 message: `휴가 사유(${vacationDayCount}일)와 실제로 저장된 기간(${totalMovDays}일)이 일치하지 않습니다.`
+                            });
+                        }
+
+                        // 2) Sheet table cells (잔디 칸수) vs Reason text / Expected days in timeline
+                        const yearVal = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
+                        const [firstM, firstD] = timeline[0].split('.').map(Number);
+                        const [lastM, lastD] = timeline[timeline.length - 1].split('.').map(Number);
+                        const tStartDate = new Date(yearVal, firstM - 1, firstD, 12, 0, 0, 0);
+                        const tEndDate = new Date(yearVal, lastM - 1, lastD, 12, 0, 0, 0);
+
+                        const overlapStart = movStart > tStartDate ? movStart : tStartDate;
+                        const overlapEnd = movEnd < tEndDate ? movEnd : tEndDate;
+                        const expectedTimelineDays = Math.max(0, Math.round((overlapEnd.getTime() - overlapStart.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+
+                        const isFullyInTimeline = movStart >= tStartDate && movEnd <= tEndDate;
+                        const expectedCount = isFullyInTimeline && vacationDayCount !== null ? vacationDayCount : expectedTimelineDays;
+
+                        if (vacationDays.length !== expectedCount) {
+                            const reasonLabel = vacationDayCount !== null && isFullyInTimeline
+                                ? `휴가 사유(${vacationDayCount}일)`
+                                : `휴가 기간(${expectedCount}일)`;
+                            activeWeekWarnings.push({
+                                name: cleanName,
+                                message: `${reasonLabel}와 입력된 기간(${vacationDays.length}일)이 일치하지 않습니다.`
                             });
                         }
                     }

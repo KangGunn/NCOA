@@ -6,6 +6,7 @@ import axios from 'axios';
 import { doc, onSnapshot, setDoc, serverTimestamp, collection, getDoc, writeBatch, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import type { MovementRecord } from '../../types/movement/movement.type';
+import { extractDayCountFromText } from '../../utils/movement.utils';
 
 
 const SPREADSHEET_URLS = {
@@ -701,7 +702,12 @@ export function useMovementSync(baseDate?: Date) {
                     vReason = vReason.replace(/,/gi, '').trim();
                     vReason = vReason.trim();
 
-                    const warning: string | null = null;
+                    const diffDays = Math.round((vEndDate.getTime() - vStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                    const parsedCount = extractDayCountFromText(vacationPart);
+                    let warning: string | null = null;
+                    if (parsedCount !== null && parsedCount !== diffDays) {
+                        warning = `휴가 사유(${parsedCount}일)와 입력된 기간(${diffDays}일)이 일치하지 않습니다.`;
+                    }
 
                     return {
                         period: vRangeMatch ? `${vM1}.${vD1}~${vM2}.${vD2}` : `${vM1}.${vD1}`,
