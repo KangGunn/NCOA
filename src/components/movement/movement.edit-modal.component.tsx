@@ -13,6 +13,7 @@ interface MovementEditModalProps {
     initialDayStatuses: Record<string, string>;
     movements: MovementRecord[];
     baseDate?: Date;
+    sheetWeeks?: any[];
     onClose: () => void;
     onSaveSuccess?: (updatedStatuses: Record<string, string>) => void;
 }
@@ -24,6 +25,7 @@ export function MovementEditModal({
     initialDayStatuses,
     movements,
     baseDate,
+    sheetWeeks = [],
     onClose,
     onSaveSuccess
 }: MovementEditModalProps) {
@@ -48,34 +50,118 @@ export function MovementEditModal({
     // Clean name without rank (e.g. "차희원")
     const cleanName = memberName.replace(/\s*(병장|상병|일병|이병)/g, '').trim();
     const memberMovements = movements.filter(m => m.name === cleanName);
-    const existingPass = memberMovements.find(m => m.type === 'pass' && m.startDate <= tEndIso && m.endDate >= tStartIso);
-    const existingVacation = memberMovements.find(m => m.type === 'vacation' && m.startDate <= tEndIso && m.endDate >= tStartIso);
 
-    // Helper to infer start and end ISO from initialDayStatuses if no movement records exist
-    const inferDatesFromStatuses = (statusTypes: string[]) => {
+    // Helper to find contiguous status range across current timeline and adjacent sheetWeeks
+    const inferContiguousDatesFromStatuses = (statusTypes: string[]) => {
         const matchedDates = timeline.filter(dateStr => statusTypes.includes(initialDayStatuses[dateStr]));
         if (matchedDates.length === 0) return { start: '', end: '' };
+
         const [fM, fD] = matchedDates[0].split('.').map(Number);
         const [lM, lD] = matchedDates[matchedDates.length - 1].split('.').map(Number);
-        const startIso = `${currentYear}-${String(fM).padStart(2, '0')}-${String(fD).padStart(2, '0')}`;
-        const endIso = `${currentYear}-${String(lM).padStart(2, '0')}-${String(lD).padStart(2, '0')}`;
-        return { start: startIso, end: endIso };
+
+        let startDateObj = new Date(currentYear, fM - 1, fD, 12, 0, 0, 0);
+        let endDateObj = new Date(currentYear, lM - 1, lD, 12, 0, 0, 0);
+
+        // Helper to check if a specific Date has one of statusTypes in sheetWeeks
+        const checkStatusOnDate = (dateObj: Date): boolean => {
+            if (!sheetWeeks || sheetWeeks.length === 0) return false;
+            const m = dateObj.getMonth() + 1;
+            const d = dateObj.getDate();
+            const dateStr = `${m}.${d}`;
+
+            for (const week of sheetWeeks) {
+                if (week.data && Array.isArray(week.data)) {
+                    const memberRow = week.data.find((row: any) => {
+                        const clean = row.name.replace(/^(병장|상병|일병|이병)\s*/, '').trim();
+                        return clean === cleanName;
+                    });
+                    if (memberRow && memberRow.dayStatuses && statusTypes.includes(memberRow.dayStatuses[dateStr])) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+
+        // If the activity touches the first date of current timeline, trace backwards into previous weeks
+        if (matchedDates[0] === timeline[0]) {
+            let prevDate = new Date(startDateObj);
+            prevDate.setDate(prevDate.getDate() - 1);
+            while (checkStatusOnDate(prevDate)) {
+                startDateObj = new Date(prevDate);
+                prevDate.setDate(prevDate.getDate() - 1);
+            }
+        }
+
+        // If the activity touches the last date of current timeline, trace forwards into subsequent weeks
+        if (matchedDates[matchedDates.length - 1] === timeline[timeline.length - 1]) {
+            let nextDate = new Date(endDateObj);
+            nextDate.setDate(nextDate.getDate() + 1);
+            while (checkStatusOnDate(nextDate)) {
+                endDateObj = new Date(nextDate);
+                nextDate.setDate(nextDate.getDate() + 1);
+            }
+        }
+
+        const sYear = startDateObj.getFullYear();
+        const sMonth = String(startDateObj.getMonth() + 1).padStart(2, '0');
+        const sDay = String(startDateObj.getDate()).padStart(2, '0');
+
+        const eYear = endDateObj.getFullYear();
+        const eMonth = String(endDateObj.getMonth() + 1).padStart(2, '0');
+        const eDay = String(endDateObj.getDate()).padStart(2, '0');
+
+        return {
+            start: `${sYear}-${sMonth}-${sDay}`,
+            end: `${eYear}-${eMonth}-${eDay}`
+        };
     };
 
-    const inferredPass = inferDatesFromStatuses(['pass']);
-    const inferredVac = inferDatesFromStatuses(['vacation', 'linked']);
+    const inferredPass = inferContiguousDatesFromStatuses(['pass']);
+    const inferredVac = inferContiguousDatesFromStatuses(['vacation', 'linked']);
+
+    // Check existing movements overlapping either the timeline or contiguous range
+    const existingPass = memberMovements.find(m => {
+        if (m.type !== 'pass') return false;
+        const checkStart = inferredPass.start || tStartIso;
+        const checkEnd = inferredPass.end || tEndIso;
+        return m.startDate <= checkEnd && m.endDate >= checkStart;
+    });
+
+    const existingVacation = memberMovements.find(m => {
+        if (m.type !== 'vacation') return false;
+        const checkStart = inferredVac.start || tStartIso;
+        const checkEnd = inferredVac.end || tEndIso;
+        return m.startDate <= checkEnd && m.endDate >= checkStart;
+    });
+
+    const initialPassStart = existingPass?.startDate || inferredPass.start;
+    const initialPassEnd = existingPass?.endDate || inferredPass.end;
+    const initialPassReason = existingPass?.reason || '';
+
+    const initialVacStart = existingVacation?.startDate || inferredVac.start;
+    const initialVacEnd = existingVacation?.endDate || inferredVac.end;
+    let initialVacReason = existingVacation?.reason || '';
+    if (!initialVacReason && initialVacStart && initialVacEnd) {
+        const sD = new Date(initialVacStart);
+        const eD = new Date(initialVacEnd);
+        const days = Math.round((eD.getTime() - sD.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+        if (days > 0) {
+            initialVacReason = `연가 ${days}일`;
+        }
+    }
 
     // Pass states
     const [hasPass, setHasPass] = useState<boolean>(!!existingPass || !!inferredPass.start);
-    const [passStart, setPassStart] = useState<string>(existingPass?.startDate || inferredPass.start);
-    const [passEnd, setPassEnd] = useState<string>(existingPass?.endDate || inferredPass.end);
-    const [passReason, setPassReason] = useState<string>(existingPass?.reason || '');
+    const [passStart, setPassStart] = useState<string>(initialPassStart);
+    const [passEnd, setPassEnd] = useState<string>(initialPassEnd);
+    const [passReason, setPassReason] = useState<string>(initialPassReason);
 
     // Vacation states
     const [hasVacation, setHasVacation] = useState<boolean>(!!existingVacation || !!inferredVac.start);
-    const [vacationStart, setVacationStart] = useState<string>(existingVacation?.startDate || inferredVac.start);
-    const [vacationEnd, setVacationEnd] = useState<string>(existingVacation?.endDate || inferredVac.end);
-    const [vacationReason, setVacationReason] = useState<string>(existingVacation?.reason || '');
+    const [vacationStart, setVacationStart] = useState<string>(initialVacStart);
+    const [vacationEnd, setVacationEnd] = useState<string>(initialVacEnd);
+    const [vacationReason, setVacationReason] = useState<string>(initialVacReason);
     // Automatically calculate isLinked: true only if pass end date matches vacation start date
     const isLinked = !!(hasPass && hasVacation && passEnd && vacationStart && passEnd === vacationStart);
 

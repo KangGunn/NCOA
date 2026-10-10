@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { cn } from '../../lib/utils';
-import { Upload, Settings, Database, Check, FileSpreadsheet } from 'lucide-react';
+import { Upload, Database, Check, FileSpreadsheet } from 'lucide-react';
 
 interface MovementHeaderProps {
     sheetMode: 'test' | 'prod' | null;
@@ -67,7 +67,7 @@ export function MovementHeader({ sheetMode, toggleMode, handleFileUpload }: Move
                         title={`환경 설정 (${sheetMode === 'prod' ? 'PROD' : 'TEST'})`}
                         className="flex items-center justify-center w-[44px] h-[44px] bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm"
                     >
-                        <Settings
+                        <Database
                             className={cn(
                                 "w-4 h-4 sm:w-5 sm:h-5 transition-colors",
                                 sheetMode === 'prod' ? "text-red-500 hover:text-red-600" :

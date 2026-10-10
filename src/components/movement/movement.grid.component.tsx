@@ -86,14 +86,11 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                 const cleanName = extractPureMemberName(member.name);
                 
                 if (!timeline || timeline.length === 0) return null;
-                const [firstM, firstD] = timeline[0].split('.').map(Number);
-                const timelineStartIso = `${currentYear}-${String(firstM).padStart(2, '0')}-${String(firstD).padStart(2, '0')}`;
 
                 // Collect all movements for this member that overlap with the current timeline view
                 // For passes (외박), they must contain at least one weekend day within the visible timeline
                 const memberMovements = movements.filter(mov => {
                     if (mov.name !== cleanName) return false;
-                    if (mov.startDate < timelineStartIso) return false;
                     
                     const coreTimeline = timeline.slice(0, 7);
                     return timeline.some(dateStr => {
@@ -110,7 +107,98 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                     });
                 });
 
-                const hasReason = memberMovements.some(mov => mov.reason);
+                // 타임라인 내에 vacation이나 linked가 있는지 확인
+                const hasVacationOnTimeline = timeline.some(dStr => {
+                    const st = member.dayStatuses[dStr];
+                    return st === 'vacation' || st === 'linked';
+                });
+
+                // 만약 타임라인에 휴가/외휴연계 잔디가 있는데, memberMovements에 vacation이 없거나 범위가 좁다면 보강
+                if (hasVacationOnTimeline) {
+                    const existingVac = memberMovements.find(m => m.type === 'vacation');
+                    
+                    let contiguousStart = '';
+                    let contiguousEnd = '';
+
+                    const checkStatusOnDate = (date: Date): boolean => {
+                        const m = date.getMonth() + 1;
+                        const d = date.getDate();
+                        const dateStr = `${m}.${d}`;
+                        if (!sheetWeeks || sheetWeeks.length === 0) {
+                            const st = member.dayStatuses[dateStr];
+                            return st === 'vacation' || st === 'linked';
+                        }
+                        for (const week of sheetWeeks) {
+                            if (week.data && Array.isArray(week.data)) {
+                                const memberRow = week.data.find((row: any) => {
+                                    const clean = row.name.replace(/^(병장|상병|일병|이병)\s*/, '').trim();
+                                    return clean === cleanName;
+                                });
+                                if (memberRow && memberRow.dayStatuses) {
+                                    const st = memberRow.dayStatuses[dateStr];
+                                    if (st === 'vacation' || st === 'linked') return true;
+                                }
+                            }
+                        }
+                        return false;
+                    };
+
+                    const matchedTimelineDates = timeline.filter(dStr => {
+                        const st = member.dayStatuses[dStr];
+                        return st === 'vacation' || st === 'linked';
+                    });
+
+                    if (matchedTimelineDates.length > 0) {
+                        const [firstM, firstD] = matchedTimelineDates[0].split('.').map(Number);
+                        const [lastM, lastD] = matchedTimelineDates[matchedTimelineDates.length - 1].split('.').map(Number);
+                        let sObj = new Date(currentYear, firstM - 1, firstD, 12, 0, 0, 0);
+                        let eObj = new Date(currentYear, lastM - 1, lastD, 12, 0, 0, 0);
+
+                        if (matchedTimelineDates[0] === timeline[0]) {
+                            let prevD = new Date(sObj);
+                            prevD.setDate(prevD.getDate() - 1);
+                            while (checkStatusOnDate(prevD)) {
+                                sObj = new Date(prevD);
+                                prevD.setDate(prevD.getDate() - 1);
+                            }
+                        }
+
+                        if (matchedTimelineDates[matchedTimelineDates.length - 1] === timeline[timeline.length - 1]) {
+                            let nextD = new Date(eObj);
+                            nextD.setDate(nextD.getDate() + 1);
+                            while (checkStatusOnDate(nextD)) {
+                                eObj = new Date(nextD);
+                                nextD.setDate(nextD.getDate() + 1);
+                            }
+                        }
+
+                        contiguousStart = `${sObj.getFullYear()}-${String(sObj.getMonth() + 1).padStart(2, '0')}-${String(sObj.getDate()).padStart(2, '0')}`;
+                        contiguousEnd = `${eObj.getFullYear()}-${String(eObj.getMonth() + 1).padStart(2, '0')}-${String(eObj.getDate()).padStart(2, '0')}`;
+                    }
+
+                    if (existingVac) {
+                        if (contiguousStart && contiguousStart < existingVac.startDate) {
+                            existingVac.startDate = contiguousStart;
+                        }
+                        if (contiguousEnd && contiguousEnd > existingVac.endDate) {
+                            existingVac.endDate = contiguousEnd;
+                        }
+                        if (!existingVac.reason) {
+                            existingVac.reason = '연가';
+                        }
+                    } else if (contiguousStart && contiguousEnd) {
+                        memberMovements.push({
+                            id: `synth-vac-${cleanName}`,
+                            name: cleanName,
+                            type: 'vacation',
+                            startDate: contiguousStart,
+                            endDate: contiguousEnd,
+                            reason: '연가'
+                        });
+                    }
+                }
+
+                const hasReason = memberMovements.length > 0;
 
                 return (
                     <div 
@@ -147,7 +235,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                                         const order: Record<string, number> = { pass: 1, stay: 2, vacation: 3 };
                                                         return (order[a.type] || 9) - (order[b.type] || 9);
                                                     })
-                                                    .filter(m => m.reason);
+                                                    .filter(m => m.type === 'vacation' || m.reason);
 
                                                 // Group movements with identical type and reason
                                                 const grouped: {
@@ -162,7 +250,8 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                                         ? mov.startDate.slice(5).replace('-', '.')
                                                         : `${mov.startDate.slice(5).replace('-', '.')} ~ ${mov.endDate.slice(5).replace('-', '.')}`;
 
-                                                    const existing = grouped.find(g => g.type === mov.type && g.reason.trim() === mov.reason.trim());
+                                                    const movReason = mov.reason || (mov.type === 'vacation' ? '연가' : mov.type === 'stay' ? '잔류' : '외박');
+                                                    const existing = grouped.find(g => g.type === mov.type && g.reason.trim() === movReason.trim());
                                                     if (existing) {
                                                         if (!existing.dateLabels.includes(dateLabel)) {
                                                             existing.dateLabels.push(dateLabel);
@@ -171,7 +260,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                                     } else {
                                                         grouped.push({
                                                             type: mov.type,
-                                                            reason: mov.reason,
+                                                            reason: movReason,
                                                             dateLabels: [dateLabel],
                                                             items: [mov]
                                                         });
@@ -182,14 +271,14 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                                     const headerType = group.type === 'pass' ? '외박' : group.type === 'stay' ? '잔류' : '휴가';
                                                     const dateStr = group.dateLabels.join(', ');
 
-                                                    let displayReason = group.reason;
+                                                    let displayReason = group.reason || (group.type === 'vacation' ? '연가' : group.type === 'stay' ? '잔류' : '외박');
                                                     if (group.type === 'vacation') {
                                                         let totalDays = 0;
                                                         let isLinked = false;
                                                         group.items.forEach(mov => {
                                                             const startD = new Date(mov.startDate);
                                                             const endD = new Date(mov.endDate);
-                                                            totalDays += Math.round((endD.getTime() - startD.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                                                            totalDays = Math.max(totalDays, Math.round((endD.getTime() - startD.getTime()) / (1000 * 60 * 60 * 24)) + 1);
                                                             const tempDate = new Date(startD);
                                                             while (tempDate <= endD) {
                                                                 const dStr = `${tempDate.getMonth() + 1}.${tempDate.getDate()}`;
@@ -206,7 +295,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                                         cleanReason = cleanReason.replace(dayPattern, '').trim();
                                                         cleanReason = cleanReason.replace(/사용/gi, '').trim();
                                                         cleanReason = cleanReason.replace(/,/gi, '').trim();
-                                                        if (!cleanReason) cleanReason = '휴가';
+                                                        if (!cleanReason) cleanReason = '연가';
 
                                                         displayReason = `${cleanReason} ${totalDays}일, 외휴연계 ${isLinked ? 'O' : 'X'}`;
                                                     }
@@ -355,6 +444,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                     initialDayStatuses={editingMember.dayStatuses}
                     movements={movements}
                     baseDate={baseDate}
+                    sheetWeeks={sheetWeeks}
                     onClose={() => setEditingMember(null)}
                     onSaveSuccess={(updatedStatuses) => {
                         const target = dataList.find(d => {
