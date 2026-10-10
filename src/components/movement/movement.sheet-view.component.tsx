@@ -6,6 +6,7 @@ import { MovementPreviewModal } from './movement.preview-modal.component';
 import { extractDayCountFromText, applyDutySchedulesToDataList, extractPureMemberName } from '../../utils/movement.utils';
 import { calculateRank, compareMembersByHobong } from '../../lib/rankUtils';
 import { isDateDuringKtaPeriod, isDateDuringBlcPeriod } from '../../utils/duty/dutyAutoDistribute';
+import { useMovementSettings } from '../../hooks/movement/useMovementSettings';
 
 interface MovementSheetViewProps {
     sheetWeeks: any[];
@@ -26,6 +27,7 @@ export function MovementSheetView({
     movements,
     dutySchedules = []
 }: MovementSheetViewProps) {
+    const { allowVacationPassLink } = useMovementSettings();
     const [previewData, setPreviewData] = useState<{ html: string; text: string; enclosure: string; enclosureHtml: string; remarks: string; remarksHtml: string } | null>(null);
 
     const currentWeek = sheetWeeks[currentWeekIndex];
@@ -453,7 +455,7 @@ export function MovementSheetView({
 
             // 1. Check Pass blocks (bridged by duty/recovery across consecutive pass days)
             const coreTimeline = timeline.slice(0, 7);
-            const passBlocks = getWeekendBlocks(member, ['pass', 'pass-depart', 'recovery-pass-depart'], ['duty', 'recovery']);
+            const passBlocks = getWeekendBlocks(member, ['pass', 'pass-depart', 'recovery-pass-depart', 'vacation-pass-depart'], ['duty', 'recovery']);
             if (passBlocks.length > 0) {
                 const processedMovIds = new Set<string>();
 
@@ -489,14 +491,14 @@ export function MovementSheetView({
 
             // 2. Check Vacation blocks
             // Vacation can occur across the entire visible timeline
-            const vacationBlocks = getWeekendBlocks(member, ['vacation', 'linked'], [], timeline);
+            const vacationBlocks = getWeekendBlocks(member, ['vacation', 'linked', 'vacation-pass-depart'], [], timeline);
             if (vacationBlocks.length > 0) {
                 const processedVacationIds = new Set<string>();
                 vacationBlocks.forEach(block => {
                     const vacationDays = block.filter(d => {
                         const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
                         const status = member.dayStatuses[dStr] || '';
-                        return status === 'vacation' || status === 'linked';
+                        return status === 'vacation' || status === 'linked' || status === 'vacation-pass-depart';
                     });
 
                     if (vacationDays.length === 0) return;
@@ -1030,8 +1032,8 @@ export function MovementSheetView({
                     memberRole.includes('S3');
 
                 // 1. Process PASS blocks
-                const passBlocks = getWeekendBlocks(member, ['pass', 'pass-depart', 'recovery-pass-depart']);
-                const vacationBlocks = getWeekendBlocks(member, ['vacation', 'linked']);
+                const passBlocks = getWeekendBlocks(member, ['pass', 'pass-depart', 'recovery-pass-depart', 'vacation-pass-depart']);
+                const vacationBlocks = getWeekendBlocks(member, ['vacation', 'linked', 'vacation-pass-depart']);
 
                 if (passBlocks.length > 0) {
                     const memberPassItems: { dateRangeKo: string; mov: any }[] = [];
@@ -1044,7 +1046,7 @@ export function MovementSheetView({
                         const passDays = block.filter(d => {
                             const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
                             const status = member.dayStatuses[dStr] || '';
-                            return status !== 'pass-depart' && status !== 'recovery-pass-depart';
+                            return status !== 'pass-depart' && status !== 'recovery-pass-depart' && status !== 'vacation-pass-depart';
                         });
 
                         if (passDays.length > 0) {
@@ -1275,7 +1277,7 @@ export function MovementSheetView({
                             const [, m, d] = iso.split('-').map(Number);
                             const mD = `${m}.${d}`;
                             const st = member.dayStatuses[mD];
-                            return st === 'vacation' || st === 'linked';
+                            return st === 'vacation' || st === 'linked' || st === 'vacation-pass-depart';
                         });
 
                     // 해당 멤버의 이번 주말 movement에 혹시 컴펜이나 특정 사유(stay, pass, etc.)가 있는지 확인
@@ -1389,7 +1391,7 @@ export function MovementSheetView({
                         const dateStr = `${m}.${d}`;
                         if (!sheetWeeks || sheetWeeks.length === 0) {
                             const st = member.dayStatuses[dateStr];
-                            return st === 'vacation' || st === 'linked';
+                            return st === 'vacation' || st === 'linked' || st === 'vacation-pass-depart';
                         }
                         for (const week of sheetWeeks) {
                             if (week.data && Array.isArray(week.data)) {
@@ -1399,7 +1401,7 @@ export function MovementSheetView({
                                 });
                                 if (row && row.dayStatuses) {
                                     const st = row.dayStatuses[dateStr];
-                                    if (st === 'vacation' || st === 'linked') return true;
+                                    if (st === 'vacation' || st === 'linked' || st === 'vacation-pass-depart') return true;
                                 }
                             }
                         }
@@ -1408,7 +1410,7 @@ export function MovementSheetView({
 
                     const matchedTimelineDates = timeline.filter((dStr: string) => {
                         const st = member.dayStatuses[dStr];
-                        return st === 'vacation' || st === 'linked';
+                        return st === 'vacation' || st === 'linked' || st === 'vacation-pass-depart';
                     });
 
                     let contiguousStartIso = '';
@@ -1516,6 +1518,20 @@ export function MovementSheetView({
                                 return member.dayStatuses[dStr] === 'linked';
                             });
 
+                            const isVacPassLinked = block.some(d => {
+                                const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
+                                return member.dayStatuses[dStr] === 'vacation-pass-depart';
+                            }) || (() => {
+                                const passMov = memberMovements.find(m => m.type === 'pass');
+                                if (passMov && finalEndIso) {
+                                    const pStart = new Date(passMov.startDate);
+                                    pStart.setDate(pStart.getDate() - 1);
+                                    const pDepartIso = `${pStart.getFullYear()}-${String(pStart.getMonth() + 1).padStart(2, '0')}-${String(pStart.getDate()).padStart(2, '0')}`;
+                                    return finalEndIso === pDepartIso || finalEndIso === passMov.startDate;
+                                }
+                                return false;
+                            })();
+
                             // 휴가 사유는 컴펜을 붙이지 않음 (isVacation = true)
                             const parsedVac = parsePassReason(reason, dbMember, false, true);
                             const vacationReason = parsedVac.rewardReason || (reason ? reason.trim() : '연가');
@@ -1529,6 +1545,7 @@ export function MovementSheetView({
                                 count: totalMovDays,
                                 typeStr: 'VACATION',
                                 isLinked,
+                                isVacPassLinked,
                                 dbMember
                             });
                         }
@@ -1630,9 +1647,14 @@ export function MovementSheetView({
                 weekRangeStr = `(${minDate.getMonth() + 1}/${minDate.getDate()}~${maxDate.getMonth() + 1}/${maxDate.getDate()})`;
             }
 
-            const formatReasonStr = (reason: string, count: number, typeStr?: string, isLinked?: boolean) => {
+            const formatReasonStr = (reason: string, count: number, typeStr?: string, isLinked?: boolean, isVacPassLinked?: boolean) => {
                 if (typeStr === 'VACATION') {
-                    return `${reason} ${count}일 사용, 외휴연계 ${isLinked ? 'O' : 'X'}`;
+                    const linkStr = isLinked 
+                        ? '외휴연계 O' 
+                        : isVacPassLinked 
+                            ? (allowVacationPassLink ? '휴외연계 O' : '휴외연계 X') 
+                            : '외휴연계 X';
+                    return `${reason} ${count}일 사용, ${linkStr}`;
                 }
                 let cleanReason = reason.trim();
                 if (cleanReason.includes('으로 인한') || cleanReason.includes('로 인한')) {
@@ -1690,7 +1712,7 @@ export function MovementSheetView({
                     const num = index + 1;
                     const rankName = formatRankName(item.koreanName, item.rankKo, false);
                     const rankNameColon = `${rankName}:`;
-                    const reasonStr = formatReasonStr(item.reason, item.count, item.typeStr, item.isLinked);
+                    const reasonStr = formatReasonStr(item.reason, item.count, item.typeStr, item.isLinked, item.isVacPassLinked);
                     remarksText += `${num}.\t${rankNameColon}\t${item.dateRangeKo.trim()}\t${reasonStr}\n`;
                 });
             }
@@ -1730,7 +1752,7 @@ export function MovementSheetView({
                     const num = index + 1;
                     const rankName = formatRankName(item.koreanName, item.rankKo, true);
                     const rankNameAndColon = `${rankName}:`;
-                    const reasonStr = formatReasonStr(item.reason, item.count, item.typeStr, item.isLinked);
+                    const reasonStr = formatReasonStr(item.reason, item.count, item.typeStr, item.isLinked, item.isVacPassLinked);
 
                     remarksHtml += `<tr style="height: 0.53cm; border: none; vertical-align: middle; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly;">`;
                     remarksHtml += `<td style="width: 0.8cm; height: 0.53cm; text-align: center; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly; white-space: nowrap;">${num}.</td>`;
@@ -1830,6 +1852,7 @@ export function MovementSheetView({
                 baseDate={baseDate}
                 movements={movements}
                 sheetWeeks={sheetWeeks}
+                allowVacationPassLink={allowVacationPassLink}
             />
         </div>
     );

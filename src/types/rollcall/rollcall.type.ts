@@ -4,6 +4,7 @@ export interface SheetEvent {
     endDate: string;
     type: string;
     isDepartDay?: boolean;
+    isReturnDay?: boolean;
     isConsecutive?: boolean;
     dateText?: string;
 }

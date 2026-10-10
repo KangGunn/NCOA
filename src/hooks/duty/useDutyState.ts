@@ -433,7 +433,11 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
         });
 
         const existingDuty = thisMonthDuties.find((d: CalendarEvent) => d.startDate === dateStr);
+        const targetMember = directMemberName 
+            ? members.find((m: CalendarMember) => m.name === directMemberName)
+            : selectedMember;
         const targetMemberName = directMemberName || selectedMember?.name;
+        const targetMemberId = targetMember?.id;
 
         let nextThisMonthDuties = [...thisMonthDuties];
 
@@ -444,12 +448,13 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
                     type: 'duty',
                     startDate: dateStr,
                     endDate: dateStr,
-                    memo: targetMemberName
+                    memo: targetMemberName,
+                    memberId: targetMemberId
                 };
                 nextThisMonthDuties.push(newLocalDuty);
-            } else if (existingDuty.memo !== targetMemberName) {
+            } else if (existingDuty.memo !== targetMemberName || existingDuty.memberId !== targetMemberId) {
                 nextThisMonthDuties = nextThisMonthDuties.map((d: CalendarEvent) =>
-                    d.id === existingDuty.id ? { ...d, memo: targetMemberName } : d
+                    d.id === existingDuty.id ? { ...d, memo: targetMemberName, memberId: targetMemberId } : d
                 );
             }
         } else if (!selectedMember && existingDuty && !directMemberName) {
@@ -567,12 +572,14 @@ export function useDutyState({ events, members, personalRestrictions, dutyHolida
 
             sandboxDutiesThisMonth.forEach(d => {
                 const newDocRef = doc(collection(db, "schedules"));
+                const targetMem = members.find((m: CalendarMember) => m.id === d.memberId || m.name === d.memo);
                 batch.set(newDocRef, {
                     uid,
                     type: 'duty',
                     startDate: d.startDate,
                     endDate: d.endDate,
                     memo: d.memo,
+                    memberId: targetMem?.id || d.memberId || "",
                     createdAt: serverTimestamp()
                 });
             });

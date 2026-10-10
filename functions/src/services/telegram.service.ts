@@ -4,7 +4,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 import { getKSTDateStr, getKSTTimeStr } from "../utils/date.util";
 import { getMemberDisplayName, compareMembersByHobong } from "../utils/rank.util";
-import { parseSheetEvents } from "../utils/sheet.util";
+import { parseSheetEvents, parseScheduleEvents } from "../utils/sheet.util";
 import { deleteDailyReturns } from "../repositories/return.repository";
 import { getDebugSetting, updateDebugSetting, getSeniorSetting, updateSeniorSetting, getSpreadsheetSetting, updateSpreadsheetSetting } from "../repositories/setting.repository";
 import { getSheetData } from "../repositories/sheet.repository";
@@ -12,6 +12,7 @@ import { parseAndSaveDayPass, getDayPassReport, clearDayPassReport, cancelDayPas
 import { db } from "../config/firebase.config";
 
 import { getAllMembers } from "../repositories/member.repository";
+import { getAllSchedules } from "../repositories/schedule.repository";
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 
@@ -27,8 +28,16 @@ export async function getTodayReturneesHelper(todayStr: string) {
         members.filter((m) => m.role === "holdover" || m.role === "runner").map((m) => m.name)
     );
 
-    const settingsSnap = await db.collection("settings").doc("spreadsheet").get();
+    const [settingsSnap, movementSnap, movementsSnap] = await Promise.all([
+        db.collection("settings").doc("spreadsheet").get(),
+        db.collection("settings").doc("movement").get(),
+        db.collection("movements").get()
+    ]);
     const sheetUpdatedAt = settingsSnap.exists ? settingsSnap.data()?.updatedAt?.toMillis() || 0 : 0;
+    const movementUpdatedAt = movementSnap.exists ? movementSnap.data()?.updatedAt?.toMillis() || 0 : 0;
+    const allowVacationPassLink = movementSnap.exists ? !!movementSnap.data()?.allowVacationPassLink : false;
+    const movementsData = movementsSnap.docs.map(d => d.data());
+
     const cacheUpdatedAt = docSnap.exists ? docSnap.data()?.updatedAt?.toMillis() || 0 : 0;
 
     let data: any = docSnap.exists ? docSnap.data() : {
@@ -36,24 +45,55 @@ export async function getTodayReturneesHelper(todayStr: string) {
         returnedVacation: [], returnedPass: []
     };
 
-    if (!docSnap.exists || cacheUpdatedAt < sheetUpdatedAt) {
+    if (!docSnap.exists || cacheUpdatedAt < sheetUpdatedAt || cacheUpdatedAt < movementUpdatedAt) {
         const baseDate = new Date(todayStr);
         const tomorrow = new Date(baseDate);
         tomorrow.setDate(tomorrow.getDate() + 1);
         const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
 
-        const sheetData = await getSheetData();
+        const [sheetData, schedules] = await Promise.all([
+            getSheetData(),
+            getAllSchedules(),
+        ]);
         const sheetEvents = parseSheetEvents(sheetData, sheetData, sheetData, todayStr, tomorrowStr);
+        const scheduleEvents = parseScheduleEvents(schedules, [todayStr, tomorrowStr]);
+        const allEvents = [...sheetEvents, ...scheduleEvents];
 
-        const vacationReturns = sheetEvents
-            .filter((e: any) => e.type === "vacation" && e.startDate === todayStr && e.isReturnDay)
-            .map((e: any) => e.memo)
-            .filter((name: string) => !excludedNames.has(name));
+        const rawVacationReturns = Array.from(new Set(
+            allEvents
+                .filter((e: any) => e.type === "vacation" && e.startDate === todayStr && e.isReturnDay)
+                .map((e: any) => e.memo)
+                .filter((name: string) => !excludedNames.has(name))
+        ));
 
-        const passReturns = sheetEvents
-            .filter((e: any) => e.type === "pass" && e.startDate === todayStr && e.isReturnDay)
-            .map((e: any) => e.memo)
-            .filter((name: string) => !excludedNames.has(name));
+        // 휴외연계 허용 여부에 따른 복귀 인원 리스트 분기:
+        // - 휴외연계 O(허용): 휴가 복귀하지 않아도 되므로 복귀 인원 리스트에서 제외
+        // - 휴외연계 X(미허용): 부대 복귀 후 다시 외박을 출발하므로 복귀 인원 리스트에 포함
+        const vacationReturns = rawVacationReturns.filter((name: string) => {
+            const hasPassDepartInEvents = allEvents.some(
+                (e: any) => e.memo === name && e.type === "pass" && e.startDate === todayStr && e.isDepartDay
+            );
+            const hasPassDepartInMovements = movementsData.some((m: any) => {
+                if (m.name !== name || m.type !== "pass" || !m.startDate) return false;
+                const pStart = new Date(m.startDate);
+                pStart.setDate(pStart.getDate() - 1);
+                const pDepartIso = `${pStart.getFullYear()}-${String(pStart.getMonth() + 1).padStart(2, "0")}-${String(pStart.getDate()).padStart(2, "0")}`;
+                return pDepartIso === todayStr || m.startDate === todayStr;
+            });
+            const hasPassDepartToday = hasPassDepartInEvents || hasPassDepartInMovements;
+
+            if (hasPassDepartToday && allowVacationPassLink) {
+                return false;
+            }
+            return true;
+        });
+
+        const passReturns = Array.from(new Set(
+            allEvents
+                .filter((e: any) => e.type === "pass" && e.startDate === todayStr && e.isReturnDay)
+                .map((e: any) => e.memo)
+                .filter((name: string) => !excludedNames.has(name))
+        ));
 
         data = {
             ...data,

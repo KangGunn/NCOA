@@ -13,7 +13,9 @@ export interface EveningReportParams {
 
 function getMemberForName(displayName: string, members: Member[]): Member | undefined {
     const rawName = displayName.split(' ')[0].trim();
-    return members.find(m => m.name === rawName || m.name === displayName.trim());
+    const found = members.find(m => m.name === rawName || m.name === displayName.trim());
+    if (found) return found;
+    return members.find(m => displayName.includes(m.name));
 }
 
 function sortDisplayNames(names: string[], members: Member[] | undefined, asOf: Date): string[] {

@@ -9,11 +9,13 @@ import { useRollCallSchedule } from './hooks/rollcall/rollcall.schedule.hook';
 const loadPersonnelTab = () => import('./components/tabs/PersonnelTab');
 const loadCalendarTab = () => import('./components/tabs/CalendarTab');
 const loadMovementTab = () => import('./components/tabs/MovementTab.tsx');
+const loadSettingsTab = () => import('./components/tabs/SettingsTab');
 const loadDutyScheduler = () => import('./components/duty/DutySchedulerWorkspace');
 
 const PersonnelTab = lazy(loadPersonnelTab);
 const CalendarTab = lazy(loadCalendarTab);
 const MovementTab = lazy(loadMovementTab);
+const SettingsTab = lazy(loadSettingsTab);
 const DutySchedulerWorkspace = lazy(loadDutyScheduler);
 
 function formatDateStr(dateStr: unknown): string | null {
@@ -363,6 +365,9 @@ function App() {
             </div>
             <div className={activeTab === 'personnel' ? '' : 'hidden'}>
               {visitedTabs.has('personnel') && <PersonnelTab baseDate={baseDate} />}
+            </div>
+            <div className={activeTab === 'settings' ? '' : 'hidden'}>
+              {visitedTabs.has('settings') && <SettingsTab />}
             </div>
           </Suspense>
         </div>

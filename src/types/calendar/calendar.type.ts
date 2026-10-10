@@ -8,6 +8,7 @@ export interface CalendarEvent {
     ktaType?: 'A' | 'B';
     holidayType?: 'blc' | 'duty';
     customDutyType?: 'weekday' | 'friSun' | 'sat';
+    memberId?: string;
 }
 
 export interface PenaltyItem {

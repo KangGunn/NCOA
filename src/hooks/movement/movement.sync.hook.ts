@@ -306,6 +306,9 @@ export function useMovementSync(baseDate?: Date) {
                                 if (cell.includes('휴가')) {
                                     status = 'vacation';
                                 }
+                                if (cell.includes('휴가') && (cell.includes('출발') || cell.includes('외박')) && !cell.includes('연계')) {
+                                    status = 'vacation-pass-depart';
+                                }
                                 if (cell.includes('당직')) status = 'duty';
                                 if (cell.includes('연계')) status = 'linked';
 
@@ -1312,21 +1315,24 @@ export function useMovementSync(baseDate?: Date) {
                         const isPassDepart = item.depart === dateStr;
                         const isPassReturn = item.return === dateStr;
                         const isVacationDepart = item.vacation?.depart === dateStr;
+                        const isVacationReturn = item.vacation?.return === dateStr;
                         const isLinked = item.vacation?.isLinked && isPassReturn && isVacationDepart;
 
                         if (isLinked) {
                             status = 'linked';
+                        } else if (isVacationReturn && (isPassDepart || (item.period && item.period.startsWith(dateStr)))) {
+                            status = 'vacation-pass-depart';
                         } else if (isPassDepart) {
-                            if (status !== 'duty' && status !== 'recovery' && status !== 'vacation' && status !== 'linked')
+                            if (status !== 'duty' && status !== 'recovery' && status !== 'vacation' && status !== 'linked' && status !== 'vacation-pass-depart')
                                 status = 'pass-depart';
                         } else {
                             if (item.return === dateStr || item.stayDays.includes(dateStr)) {
-                                if (status !== 'duty' && status !== 'recovery' && status !== 'vacation' && status !== 'linked')
+                                if (status !== 'duty' && status !== 'recovery' && status !== 'vacation' && status !== 'linked' && status !== 'vacation-pass-depart')
                                     status = 'pass';
                             }
                             if (item.vacation) {
                                 if (item.vacation.depart === dateStr || item.vacation.return === dateStr || item.vacation.stayDays.includes(dateStr)) {
-                                    if (status !== 'duty' && status !== 'recovery' && status !== 'linked')
+                                    if (status !== 'duty' && status !== 'recovery' && status !== 'linked' && status !== 'vacation-pass-depart')
                                         status = 'vacation';
                                 }
                             }
@@ -1337,6 +1343,14 @@ export function useMovementSync(baseDate?: Date) {
                 if (status === 'recovery') {
                     const hasPassDepart = items.some(item => item.type === '외박' && item.depart === dateStr);
                     if (hasPassDepart) status = 'recovery-pass-depart';
+                }
+
+                if (status !== 'duty' && status !== 'recovery' && status !== 'linked') {
+                    const hasVacReturn = items.some(item => item.vacation?.return === dateStr);
+                    const hasPassDep = items.some(item => item.type === '외박' && (item.depart === dateStr || (item.period && item.period.startsWith(dateStr))));
+                    if (hasVacReturn && hasPassDep) {
+                        status = 'vacation-pass-depart';
+                    }
                 }
 
                 dayStatuses[dateStr] = status;

@@ -118,7 +118,7 @@ export function MovementEditModal({
     };
 
     const inferredPass = inferContiguousDatesFromStatuses(['pass']);
-    const inferredVac = inferContiguousDatesFromStatuses(['vacation', 'linked']);
+    const inferredVac = inferContiguousDatesFromStatuses(['vacation', 'linked', 'vacation-pass-depart']);
 
     // Check existing movements overlapping either the timeline or contiguous range
     const existingPass = memberMovements.find(m => {
@@ -188,30 +188,47 @@ export function MovementEditModal({
 
             let status = 'none';
 
+            let isPassDay = false;
+            let isPassDepartDay = false;
+
             // Check pass
             if (hasPass && passStart && passEnd) {
                 if (dateIso >= passStart && dateIso <= passEnd) {
-                    status = 'pass';
+                    isPassDay = true;
                 } else {
                     // Check depart day (one day before passStart)
                     const startObj = new Date(passStart);
                     startObj.setDate(startObj.getDate() - 1);
                     const departIso = formatDateStr(startObj);
                     if (dateIso === departIso) {
-                        status = 'pass-depart';
+                        isPassDepartDay = true;
                     }
                 }
             }
 
+            let isVacationDay = false;
+            let isVacationReturnDay = false;
+
             // Check vacation
             if (hasVacation && vacationStart && vacationEnd) {
                 if (dateIso >= vacationStart && dateIso <= vacationEnd) {
-                    if (isLinked && dateIso === vacationStart) {
-                        status = 'linked';
-                    } else {
-                        status = 'vacation';
+                    isVacationDay = true;
+                    if (dateIso === vacationEnd) {
+                        isVacationReturnDay = true;
                     }
                 }
+            }
+
+            if (isLinked && dateIso === vacationStart) {
+                status = 'linked';
+            } else if (isVacationReturnDay && (isPassDepartDay || (isPassDay && dateIso === passStart))) {
+                status = 'vacation-pass-depart';
+            } else if (isVacationDay) {
+                status = 'vacation';
+            } else if (isPassDay) {
+                status = 'pass';
+            } else if (isPassDepartDay) {
+                status = 'pass-depart';
             }
 
             // Check recovery-pass-depart: if departing for pass on day after duty
@@ -326,10 +343,10 @@ export function MovementEditModal({
                 .map(([d]) => d);
 
             const vacDays = Object.entries(dayStatuses)
-                .filter(([_, st]) => st === 'vacation' || st === 'linked')
+                .filter(([_, st]) => st === 'vacation' || st === 'linked' || st === 'vacation-pass-depart')
                 .map(([d]) => d);
 
-            const passDepartMD = Object.entries(dayStatuses).find(([_, st]) => st === 'pass-depart' || st === 'recovery-pass-depart')?.[0]
+            const passDepartMD = Object.entries(dayStatuses).find(([_, st]) => st === 'pass-depart' || st === 'recovery-pass-depart' || st === 'vacation-pass-depart')?.[0]
                 || (hasPass && passStart ? (() => {
                     const d = new Date(passStart);
                     d.setDate(d.getDate() - 1);
@@ -620,11 +637,14 @@ export function MovementEditModal({
                                                 status === 'recovery' && "bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.4)]",
                                                 status === 'linked' && "shadow-[0_0_8px_rgba(59,130,246,0.4)]",
                                                 status === 'recovery-pass-depart' && "shadow-[0_0_6px_rgba(250,204,21,0.4)]",
+                                                status === 'vacation-pass-depart' && "shadow-[0_0_8px_rgba(249,115,22,0.4)]",
                                                 isWeekend && "border-2 border-black"
                                             )}
                                             style={
                                                 status === 'linked' ? {
                                                     background: 'linear-gradient(135deg, #3b82f6 50%, #f97316 50%)'
+                                                } : status === 'vacation-pass-depart' ? {
+                                                    background: 'linear-gradient(135deg, #f97316 50%, #3b82f6 50%)'
                                                 } : status === 'pass-depart' ? {
                                                     background: 'linear-gradient(135deg, #f3f4f6 50%, #3b82f6 50%)'
                                                 } : status === 'recovery-pass-depart' ? {
