@@ -1,15 +1,22 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import BottomNav from './components/BottomNav';
 import RollCallTab from './components/tabs/RollCallTab';
-import PersonnelTab from './components/tabs/PersonnelTab';
-import CalendarTab from './components/tabs/CalendarTab';
-import MovementTab from './components/tabs/MovementTab.tsx';
 import { auth, db } from './lib/firebase';
 import { onSnapshot, doc, collection, query, where } from 'firebase/firestore';
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
-import type { User } from 'firebase/auth';
 import { useRollCallSchedule } from './hooks/rollcall/rollcall.schedule.hook';
-import DutySchedulerWorkspace from './components/duty/DutySchedulerWorkspace';
+
+const loadPersonnelTab = () => import('./components/tabs/PersonnelTab');
+const loadCalendarTab = () => import('./components/tabs/CalendarTab');
+const loadMovementTab = () => import('./components/tabs/MovementTab.tsx');
+const loadSettingsTab = () => import('./components/tabs/SettingsTab');
+const loadDutyScheduler = () => import('./components/duty/DutySchedulerWorkspace');
+
+const PersonnelTab = lazy(loadPersonnelTab);
+const CalendarTab = lazy(loadCalendarTab);
+const MovementTab = lazy(loadMovementTab);
+const SettingsTab = lazy(loadSettingsTab);
+const DutySchedulerWorkspace = lazy(loadDutyScheduler);
 
 function formatDateStr(dateStr: unknown): string | null {
   if (!dateStr || typeof dateStr !== 'string') return null;
@@ -37,12 +44,17 @@ function App() {
     const savedTab = localStorage.getItem('ncoa_active_tab');
     return savedTab || 'rollcall';
   });
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set([activeTab]));
   const [showDutyScheduler, setShowDutyScheduler] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('ncoa_active_tab', activeTab);
+    setVisitedTabs(prev => {
+      if (prev.has(activeTab)) return prev;
+      const next = new Set(prev);
+      next.add(activeTab);
+      return next;
+    });
   }, [activeTab]);
 
   // RollCallTab states lifted to persist across tab switches
@@ -64,7 +76,6 @@ function App() {
   const [holidays, setHolidays] = useState<{startDate: string, endDate: string}[]>([]);
   const [dutyHolidays, setDutyHolidays] = useState<{startDate: string, endDate: string}[]>([]);
 
-
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (!currentUser) {
@@ -72,16 +83,61 @@ function App() {
           await signInAnonymously(auth);
         } catch (error) {
           console.error('Anonymous sign-in failed', error);
-          setLoading(false);
         }
-        return;
       }
-
-      setUser(currentUser);
-      setLoading(false);
     });
 
     return () => unsubscribe();
+  }, []);
+
+  // 첫 화면(점호) 렌더링이 완료된 후, 브라우저 유휴 시간(Idle)에 나머지 탭을 백그라운드에서 순차적 다운로드 및 사전 마운트(Pre-mount)
+  useEffect(() => {
+    let dutyTimer: any = null;
+
+    const prefetchTabs = async () => {
+      // 1. 핵심 탭 모듈 비동기 다운로드
+      await Promise.allSettled([
+        loadPersonnelTab(),
+        loadCalendarTab(),
+        loadMovementTab(),
+      ]);
+
+      // 2. JS 다운로드가 끝나면 백그라운드(hidden)에 탭 컴포넌트들을 사전 마운트!
+      // 이렇게 하면 캘린더/외특/인원 탭의 내부 훅(useMovementSync 구글 시트 요청 등)이
+      // 사용자가 탭을 누르기 전에 백그라운드에서 데이터를 모두 다운로드해 둡니다.
+      setVisitedTabs(prev => {
+        const next = new Set(prev);
+        next.add('personnel');
+        next.add('calendar');
+        next.add('movement');
+        return next;
+      });
+
+      // 3. 최후순위: 핵심 탭 준비 후 여유 있게 PC 전용 당직 플래너 다운로드
+      const scheduleLowestPriority = () => {
+        if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+          (window as any).requestIdleCallback(() => loadDutyScheduler(), { timeout: 5000 });
+        } else {
+          loadDutyScheduler();
+        }
+      };
+
+      dutyTimer = setTimeout(scheduleLowestPriority, 2500);
+    };
+
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      const handle = (window as any).requestIdleCallback(prefetchTabs, { timeout: 2000 });
+      return () => {
+        (window as any).cancelIdleCallback(handle);
+        if (dutyTimer) clearTimeout(dutyTimer);
+      };
+    } else {
+      const timer = setTimeout(prefetchTabs, 600);
+      return () => {
+        clearTimeout(timer);
+        if (dutyTimer) clearTimeout(dutyTimer);
+      };
+    }
   }, []);
 
   // KTA, BLC, Holiday 데이터 구독
@@ -240,35 +296,23 @@ function App() {
     setScheduleText(sortedSchedule);
   }, [baseDate, ktaBatches, ktaTemplate, blcBatches, blcTemplate, holidays, dutyHolidays]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-50 p-6">
-        <p className="text-center text-gray-700 font-medium">연결에 실패했습니다.</p>
-        <button
-          type="button"
-          onClick={() => {
-            setLoading(true);
-            signInAnonymously(auth).catch(() => setLoading(false));
-          }}
-          className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold"
-        >
-          다시 시도
-        </button>
-      </div>
-    );
-  }
-
   if (showDutyScheduler) {
-    return <DutySchedulerWorkspace onClose={() => setShowDutyScheduler(false)} />;
+    return (
+      <Suspense fallback={
+        <div className="min-h-screen flex items-center justify-center bg-slate-50">
+          <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+        </div>
+      }>
+        <DutySchedulerWorkspace onClose={() => setShowDutyScheduler(false)} />
+      </Suspense>
+    );
   }
+
+  const renderTabFallback = () => (
+    <div className="flex items-center justify-center py-20">
+      <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 flex justify-center items-start sm:items-center relative overflow-x-hidden">
@@ -312,15 +356,20 @@ function App() {
               toggleMember={toggleMember}
             />
           </div>
-          <div className={activeTab === 'calendar' ? '' : 'hidden'}>
-            <CalendarTab baseDate={baseDate} />
-          </div>
-          <div className={activeTab === 'movement' ? '' : 'hidden'}>
-            <MovementTab baseDate={baseDate} />
-          </div>
-          <div className={activeTab === 'personnel' ? '' : 'hidden'}>
-            <PersonnelTab baseDate={baseDate} />
-          </div>
+          <Suspense fallback={renderTabFallback()}>
+            <div className={activeTab === 'calendar' ? '' : 'hidden'}>
+              {visitedTabs.has('calendar') && <CalendarTab baseDate={baseDate} />}
+            </div>
+            <div className={activeTab === 'movement' ? '' : 'hidden'}>
+              {visitedTabs.has('movement') && <MovementTab baseDate={baseDate} />}
+            </div>
+            <div className={activeTab === 'personnel' ? '' : 'hidden'}>
+              {visitedTabs.has('personnel') && <PersonnelTab baseDate={baseDate} />}
+            </div>
+            <div className={activeTab === 'settings' ? '' : 'hidden'}>
+              {visitedTabs.has('settings') && <SettingsTab />}
+            </div>
+          </Suspense>
         </div>
 
         <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />

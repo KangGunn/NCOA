@@ -85,13 +85,18 @@ export function MovementPreviewModal({
         }
     };
 
+    const currentHtmlContent = 
+        activeTab === 'table' ? htmlContent :
+        activeTab === 'enclosure' ? enclosureHtmlContent :
+        remarksHtmlContent;
+
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
             <div className="w-full max-w-4xl h-[92vh] max-h-[96vh] bg-white rounded-[2rem] p-6 sm:p-8 space-y-6 shadow-2xl flex flex-col">
                 <div className="flex items-center justify-between shrink-0">
                     <div>
                         <h2 className="text-xl sm:text-2xl font-black text-gray-900">출타 정보 생성 및 복사</h2>
-                        <p className="text-xs sm:text-sm text-gray-400 mt-1 font-medium">원하는 항목의 탭을 선택하고 복사하여 사용하세요.</p>
+                        <p className="text-xs sm:text-sm text-gray-400 mt-1 font-medium">MS Word 웹앱 붙여넣기 형식 미리보기입니다. 복사하여 사용하세요.</p>
                     </div>
                     <button
                         type="button"
@@ -103,52 +108,43 @@ export function MovementPreviewModal({
                 </div>
 
                 {/* Tabs */}
-                <div className="flex border-b border-gray-200 shrink-0">
-                    {(['table', 'enclosure', 'remarks'] as TabType[]).map((tab) => (
-                        <button
-                            key={tab}
-                            type="button"
-                            onClick={() => {
-                                setActiveTab(tab);
-                                setCopied(false);
-                            }}
-                            className={`flex-1 py-3 text-center text-sm font-bold border-b-2 transition-all ${
-                                activeTab === tab
-                                    ? 'border-blue-600 text-blue-600'
-                                    : 'border-transparent text-gray-400 hover:text-gray-600'
-                            }`}
-                        >
-                            {getTabLabel(tab)}
-                        </button>
-                    ))}
+                <div className="flex items-center justify-between border-b border-gray-200 shrink-0">
+                    <div className="flex flex-1">
+                        {(['table', 'enclosure', 'remarks'] as TabType[]).map((tab) => (
+                            <button
+                                key={tab}
+                                type="button"
+                                onClick={() => {
+                                    setActiveTab(tab);
+                                    setCopied(false);
+                                }}
+                                className={`flex-1 py-3 text-center text-sm font-bold border-b-2 transition-all ${
+                                    activeTab === tab
+                                        ? 'border-blue-600 text-blue-600'
+                                        : 'border-transparent text-gray-400 hover:text-gray-600'
+                                }`}
+                            >
+                                {getTabLabel(tab)}
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
-                {/* Content Area */}
-                <div className="flex-1 flex flex-col border border-gray-200 rounded-2xl p-4 bg-gray-50 overflow-hidden">
-                    {activeTab === 'table' && (
-                        <div 
-                            className="w-full h-full bg-white p-4 rounded-xl border border-gray-100 shadow-sm overflow-auto flex justify-center"
-                            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(htmlContent) }} 
-                        />
-                    )}
-                    {activeTab === 'enclosure' && (
-                        <textarea
-                            readOnly
-                            value={enclosureContent}
-                            placeholder="Enclosure 내용이 여기에 표시됩니다."
-                            style={{ fontFamily: "Arial, 'Malgun Gothic', '맑은 고딕', sans-serif" }}
-                            className="w-full h-full p-4 rounded-xl border border-gray-100 bg-white shadow-sm resize-none focus:outline-none text-sm text-gray-800"
-                        />
-                    )}
-                    {activeTab === 'remarks' && (
-                        <textarea
-                            readOnly
-                            value={remarksContent}
-                            placeholder="출타 특이사항 내용이 여기에 표시됩니다."
-                            style={{ fontFamily: "Arial, 'Malgun Gothic', '맑은 고딕', sans-serif" }}
-                            className="w-full h-full p-4 rounded-xl border border-gray-100 bg-white shadow-sm resize-none focus:outline-none text-sm text-gray-800"
-                        />
-                    )}
+                {/* Content Area - MS Word Web App Document Layout */}
+                <div className="flex-1 border border-gray-200 rounded-2xl bg-white overflow-auto p-4 sm:p-6 flex justify-center">
+                    <div 
+                        className="w-fit max-w-full text-black flex flex-col items-start select-text mx-auto"
+                        style={{
+                            fontFamily: "Arial, 'Malgun Gothic', '맑은 고딕', sans-serif",
+                            color: '#000000',
+                            backgroundColor: '#ffffff'
+                        }}
+                        dangerouslySetInnerHTML={{ 
+                            __html: DOMPurify.sanitize(currentHtmlContent, { 
+                                ADD_ATTR: ['style', 'rowspan', 'colspan', 'align', 'border'] 
+                            }) 
+                        }} 
+                    />
                 </div>
 
                 {/* Buttons */}

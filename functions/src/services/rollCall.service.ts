@@ -38,20 +38,33 @@ export async function processRollCallData(dateStr: string, options: { excludeHol
     const todayDuties = schedules.filter((e) => e.type === "duty" && e.startDate === todayStr);
     const tomorrowDuties = schedules.filter((e) => e.type === "duty" && e.startDate === tomorrowStr);
 
-    // 부대원과 유급생 모두 100% 동일한 단일 점호 로직 적용
-    const todayVacations = allMovementEvents
-        .filter((e) => e.type === "vacation" && e.startDate === todayStr && !e.isReturnDay)
-        .filter((e) => {
-            const m = activeMembers.find((member) => member.name === e.memo);
-            return m && m.role !== "runner";
+    const uniqueByMemo = (events: any[]) => {
+        const seen = new Set<string>();
+        return events.filter(e => {
+            if (seen.has(e.memo)) return false;
+            seen.add(e.memo);
+            return true;
         });
+    };
 
-    const todayPasses = allMovementEvents
-        .filter((e) => e.type === "pass" && e.startDate === todayStr && !e.isReturnDay)
-        .filter((e) => {
-            const m = activeMembers.find((member) => member.name === e.memo);
-            return m && m.role !== "runner";
-        });
+    // 부대원과 유급생 모두 100% 동일한 단일 점호 로직 적용
+    const todayVacations = uniqueByMemo(
+        allMovementEvents
+            .filter((e) => e.type === "vacation" && e.startDate === todayStr && !e.isReturnDay)
+            .filter((e) => {
+                const m = activeMembers.find((member) => member.name === e.memo);
+                return m && m.role !== "runner";
+            })
+    );
+
+    const todayPasses = uniqueByMemo(
+        allMovementEvents
+            .filter((e) => e.type === "pass" && e.startDate === todayStr && !e.isReturnDay)
+            .filter((e) => {
+                const m = activeMembers.find((member) => member.name === e.memo);
+                return m && m.role !== "runner";
+            })
+    );
 
     const todayDutiesFilteredForStats = todayDuties.filter((d) => {
         const m = activeMembers.find((member) => member.name === d.memo);

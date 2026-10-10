@@ -70,6 +70,28 @@ export function parseSheetEvents(prevData: any[], currData: any[], nextData: any
                 isConsecutive: c.includes("연계"),
                 dateText,
             });
+
+            // 휴가 복귀일에 외박 출발인 경우(휴외연계): 당일 저녁점호부터 외박 처리를 위해 pass-depart 이벤트 추가
+            const nextDay = rowDays[idx + 1];
+            const isVacationReturn = type === "vacation" && c.includes("복귀");
+            const hasPassNextDay = nextDay && nextDay.cell && nextDay.cell.includes("외박");
+            const hasPassToday = c.includes("외박") && c.includes("출발");
+
+            if (isVacationReturn && (hasPassNextDay || hasPassToday)) {
+                let passDateText = "";
+                if (nextDay) {
+                    passDateText = `${nextDay.m}.${nextDay.d}`;
+                }
+                parsed.push({
+                    id: `sheet-pass-depart-${name}-${day.dateStr}`,
+                    type: "pass", memo: name,
+                    startDate: day.dateStr, endDate: day.dateStr,
+                    isReturnDay: false,
+                    isDepartDay: true,
+                    isConsecutive: false,
+                    dateText: passDateText,
+                });
+            }
         });
     });
 

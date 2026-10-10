@@ -306,6 +306,9 @@ export function useMovementSync(baseDate?: Date) {
                                 if (cell.includes('휴가')) {
                                     status = 'vacation';
                                 }
+                                if (cell.includes('휴가') && (cell.includes('출발') || cell.includes('외박')) && !cell.includes('연계')) {
+                                    status = 'vacation-pass-depart';
+                                }
                                 if (cell.includes('당직')) status = 'duty';
                                 if (cell.includes('연계')) status = 'linked';
 
@@ -428,8 +431,8 @@ export function useMovementSync(baseDate?: Date) {
 
                 const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
 
-                // 날짜 정규식 (~ 및 - 모두 허용)
-                const rangeRegex = /(\d{1,2})[./](\d{1,2})\s*[~\-]\s*(\d{1,2})[./](\d{1,2})/;
+                // 날짜 정규식 (~ 및 - 모두 허용, 뒷자리 월 생략 형태 지원)
+                const rangeRegex = /(\d{1,2})[./](\d{1,2})\s*[~\-]\s*(?:(\d{1,2})[./])?(\d{1,2})/;
                 const singleRegex = /(\d{1,2})[./](\d{1,2})/;
 
                 // ----------------------------------------------------
@@ -452,7 +455,7 @@ export function useMovementSync(baseDate?: Date) {
                         if (rangeMatch) {
                             const startM = parseInt(rangeMatch[1]);
                             const startD = parseInt(rangeMatch[2]);
-                            const endM = parseInt(rangeMatch[3]);
+                            const endM = rangeMatch[3] ? parseInt(rangeMatch[3]) : startM;
                             const endD = parseInt(rangeMatch[4]);
                             allDetectedMonths.push(startM, endM);
                             allDetectedDates.push(
@@ -487,7 +490,7 @@ export function useMovementSync(baseDate?: Date) {
                             if (vRangeMatch) {
                                 const vM1 = parseInt(vRangeMatch[1]);
                                 const vD1 = parseInt(vRangeMatch[2]);
-                                const vM2 = parseInt(vRangeMatch[3]);
+                                const vM2 = vRangeMatch[3] ? parseInt(vRangeMatch[3]) : vM1;
                                 const vD2 = parseInt(vRangeMatch[4]);
                                 allDetectedMonths.push(vM1, vM2);
                                 allDetectedDates.push(
@@ -674,7 +677,7 @@ export function useMovementSync(baseDate?: Date) {
                     if (!vRangeMatch && !vSingleMatch) return null;
                     const vM1 = parseInt((vRangeMatch || vSingleMatch)![1]);
                     const vD1 = parseInt((vRangeMatch || vSingleMatch)![2]);
-                    const vM2 = vRangeMatch ? parseInt(vRangeMatch[3]) : vM1;
+                    const vM2 = vRangeMatch ? (vRangeMatch[3] ? parseInt(vRangeMatch[3]) : vM1) : vM1;
                     const vD2 = vRangeMatch ? parseInt(vRangeMatch[4]) : vD1;
 
                     const vStartDate = new Date(currentYear, vM1 - 1, vD1, 12, 0, 0, 0);
@@ -814,7 +817,7 @@ export function useMovementSync(baseDate?: Date) {
                             } else if (rangeMatch) {
                                 const startM = parseInt(rangeMatch[1]);
                                 const startD = parseInt(rangeMatch[2]);
-                                const endM = parseInt(rangeMatch[3]);
+                                const endM = rangeMatch[3] ? parseInt(rangeMatch[3]) : startM;
                                 const endD = parseInt(rangeMatch[4]);
 
                                 const startDate = new Date(currentYear, startM - 1, startD, 12, 0, 0, 0);
@@ -889,7 +892,16 @@ export function useMovementSync(baseDate?: Date) {
                                     }
                                 } else if (vacationRaw) {
                                     const vacation = parseVacation(vacationRaw);
-                                    if (vacation) {
+                                    const hasStayKeyword = passPart.includes('잔류');
+                                    if (hasStayKeyword) {
+                                        extractedData.push({
+                                            name: fullName,
+                                            type: '잔류',
+                                            detail: extractStayDetail(passPart),
+                                            vacation: vacation || undefined,
+                                            warning: vacation?.warning || null
+                                        });
+                                    } else if (vacation) {
                                         extractedData.push({
                                             name: fullName,
                                             type: '외박',
@@ -1096,6 +1108,7 @@ export function useMovementSync(baseDate?: Date) {
                         const cleanName = data.name;
                         const existStart = data.startDate;
                         const existEnd = data.endDate;
+                        const existType = data.type; // 'pass', 'stay', 'vacation'
 
                         // Find overlapping movements in the Excel data
                         const matchingSyncMovs = movementsToSync.filter(m => {
@@ -1104,15 +1117,28 @@ export function useMovementSync(baseDate?: Date) {
 
                             let mStart = '';
                             let mEnd = '';
+                            let mType = '';
                             if (m.type === '외박' && m.period) {
                                 const [s, e] = m.period.split(/[~-]/).map((x: string) => x.trim());
                                 mStart = toISODate(s);
                                 mEnd = e ? toISODate(e) : mStart;
+                                mType = 'pass';
                             } else if (m.vacation) {
                                 mStart = toISODate(m.vacation.depart);
                                 mEnd = toISODate(m.vacation.return);
-                            } else if (m.type === '잔류' && m.detail) {
-                                return false; 
+                                mType = 'vacation';
+                            } else if (m.type === '잔류') {
+                                mStart = mainPassStart;
+                                mEnd = mainPassEnd;
+                                mType = 'stay';
+                            }
+
+                            // A vacation should ONLY match and delete an incoming vacation!
+                            // A pass or stay should ONLY match and delete an incoming pass/stay!
+                            if (existType === 'vacation') {
+                                if (mType !== 'vacation') return false;
+                            } else {
+                                if (mType === 'vacation') return false;
                             }
 
                             if (mStart && mEnd) {
@@ -1124,8 +1150,8 @@ export function useMovementSync(baseDate?: Date) {
                         if (matchingSyncMovs.length > 0) {
                             deleteBatch.delete(docSnap.ref);
                             shouldCommitDelete = true;
-                        } else {
-                            // Check stay overlaps
+                        } else if (existType !== 'vacation') {
+                            // Check stay overlaps only for non-vacation movements!
                             const list = intervalsByMember.get(cleanName) || [];
                             const overlaps = list.some(interval => {
                                 return existStart <= interval.end && existEnd >= interval.start;
@@ -1289,21 +1315,24 @@ export function useMovementSync(baseDate?: Date) {
                         const isPassDepart = item.depart === dateStr;
                         const isPassReturn = item.return === dateStr;
                         const isVacationDepart = item.vacation?.depart === dateStr;
+                        const isVacationReturn = item.vacation?.return === dateStr;
                         const isLinked = item.vacation?.isLinked && isPassReturn && isVacationDepart;
 
                         if (isLinked) {
                             status = 'linked';
+                        } else if (isVacationReturn && (isPassDepart || (item.period && item.period.startsWith(dateStr)))) {
+                            status = 'vacation-pass-depart';
                         } else if (isPassDepart) {
-                            if (status !== 'duty' && status !== 'recovery' && status !== 'vacation' && status !== 'linked')
+                            if (status !== 'duty' && status !== 'recovery' && status !== 'vacation' && status !== 'linked' && status !== 'vacation-pass-depart')
                                 status = 'pass-depart';
                         } else {
                             if (item.return === dateStr || item.stayDays.includes(dateStr)) {
-                                if (status !== 'duty' && status !== 'recovery' && status !== 'vacation' && status !== 'linked')
+                                if (status !== 'duty' && status !== 'recovery' && status !== 'vacation' && status !== 'linked' && status !== 'vacation-pass-depart')
                                     status = 'pass';
                             }
                             if (item.vacation) {
                                 if (item.vacation.depart === dateStr || item.vacation.return === dateStr || item.vacation.stayDays.includes(dateStr)) {
-                                    if (status !== 'duty' && status !== 'recovery' && status !== 'linked')
+                                    if (status !== 'duty' && status !== 'recovery' && status !== 'linked' && status !== 'vacation-pass-depart')
                                         status = 'vacation';
                                 }
                             }
@@ -1314,6 +1343,14 @@ export function useMovementSync(baseDate?: Date) {
                 if (status === 'recovery') {
                     const hasPassDepart = items.some(item => item.type === '외박' && item.depart === dateStr);
                     if (hasPassDepart) status = 'recovery-pass-depart';
+                }
+
+                if (status !== 'duty' && status !== 'recovery' && status !== 'linked') {
+                    const hasVacReturn = items.some(item => item.vacation?.return === dateStr);
+                    const hasPassDep = items.some(item => item.type === '외박' && (item.depart === dateStr || (item.period && item.period.startsWith(dateStr))));
+                    if (hasVacReturn && hasPassDep) {
+                        status = 'vacation-pass-depart';
+                    }
                 }
 
                 dayStatuses[dateStr] = status;

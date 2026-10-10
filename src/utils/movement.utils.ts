@@ -1,3 +1,5 @@
+import { getRankDetails } from '../lib/rankUtils';
+
 /**
  * Extracts the day count (number) from a given reason string.
  * Supports patterns like "쓰리데이", "3일", "포데이", "4.5일", "원데이" etc.
@@ -101,12 +103,16 @@ export function applyDutySchedulesToDataList(
         dayStatuses: { ...item.dayStatuses }
     }));
 
-    // 순수 이름 -> resultList 항목 매핑
+    // 순수 이름 및 ID -> resultList 항목 매핑
     const memberEntryMap = new Map<string, { name: string; dayStatuses: Record<string, string> }>();
     resultList.forEach(item => {
         const pureName = extractPureMemberName(item.name);
         if (pureName) {
             memberEntryMap.set(pureName, item);
+            const matchedDb = dbMembers.find((m: any) => m.name === pureName);
+            if (matchedDb?.id) {
+                memberEntryMap.set(matchedDb.id, item);
+            }
         }
     });
 
@@ -124,20 +130,40 @@ export function applyDutySchedulesToDataList(
             const pureName = extractPureMemberName(duty.memo);
             if (!pureName) return;
 
-            // 해당 부대원이 기존 목록에 있는지 확인
-            let entry = memberEntryMap.get(pureName);
+            // 당직 플래너의 데이터로부터 대응되는 부대원 객체 식별 (memberId 우선 매핑)
+            const matchedDbMember = duty.memberId
+                ? dbMembers.find((m: any) => m.id === duty.memberId)
+                : dbMembers.find((m: any) => m.name === pureName);
+
+            // 해당 부대원이 기존 목록에 있는지 확인 (ID 우선, 없으면 순수 이름)
+            let entry = (duty.memberId ? memberEntryMap.get(duty.memberId) : null) || memberEntryMap.get(pureName);
 
             if (!entry) {
                 // 이번 주 출타가 없어 시트 목록에 없던 당직자인 경우 새로운 행 생성
-                const dbMember = dbMembers.find((m: any) => m.name === pureName);
-                const rank = dbMember?.rank || '';
-                const displayName = rank ? `${rank} ${pureName}` : (dbMember?.name || pureName);
+                // 시트와 동일한 형식("[순수 계급] [이름]", 예: "병장 최인성", "상병 강민")으로 표시
+                let pureRank = '';
+                if (matchedDbMember?.enlistmentDate) {
+                    const dutyDate = new Date(`${targetIso}T12:00:00`);
+                    const rankInfo = getRankDetails(
+                        new Date(matchedDbMember.enlistmentDate),
+                        dutyDate,
+                        matchedDbMember.earlyPromotion || 0
+                    );
+                    pureRank = rankInfo.rank;
+                } else if (matchedDbMember?.rank) {
+                    pureRank = matchedDbMember.rank.replace(/\s*\d+호봉/, '').trim();
+                }
+
+                const displayName = pureRank ? `${pureRank} ${pureName}` : pureName;
 
                 entry = {
                     name: displayName,
                     dayStatuses: {}
                 };
                 resultList.push(entry);
+                if (matchedDbMember?.id) {
+                    memberEntryMap.set(matchedDbMember.id, entry);
+                }
                 memberEntryMap.set(pureName, entry);
             }
 

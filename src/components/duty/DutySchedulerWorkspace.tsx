@@ -666,7 +666,8 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
                             type: 'duty' as const,
                             startDate: a.dateStr,
                             endDate: a.dateStr,
-                            memo: a.memberName
+                            memo: a.memberName,
+                            memberId: members.find((m: any) => m.name === a.memberName)?.id
                         }));
                         setDuties(prev => [...prev, ...newDuties]);
                         showToast(`자동 분배 완료! ${assignments.length}개 날짜에 당직이 배정되었습니다. 💫`);
