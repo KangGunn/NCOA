@@ -141,7 +141,7 @@ export function MovementPreviewModal({
                         }}
                         dangerouslySetInnerHTML={{ 
                             __html: DOMPurify.sanitize(currentHtmlContent, { 
-                                ADD_ATTR: ['style', 'rowspan', 'colspan', 'align', 'border'] 
+                                ADD_ATTR: ['style', 'rowspan', 'colspan', 'align', 'border', 'width'] 
                             }) 
                         }} 
                     />

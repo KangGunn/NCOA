@@ -1679,12 +1679,12 @@ export function MovementSheetView({
                 const clean = name.replace(/\s+/g, '');
                 if (clean.length === 2) {
                     if (isHtml) {
-                        return `<span style="font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif;">${clean}&emsp;&nbsp;${rank}</span>`;
+                        return `<span style="font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; white-space: nowrap;">${clean}&emsp;&nbsp;${rank}</span>`;
                     }
                     return `${clean}　 ${rank}`;
                 }
                 if (isHtml) {
-                    return `<span style="font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif;">${clean}&nbsp;&nbsp;${rank}</span>`;
+                    return `<span style="font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; white-space: nowrap;">${clean}&nbsp;&nbsp;${rank}</span>`;
                 }
                 return `${clean}  ${rank}`;
             };
@@ -1724,20 +1724,26 @@ export function MovementSheetView({
             if (remarksPassItems.length === 0) {
                 remarksHtml += `-&nbsp;&nbsp;&nbsp;&nbsp;<span style="font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal;">없음</span><br><br>`;
             } else {
-                remarksHtml += `<table style="border-collapse: collapse; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-size: 11pt; font-weight: normal; width: 18.0cm; border: none; margin-bottom: 12pt; line-height: 1.0; mso-line-height-rule: exactly;">`;
+                remarksHtml += `<table style="table-layout: fixed; border-collapse: collapse; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-size: 11pt; font-weight: normal; width: 16.51cm; border: none; margin-bottom: 12pt; line-height: 1.35; mso-line-height-rule: at-least;">`;
+                remarksHtml += `<colgroup>`;
+                remarksHtml += `<col style="width: 0.85cm;" width="32" />`;
+                remarksHtml += `<col style="width: 2.85cm;" width="108" />`;
+                remarksHtml += `<col style="width: 4.0cm;" width="151" />`;
+                remarksHtml += `<col style="width: 8.81cm;" width="333" />`;
+                remarksHtml += `</colgroup>`;
                 remarksPassItems.forEach((item, index) => {
                     const num = index + 1;
                     const rankName = formatRankName(item.koreanName, item.rankKo, true);
                     const rankNameAndColon = `${rankName}:`;
                     const reasonStr = formatReasonStr(item.reason, item.count);
 
-                    const dateDisplay = item.dateRangeKo.trim();
+                    const dateDisplayHtml = item.dateRangeKo.trim().replace(/,\s*/g, ',<br>');
 
-                    remarksHtml += `<tr style="height: 0.53cm; border: none; vertical-align: middle; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly;">`;
-                    remarksHtml += `<td style="width: 0.8cm; height: 0.53cm; text-align: center; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly; white-space: nowrap;">${num}.</td>`;
-                    remarksHtml += `<td style="width: 2.8cm; height: 0.53cm; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly; white-space: nowrap;">${rankNameAndColon}</td>`;
-                    remarksHtml += `<td style="width: 4.5cm; height: 0.53cm; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly; white-space: nowrap;">${dateDisplay}</td>`;
-                    remarksHtml += `<td style="width: 9.9cm; height: 0.53cm; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly; white-space: nowrap;">${reasonStr}</td>`;
+                    remarksHtml += `<tr style="border: none; vertical-align: top; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal; line-height: 1.35; mso-line-height-rule: at-least;">`;
+                    remarksHtml += `<td width="32" style="width: 0.85cm; vertical-align: top; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35; white-space: nowrap;">${num}.</td>`;
+                    remarksHtml += `<td width="108" style="width: 2.85cm; vertical-align: top; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35; white-space: nowrap;">${rankNameAndColon}</td>`;
+                    remarksHtml += `<td width="151" style="width: 4.0cm; vertical-align: top; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35;">${dateDisplayHtml}</td>`;
+                    remarksHtml += `<td width="333" style="width: 8.81cm; vertical-align: top; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35; word-break: keep-all;">${reasonStr}</td>`;
                     remarksHtml += `</tr>`;
                 });
                 remarksHtml += `</table><br>`;
@@ -1747,18 +1753,25 @@ export function MovementSheetView({
             if (remarksVacationItems.length === 0) {
                 remarksHtml += `-&nbsp;&nbsp;&nbsp;&nbsp;<span style="font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal;">없음</span><br>`;
             } else {
-                remarksHtml += `<table style="border-collapse: collapse; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-size: 11pt; font-weight: normal; width: 18.0cm; border: none; line-height: 1.0; mso-line-height-rule: exactly;">`;
+                remarksHtml += `<table style="table-layout: fixed; border-collapse: collapse; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-size: 11pt; font-weight: normal; width: 16.51cm; border: none; line-height: 1.35; mso-line-height-rule: at-least;">`;
+                remarksHtml += `<colgroup>`;
+                remarksHtml += `<col style="width: 0.85cm;" width="32" />`;
+                remarksHtml += `<col style="width: 2.85cm;" width="108" />`;
+                remarksHtml += `<col style="width: 4.0cm;" width="151" />`;
+                remarksHtml += `<col style="width: 8.81cm;" width="333" />`;
+                remarksHtml += `</colgroup>`;
                 remarksVacationItems.forEach((item, index) => {
                     const num = index + 1;
                     const rankName = formatRankName(item.koreanName, item.rankKo, true);
                     const rankNameAndColon = `${rankName}:`;
                     const reasonStr = formatReasonStr(item.reason, item.count, item.typeStr, item.isLinked, item.isVacPassLinked);
+                    const vacDateDisplayHtml = item.dateRangeKo.trim().replace(/,\s*/g, ',<br>');
 
-                    remarksHtml += `<tr style="height: 0.53cm; border: none; vertical-align: middle; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly;">`;
-                    remarksHtml += `<td style="width: 0.8cm; height: 0.53cm; text-align: center; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly; white-space: nowrap;">${num}.</td>`;
-                    remarksHtml += `<td style="width: 2.8cm; height: 0.53cm; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly; white-space: nowrap;">${rankNameAndColon}</td>`;
-                    remarksHtml += `<td style="width: 4.5cm; height: 0.53cm; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly; white-space: nowrap;">${item.dateRangeKo.trim()}</td>`;
-                    remarksHtml += `<td style="width: 9.9cm; height: 0.53cm; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 0; margin: 0; border: none; font-weight: normal; line-height: 1.0; mso-line-height-rule: exactly;">${reasonStr}</td>`;
+                    remarksHtml += `<tr style="border: none; vertical-align: top; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal; line-height: 1.35; mso-line-height-rule: at-least;">`;
+                    remarksHtml += `<td width="32" style="width: 0.85cm; vertical-align: top; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35; white-space: nowrap;">${num}.</td>`;
+                    remarksHtml += `<td width="108" style="width: 2.85cm; vertical-align: top; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35; white-space: nowrap;">${rankNameAndColon}</td>`;
+                    remarksHtml += `<td width="151" style="width: 4.0cm; vertical-align: top; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35;">${vacDateDisplayHtml}</td>`;
+                    remarksHtml += `<td width="333" style="width: 8.81cm; vertical-align: top; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35; word-break: keep-all;">${reasonStr}</td>`;
                     remarksHtml += `</tr>`;
                 });
                 remarksHtml += `</table>`;
