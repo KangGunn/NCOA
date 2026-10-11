@@ -88,12 +88,71 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                 
                 if (!timeline || timeline.length === 0) return null;
 
+                const coreTimeline = timeline.slice(0, 7);
+                const coreIsoDates = coreTimeline.map(dateStr => {
+                    const [m, d] = dateStr.split('.').map(Number);
+                    return `${currentYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                });
+                const weekStartIso = coreIsoDates[0] || '';
+                const weekEndIso = coreIsoDates[coreIsoDates.length - 1] || '';
+
+                const timelineIsoDates = timeline.map(dateStr => {
+                    const [m, d] = dateStr.split('.').map(Number);
+                    return `${currentYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                });
+                const timelineEndIso = timelineIsoDates[timelineIsoDates.length - 1] || '';
+
+                // 휴외연계 후보인지 확인: 이 휴가의 마지막 날과 맞닿는 외박(departDate === vacEndDate)이 존재하는지
+                const checkIsVacPassCandidate = (vacEndDate: string) => {
+                    const hasPassInMovements = movements.some(m => {
+                        if (m.name !== cleanName || m.type !== 'pass') return false;
+                        const pStart = new Date(m.startDate);
+                        pStart.setDate(pStart.getDate() - 1);
+                        const pDepartIso = `${pStart.getFullYear()}-${String(pStart.getMonth() + 1).padStart(2, '0')}-${String(pStart.getDate()).padStart(2, '0')}`;
+                        return vacEndDate === pDepartIso || vacEndDate === m.startDate;
+                    });
+                    if (hasPassInMovements) return true;
+
+                    if (!vacEndDate) return false;
+                    const [, m, d] = vacEndDate.split('-').map(Number);
+                    const dStr = `${m}.${d}`;
+                    if (member.dayStatuses[dStr] === 'vacation-pass-depart') return true;
+                    if (sheetWeeks) {
+                        for (const w of sheetWeeks) {
+                            if (w.data && Array.isArray(w.data)) {
+                                const row = w.data.find((r: any) => r.name.replace(/^(병장|상병|일병|이병)\s*/, '').trim() === cleanName);
+                                if (row?.dayStatuses?.[dStr] === 'vacation-pass-depart') return true;
+                            }
+                        }
+                    }
+                    return false;
+                };
+
+                const shouldIncludeVacationInWeek = (vStart: string, vEnd: string): boolean => {
+                    if (!vStart || !vEnd) return false;
+                    const isCandidate = checkIsVacPassCandidate(vEnd);
+
+                    if (isCandidate) {
+                        if (allowVacationPassLink) {
+                            // 1. 휴외연계가 허용되면: 지금처럼 휴가를 뒤에 오는 주(외박이 있는 주)에 포함
+                            return !!(weekStartIso && weekEndIso && vStart >= weekStartIso && vStart <= weekEndIso);
+                        } else {
+                            // 2. 휴외연계가 허용되지 않으면: 휴가는 앞에 오는 주(휴가 기간이 타임라인 끝에 포함된 주)에 포함
+                            const isTailOfCurrentWeek = !!(weekEndIso && timelineEndIso && vStart > weekEndIso && vStart <= timelineEndIso);
+                            return isTailOfCurrentWeek;
+                        }
+                    }
+
+                    // 일반 휴가: 현재 주차 core timeline 내에서 시작하는 경우 포함
+                    return !!(weekStartIso && weekEndIso && vStart >= weekStartIso && vStart <= weekEndIso);
+                };
+
                 // Collect all movements for this member that overlap with the current timeline view
-                // For passes (외박), they must contain at least one weekend day within the visible timeline
+                // For passes (외박) / stay (잔류), they must contain at least one weekend day within the visible timeline
+                // For vacation (휴가), it must belong to the current week based on vacation-pass-link rules
                 const memberMovements = movements.filter(mov => {
                     if (mov.name !== cleanName) return false;
                     
-                    const coreTimeline = timeline.slice(0, 7);
                     return timeline.some(dateStr => {
                         const [m, d] = dateStr.split('.').map(Number);
                         const isoDate = `${currentYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -103,10 +162,40 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                         if (mov.type === 'pass' || mov.type === 'stay') {
                             return coreTimeline.includes(dateStr);
                         }
+
+                        if (mov.type === 'vacation') {
+                            return shouldIncludeVacationInWeek(mov.startDate, mov.endDate);
+                        }
                         
                         return true;
                     });
                 });
+
+                let contiguousStart = '';
+                let contiguousEnd = '';
+
+                const checkStatusOnDate = (date: Date): boolean => {
+                    const m = date.getMonth() + 1;
+                    const d = date.getDate();
+                    const dateStr = `${m}.${d}`;
+                    if (!sheetWeeks || sheetWeeks.length === 0) {
+                        const st = member.dayStatuses[dateStr];
+                        return st === 'vacation' || st === 'linked' || st === 'vacation-pass-depart';
+                    }
+                    for (const week of sheetWeeks) {
+                        if (week.data && Array.isArray(week.data)) {
+                            const memberRow = week.data.find((row: any) => {
+                                const clean = row.name.replace(/^(병장|상병|일병|이병)\s*/, '').trim();
+                                return clean === cleanName;
+                            });
+                            if (memberRow && memberRow.dayStatuses) {
+                                const st = memberRow.dayStatuses[dateStr];
+                                if (st === 'vacation' || st === 'linked' || st === 'vacation-pass-depart') return true;
+                            }
+                        }
+                    }
+                    return false;
+                };
 
                 // 타임라인 내에 vacation이나 linked 또는 vacation-pass-depart가 있는지 확인
                 const hasVacationOnTimeline = timeline.some(dStr => {
@@ -117,32 +206,6 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                 // 만약 타임라인에 휴가/외휴연계/복귀외박출발 잔디가 있는데, memberMovements에 vacation이 없거나 범위가 좁다면 보강
                 if (hasVacationOnTimeline) {
                     const existingVac = memberMovements.find(m => m.type === 'vacation');
-                    
-                    let contiguousStart = '';
-                    let contiguousEnd = '';
-
-                    const checkStatusOnDate = (date: Date): boolean => {
-                        const m = date.getMonth() + 1;
-                        const d = date.getDate();
-                        const dateStr = `${m}.${d}`;
-                        if (!sheetWeeks || sheetWeeks.length === 0) {
-                            const st = member.dayStatuses[dateStr];
-                            return st === 'vacation' || st === 'linked' || st === 'vacation-pass-depart';
-                        }
-                        for (const week of sheetWeeks) {
-                            if (week.data && Array.isArray(week.data)) {
-                                const memberRow = week.data.find((row: any) => {
-                                    const clean = row.name.replace(/^(병장|상병|일병|이병)\s*/, '').trim();
-                                    return clean === cleanName;
-                                });
-                                if (memberRow && memberRow.dayStatuses) {
-                                    const st = memberRow.dayStatuses[dateStr];
-                                    if (st === 'vacation' || st === 'linked' || st === 'vacation-pass-depart') return true;
-                                }
-                            }
-                        }
-                        return false;
-                    };
 
                     const matchedTimelineDates = timeline.filter(dStr => {
                         const st = member.dayStatuses[dStr];
@@ -177,25 +240,35 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                         contiguousEnd = `${eObj.getFullYear()}-${String(eObj.getMonth() + 1).padStart(2, '0')}-${String(eObj.getDate()).padStart(2, '0')}`;
                     }
 
-                    if (existingVac) {
-                        if (contiguousStart && contiguousStart < existingVac.startDate) {
-                            existingVac.startDate = contiguousStart;
+                    if (contiguousStart && contiguousEnd) {
+                        const shouldInclude = shouldIncludeVacationInWeek(contiguousStart, contiguousEnd);
+                        if (!shouldInclude) {
+                            const vacIdx = memberMovements.findIndex(m => m.type === 'vacation');
+                            if (vacIdx !== -1) {
+                                memberMovements.splice(vacIdx, 1);
+                            }
+                        } else {
+                            if (existingVac) {
+                                if (contiguousStart < existingVac.startDate) {
+                                    existingVac.startDate = contiguousStart;
+                                }
+                                if (contiguousEnd > existingVac.endDate) {
+                                    existingVac.endDate = contiguousEnd;
+                                }
+                                if (!existingVac.reason) {
+                                    existingVac.reason = '연가';
+                                }
+                            } else {
+                                memberMovements.push({
+                                    id: `synth-vac-${cleanName}`,
+                                    name: cleanName,
+                                    type: 'vacation',
+                                    startDate: contiguousStart,
+                                    endDate: contiguousEnd,
+                                    reason: '연가'
+                                });
+                            }
                         }
-                        if (contiguousEnd && contiguousEnd > existingVac.endDate) {
-                            existingVac.endDate = contiguousEnd;
-                        }
-                        if (!existingVac.reason) {
-                            existingVac.reason = '연가';
-                        }
-                    } else if (contiguousStart && contiguousEnd) {
-                        memberMovements.push({
-                            id: `synth-vac-${cleanName}`,
-                            name: cleanName,
-                            type: 'vacation',
-                            startDate: contiguousStart,
-                            endDate: contiguousEnd,
-                            reason: '연가'
-                        });
                     }
                 }
 
@@ -359,19 +432,45 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                 }
 
                                 // Dynamically detect if departing for pass on vacation return date
+                                // 휴외연계 허용 여부와 무관하게 점호 보고 포함 여부는 동일하므로, 휴가 복귀일과 외박 출발일이 겹치면 무조건 반반 잔디(vacation-pass-depart)로 표시
                                 if (status !== 'linked' && status !== 'duty' && status !== 'recovery') {
                                     const curDateIso = `${currentYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                                    const vacMov = memberMovements.find(mov => mov.type === 'vacation' && mov.endDate === curDateIso);
-                                    if (vacMov) {
-                                        const passMov = memberMovements.find(mov => mov.type === 'pass');
-                                        if (passMov) {
-                                            const pStartObj = new Date(passMov.startDate);
-                                            pStartObj.setDate(pStartObj.getDate() - 1);
-                                            const pDepartIso = `${pStartObj.getFullYear()}-${String(pStartObj.getMonth() + 1).padStart(2, '0')}-${String(pStartObj.getDate()).padStart(2, '0')}`;
-                                            if (curDateIso === pDepartIso || curDateIso === passMov.startDate) {
-                                                status = 'vacation-pass-depart';
+
+                                    // 1) 오늘이 휴가 복귀일인지 확인 (시트 상의 contiguousEnd, movements DB의 endDate, 또는 오늘이 휴가이고 내일이 휴가가 아님)
+                                    const isVacationReturn = (contiguousEnd && curDateIso === contiguousEnd) || movements.some(mov =>
+                                        mov.name === cleanName && mov.type === 'vacation' && mov.endDate === curDateIso
+                                    ) || (
+                                        (status === 'vacation' || status === 'vacation-pass-depart') && (() => {
+                                            const nextD = new Date(currentYear, m - 1, d + 1, 12, 0, 0, 0);
+                                            return !checkStatusOnDate(nextD);
+                                        })()
+                                    );
+
+                                    // 2) 오늘이 외박 출발일인지 확인 (movements DB의 외박 출발일/시작일, 또는 내일 외박 잔디 여부)
+                                    const isPassDepart = movements.some(mov => {
+                                        if (mov.name !== cleanName || mov.type !== 'pass') return false;
+                                        const pStartObj = new Date(mov.startDate);
+                                        pStartObj.setDate(pStartObj.getDate() - 1);
+                                        const pDepartIso = `${pStartObj.getFullYear()}-${String(pStartObj.getMonth() + 1).padStart(2, '0')}-${String(pStartObj.getDate()).padStart(2, '0')}`;
+                                        return curDateIso === pDepartIso || curDateIso === mov.startDate;
+                                    }) || (() => {
+                                        const tomorrowStr = tIdx + 1 < timeline.length ? timeline[tIdx + 1] : null;
+                                        if (tomorrowStr && (member.dayStatuses[tomorrowStr] === 'pass' || member.dayStatuses[tomorrowStr] === 'pass-depart')) return true;
+                                        if (sheetWeeks) {
+                                            const nextD = new Date(currentYear, m - 1, d + 1, 12, 0, 0, 0);
+                                            const nextDStr = `${nextD.getMonth() + 1}.${nextD.getDate()}`;
+                                            for (const w of sheetWeeks) {
+                                                if (w.data && Array.isArray(w.data)) {
+                                                    const r = w.data.find((row: any) => row.name.replace(/^(병장|상병|일병|이병)\s*/, '').trim() === cleanName);
+                                                    if (r?.dayStatuses?.[nextDStr] === 'pass') return true;
+                                                }
                                             }
                                         }
+                                        return false;
+                                    })() || status === 'vacation-pass-depart';
+
+                                    if (isVacationReturn && isPassDepart) {
+                                        status = 'vacation-pass-depart';
                                     }
                                 }
 

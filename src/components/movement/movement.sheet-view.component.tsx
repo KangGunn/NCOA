@@ -854,6 +854,13 @@ export function MovementSheetView({
                 const [m, d] = dateStr.split('.').map(Number);
                 return `${yearVal}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
             });
+            const timelineIsoDates = timeline.map((dateStr: string) => {
+                const [m, d] = dateStr.split('.').map(Number);
+                return `${yearVal}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            });
+            const weekStartIso = coreIsoDates[0] || '';
+            const weekEndIso = coreIsoDates[coreIsoDates.length - 1] || '';
+            const timelineEndIso = timelineIsoDates[timelineIsoDates.length - 1] || '';
 
             const matchedHoliday = dutySchedules.find(s => {
                 if (s.type !== 'holiday' || s.holidayType !== 'duty') return false;
@@ -1033,7 +1040,7 @@ export function MovementSheetView({
 
                 // 1. Process PASS blocks
                 const passBlocks = getWeekendBlocks(member, ['pass', 'pass-depart', 'recovery-pass-depart', 'vacation-pass-depart']);
-                const vacationBlocks = getWeekendBlocks(member, ['vacation', 'linked', 'vacation-pass-depart']);
+                const vacationBlocks = getWeekendBlocks(member, ['vacation', 'linked', 'vacation-pass-depart'], [], timeline);
 
                 if (passBlocks.length > 0) {
                     const memberPassItems: { dateRangeKo: string; mov: any }[] = [];
@@ -1501,9 +1508,42 @@ export function MovementSheetView({
                             finalEndIso = `${lastD.getFullYear()}-${String(lastD.getMonth() + 1).padStart(2, '0')}-${String(lastD.getDate()).padStart(2, '0')}`;
                         }
 
-                        // 그 주에 해당하는 휴가만 특이사항에 적고, 다음주로 넘어가더라도 다음주 특이사항에는 적지 않음
-                        // 즉, 휴가의 시작일(finalStartIso)이 현재 주차(coreIsoDates)에 속하는 경우에만 포함
-                        const startsInCurrentWeek = coreIsoDates.length > 0 && finalStartIso >= coreIsoDates[0] && finalStartIso <= coreIsoDates[coreIsoDates.length - 1];
+                        // 휴외연계 후보 여부 판별 (휴가 종료일이 외박 출발일/시작일과 맞닿는지)
+                        const isVacPassCandidate = movements.some(m => {
+                            if (m.name !== cleanName || m.type !== 'pass') return false;
+                            const pStart = new Date(m.startDate);
+                            pStart.setDate(pStart.getDate() - 1);
+                            const pDepartIso = `${pStart.getFullYear()}-${String(pStart.getMonth() + 1).padStart(2, '0')}-${String(pStart.getDate()).padStart(2, '0')}`;
+                            return finalEndIso === pDepartIso || finalEndIso === m.startDate;
+                        }) || block.some(d => {
+                            const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
+                            return member.dayStatuses[dStr] === 'vacation-pass-depart';
+                        }) || (() => {
+                            if (!finalEndIso || !sheetWeeks) return false;
+                            const [, em, ed] = finalEndIso.split('-').map(Number);
+                            const eStr = `${em}.${ed}`;
+                            for (const w of sheetWeeks) {
+                                if (w.data && Array.isArray(w.data)) {
+                                    const r = w.data.find((row: any) => row.name.replace(/^(병장|상병|일병|이병)\s*/, '').trim() === cleanName);
+                                    if (r?.dayStatuses?.[eStr] === 'vacation-pass-depart') return true;
+                                }
+                            }
+                            return false;
+                        })();
+
+                        // 그 주에 해당하는 휴가만 특이사항에 적음:
+                        // 1. 휴외연계 허용 시: 휴가를 뒤에 오는 주(외박이 있는 주)에 포함, 앞 주에서는 제외
+                        // 2. 휴외연계 미허용 시: 휴가는 앞에 오는 주에 포함, 뒤에 오는 주(외박 주)에서는 제외
+                        let startsInCurrentWeek = false;
+                        if (isVacPassCandidate) {
+                            if (allowVacationPassLink) {
+                                startsInCurrentWeek = !!(weekStartIso && weekEndIso && finalStartIso >= weekStartIso && finalStartIso <= weekEndIso);
+                            } else {
+                                startsInCurrentWeek = !!(weekEndIso && timelineEndIso && finalStartIso > weekEndIso && finalStartIso <= timelineEndIso);
+                            }
+                        } else {
+                            startsInCurrentWeek = !!(weekStartIso && weekEndIso && finalStartIso >= weekStartIso && finalStartIso <= weekEndIso);
+                        }
 
                         if (startsInCurrentWeek) {
                             const synthMov = { startDate: finalStartIso, endDate: finalEndIso, reason: reason || '연가' };
@@ -1522,7 +1562,7 @@ export function MovementSheetView({
                                 const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
                                 return member.dayStatuses[dStr] === 'vacation-pass-depart';
                             }) || (() => {
-                                const passMov = memberMovements.find(m => m.type === 'pass');
+                                const passMov = memberMovements.find(m => m.type === 'pass' && isInCoreTimeline(m.startDate, coreTimeline));
                                 if (passMov && finalEndIso) {
                                     const pStart = new Date(passMov.startDate);
                                     pStart.setDate(pStart.getDate() - 1);
