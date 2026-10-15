@@ -62,7 +62,7 @@ export function MovementSheetView({
         const textBeforeBatch = reasonStr.substring(0, matchIndex).trim();
         const textAfterBatch = reasonStr.substring(matchIndex + matchLength).trim();
 
-        const hasPrefix = /(KTA|BLC|PAO|S3|BLC\/S3)\s*$/i.test(textBeforeBatch);
+        const hasPrefix = /(KTA|BLC|PAO|S3|BLC\/S3|RSO)\s*$/i.test(textBeforeBatch);
 
         const sections: string[] = dbMember?.sections || [];
         let sectionPrefix = '';
@@ -247,13 +247,13 @@ export function MovementSheetView({
 
             if (isEnclosure || isVacation) {
                 if (targetB === '생일') targetB = 'Birthday';
-                normalizedReward = targetB;
+                // Enclosure: 마지막에 'compensation'이 붙으므로 사유 자체에서 compensation/컴펜 제거
+                const cleanEnclosureReward = targetB.replace(/(compensation|컴펜)/gi, '').trim();
+                normalizedReward = cleanEnclosureReward || targetB;
             } else {
-                // 출타 특이사항(외박): 보상외박 사유에는 무조건 '컴펜'을 뒤에 붙임
-                normalizedReward = targetB;
-                if (!normalizedReward.includes('컴펜') && !normalizedReward.toLowerCase().includes('compensation')) {
-                    normalizedReward = `${normalizedReward} 컴펜`;
-                }
+                // 출타 특이사항(외박): 사유에서 compensation/컴펜을 제거한 뒤 '컴펜' 부착하여 중복 방지
+                const cleanRemarksReward = targetB.replace(/(compensation|컴펜)/gi, '').trim();
+                normalizedReward = cleanRemarksReward ? `${cleanRemarksReward} 컴펜` : '컴펜';
             }
         }
 
@@ -1709,9 +1709,8 @@ export function MovementSheetView({
                 if (cleanReason === '일반' || cleanReason.includes('일반')) {
                     return count === 0 ? `${attachKoreanRoParticle('(사유 작성)')} 일반 잔류` : `${attachKoreanRoParticle('(사유 작성)')} 일반 ${count} 데이`;
                 }
-                if (!cleanReason.includes('컴펜') && !cleanReason.toLowerCase().includes('compensation')) {
-                    cleanReason = `${cleanReason} 컴펜`;
-                }
+                const cleanWithoutComp = cleanReason.replace(/(compensation|컴펜)/gi, '').trim();
+                cleanReason = cleanWithoutComp ? `${cleanWithoutComp} 컴펜` : '컴펜';
                 return count === 0 ? `${attachKoreanRoParticle(cleanReason)} 잔류` : `${attachKoreanRoParticle(cleanReason)} ${count} 데이`;
             };
 
