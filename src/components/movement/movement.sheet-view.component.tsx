@@ -62,7 +62,7 @@ export function MovementSheetView({
         const textBeforeBatch = reasonStr.substring(0, matchIndex).trim();
         const textAfterBatch = reasonStr.substring(matchIndex + matchLength).trim();
 
-        const hasPrefix = /(KTA|BLC|PAO|S3|BLC\/S3|RSO)\s*$/i.test(textBeforeBatch);
+        const hasPrefix = /(KTA|BLC|PAO|S3|BLC\/S3|S6|BLC\/S6|RSO)\s*$/i.test(textBeforeBatch);
 
         const sections: string[] = dbMember?.sections || [];
         let sectionPrefix = '';
@@ -70,6 +70,8 @@ export function MovementSheetView({
         if (!hasPrefix) {
             if (sections.includes('S3') || sections.includes('S-3')) {
                 sectionPrefix = 'BLC/S3';
+            } else if (sections.includes('S6') || sections.includes('S-6')) {
+                sectionPrefix = 'BLC/S6';
             } else if (sections.includes('PAO')) {
                 sectionPrefix = 'PAO';
             } else if (sections.includes('KTA')) {
@@ -80,6 +82,8 @@ export function MovementSheetView({
                 const firstSec = sections[0].toUpperCase();
                 if (firstSec === 'S3' || firstSec === 'S-3') {
                     sectionPrefix = 'BLC/S3';
+                } else if (firstSec === 'S6' || firstSec === 'S-6') {
+                    sectionPrefix = 'BLC/S6';
                 } else {
                     sectionPrefix = firstSec;
                 }
