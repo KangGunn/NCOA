@@ -23,7 +23,7 @@ export function MovementHeader({ sheetMode, toggleMode, handleFileUpload }: Move
     }, []);
 
     return (
-        <header className="flex items-center justify-between gap-2 sm:gap-4 mb-8">
+        <header className="flex items-start justify-between gap-2 sm:gap-4 mb-8">
             <div className="flex items-center h-[44px] min-w-0">
                 <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-gray-900 tracking-tight truncate">
                     외박 특이사항

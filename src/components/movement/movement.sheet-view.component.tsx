@@ -1788,12 +1788,12 @@ export function MovementSheetView({
                 const clean = name.replace(/\s+/g, '');
                 if (clean.length === 2) {
                     if (isHtml) {
-                        return `<span style="font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; white-space: nowrap;">${clean}&emsp;&nbsp;${rank}</span>`;
+                        return `<span style="font-family: 'Malgun Gothic', '맑은 고딕', Arial, sans-serif; white-space: nowrap;">${clean}&emsp;&nbsp;&nbsp;${rank}</span>`;
                     }
-                    return `${clean}　 ${rank}`;
+                    return `${clean}　  ${rank}`;
                 }
                 if (isHtml) {
-                    return `<span style="font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; white-space: nowrap;">${clean}&nbsp;&nbsp;${rank}</span>`;
+                    return `<span style="font-family: 'Malgun Gothic', '맑은 고딕', Arial, sans-serif; white-space: nowrap;">${clean}&nbsp;&nbsp;${rank}</span>`;
                 }
                 return `${clean}  ${rank}`;
             };
@@ -1826,19 +1826,19 @@ export function MovementSheetView({
                 });
             }
 
-            let remarksHtml = `<div style="font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-size: 11pt; line-height: 1.15; font-weight: normal;">`;
-            remarksHtml += `<p align="center" style="font-size: 12pt; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; text-align: center; font-weight: normal; margin: 0 0 12pt 0; width: 100%;">출타 특이사항 ${weekRangeStr}</p>`;
-            remarksHtml += `<div style="font-size: 12pt; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal; margin-bottom: 6pt;">외박</div>`;
+            let remarksHtml = `<div style="font-family: 'Malgun Gothic', '맑은 고딕', Arial, sans-serif; font-size: 11pt; line-height: 1.15; font-weight: normal;">`;
+            remarksHtml += `<p align="center" style="font-size: 12pt; font-family: 'Malgun Gothic', '맑은 고딕', Arial, sans-serif; text-align: center; font-weight: normal; margin: 0 0 12pt 0; width: 100%;">출타 특이사항 ${weekRangeStr}</p>`;
+            remarksHtml += `<div style="font-size: 12pt; font-family: 'Malgun Gothic', '맑은 고딕', Arial, sans-serif; font-weight: normal; margin-bottom: 6pt;">외박</div>`;
 
             if (remarksPassItems.length === 0) {
-                remarksHtml += `-&nbsp;&nbsp;&nbsp;&nbsp;<span style="font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal;">없음</span><br><br>`;
+                remarksHtml += `-&nbsp;&nbsp;&nbsp;&nbsp;<span style="font-family: 'Malgun Gothic', '맑은 고딕', Arial, sans-serif; font-weight: normal;">없음</span><br><br>`;
             } else {
-                remarksHtml += `<table style="table-layout: fixed; border-collapse: collapse; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-size: 11pt; font-weight: normal; width: 16.51cm; border: none; margin-bottom: 12pt; line-height: 1.35; mso-line-height-rule: at-least;">`;
+                remarksHtml += `<table align="left" style="table-layout: fixed; border-collapse: collapse; font-family: 'Malgun Gothic', '맑은 고딕', Arial, sans-serif; font-size: 11pt; font-weight: normal; width: 16.51cm; border: none; margin-left: 0; margin-right: auto; margin-bottom: 12pt; line-height: 1.35; mso-line-height-rule: at-least;">`;
                 remarksHtml += `<colgroup>`;
-                remarksHtml += `<col style="width: 0.85cm;" width="32" />`;
-                remarksHtml += `<col style="width: 2.85cm;" width="108" />`;
-                remarksHtml += `<col style="width: 4.0cm;" width="151" />`;
-                remarksHtml += `<col style="width: 8.81cm;" width="333" />`;
+                remarksHtml += `<col style="width: 0.70cm;" width="26" />`;
+                remarksHtml += `<col style="width: 3.10cm;" width="117" />`;
+                remarksHtml += `<col style="width: 3.80cm;" width="144" />`;
+                remarksHtml += `<col style="width: 8.91cm;" width="337" />`;
                 remarksHtml += `</colgroup>`;
                 remarksPassItems.forEach((item, index) => {
                     const num = index + 1;
@@ -1848,26 +1848,26 @@ export function MovementSheetView({
 
                     const dateDisplayHtml = item.dateRangeKo.trim().replace(/,\s*/g, ',<br>');
 
-                    remarksHtml += `<tr style="border: none; vertical-align: top; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal; line-height: 1.35; mso-line-height-rule: at-least;">`;
-                    remarksHtml += `<td width="32" style="width: 0.85cm; vertical-align: top; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35; white-space: nowrap;">${num}.</td>`;
-                    remarksHtml += `<td width="108" style="width: 2.85cm; vertical-align: top; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35; white-space: nowrap;">${rankNameAndColon}</td>`;
-                    remarksHtml += `<td width="151" style="width: 4.0cm; vertical-align: top; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35;">${dateDisplayHtml}</td>`;
-                    remarksHtml += `<td width="333" style="width: 8.81cm; vertical-align: top; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35; word-break: keep-all;">${reasonStr}</td>`;
+                    remarksHtml += `<tr style="border: none; vertical-align: top; font-family: 'Malgun Gothic', '맑은 고딕', Arial, sans-serif; font-weight: normal; line-height: 1.35; mso-line-height-rule: at-least;">`;
+                    remarksHtml += `<td width="26" style="width: 0.70cm; vertical-align: top; text-align: left; font-family: 'Malgun Gothic', '맑은 고딕', Arial, sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35; white-space: nowrap;">${num}.</td>`;
+                    remarksHtml += `<td width="117" style="width: 3.10cm; vertical-align: top; text-align: left; font-family: 'Malgun Gothic', '맑은 고딕', Arial, sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35; white-space: nowrap;">${rankNameAndColon}</td>`;
+                    remarksHtml += `<td width="144" style="width: 3.80cm; vertical-align: top; text-align: left; font-family: 'Malgun Gothic', '맑은 고딕', Arial, sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35;">${dateDisplayHtml}</td>`;
+                    remarksHtml += `<td width="337" style="width: 8.91cm; vertical-align: top; text-align: left; font-family: 'Malgun Gothic', '맑은 고딕', Arial, sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35; word-break: keep-all;">${reasonStr}</td>`;
                     remarksHtml += `</tr>`;
                 });
                 remarksHtml += `</table><br>`;
             }
 
-            remarksHtml += `<div style="font-size: 12pt; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal; margin-bottom: 6pt;">휴가</div>`;
+            remarksHtml += `<div style="font-size: 12pt; font-family: 'Malgun Gothic', '맑은 고딕', Arial, sans-serif; font-weight: normal; margin-bottom: 6pt;">휴가</div>`;
             if (remarksVacationItems.length === 0) {
-                remarksHtml += `-&nbsp;&nbsp;&nbsp;&nbsp;<span style="font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal;">없음</span><br>`;
+                remarksHtml += `-&nbsp;&nbsp;&nbsp;&nbsp;<span style="font-family: 'Malgun Gothic', '맑은 고딕', Arial, sans-serif; font-weight: normal;">없음</span><br>`;
             } else {
-                remarksHtml += `<table style="table-layout: fixed; border-collapse: collapse; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-size: 11pt; font-weight: normal; width: 16.51cm; border: none; line-height: 1.35; mso-line-height-rule: at-least;">`;
+                remarksHtml += `<table align="left" style="table-layout: fixed; border-collapse: collapse; font-family: 'Malgun Gothic', '맑은 고딕', Arial, sans-serif; font-size: 11pt; font-weight: normal; width: 16.51cm; border: none; margin-left: 0; margin-right: auto; line-height: 1.35; mso-line-height-rule: at-least;">`;
                 remarksHtml += `<colgroup>`;
-                remarksHtml += `<col style="width: 0.85cm;" width="32" />`;
-                remarksHtml += `<col style="width: 2.85cm;" width="108" />`;
-                remarksHtml += `<col style="width: 4.0cm;" width="151" />`;
-                remarksHtml += `<col style="width: 8.81cm;" width="333" />`;
+                remarksHtml += `<col style="width: 0.70cm;" width="26" />`;
+                remarksHtml += `<col style="width: 3.10cm;" width="117" />`;
+                remarksHtml += `<col style="width: 3.80cm;" width="144" />`;
+                remarksHtml += `<col style="width: 8.91cm;" width="337" />`;
                 remarksHtml += `</colgroup>`;
                 remarksVacationItems.forEach((item, index) => {
                     const num = index + 1;
@@ -1876,11 +1876,11 @@ export function MovementSheetView({
                     const reasonStr = formatReasonStr(item.reason, item.count, item.typeStr, item.isLinked, item.isVacPassLinked);
                     const vacDateDisplayHtml = item.dateRangeKo.trim().replace(/,\s*/g, ',<br>');
 
-                    remarksHtml += `<tr style="border: none; vertical-align: top; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; font-weight: normal; line-height: 1.35; mso-line-height-rule: at-least;">`;
-                    remarksHtml += `<td width="32" style="width: 0.85cm; vertical-align: top; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35; white-space: nowrap;">${num}.</td>`;
-                    remarksHtml += `<td width="108" style="width: 2.85cm; vertical-align: top; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35; white-space: nowrap;">${rankNameAndColon}</td>`;
-                    remarksHtml += `<td width="151" style="width: 4.0cm; vertical-align: top; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35;">${vacDateDisplayHtml}</td>`;
-                    remarksHtml += `<td width="333" style="width: 8.81cm; vertical-align: top; text-align: left; font-family: Arial, 'Malgun Gothic', '맑은 고딕', sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35; word-break: keep-all;">${reasonStr}</td>`;
+                    remarksHtml += `<tr style="border: none; vertical-align: top; font-family: 'Malgun Gothic', '맑은 고딕', Arial, sans-serif; font-weight: normal; line-height: 1.35; mso-line-height-rule: at-least;">`;
+                    remarksHtml += `<td width="26" style="width: 0.70cm; vertical-align: top; text-align: left; font-family: 'Malgun Gothic', '맑은 고딕', Arial, sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35; white-space: nowrap;">${num}.</td>`;
+                    remarksHtml += `<td width="117" style="width: 3.10cm; vertical-align: top; text-align: left; font-family: 'Malgun Gothic', '맑은 고딕', Arial, sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35; white-space: nowrap;">${rankNameAndColon}</td>`;
+                    remarksHtml += `<td width="144" style="width: 3.80cm; vertical-align: top; text-align: left; font-family: 'Malgun Gothic', '맑은 고딕', Arial, sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35;">${vacDateDisplayHtml}</td>`;
+                    remarksHtml += `<td width="337" style="width: 8.91cm; vertical-align: top; text-align: left; font-family: 'Malgun Gothic', '맑은 고딕', Arial, sans-serif; padding: 2.5pt 0; margin: 0; border: none; font-weight: normal; line-height: 1.35; word-break: keep-all;">${reasonStr}</td>`;
                     remarksHtml += `</tr>`;
                 });
                 remarksHtml += `</table>`;

@@ -8,7 +8,7 @@ import { useRollCallSchedule } from './hooks/rollcall/rollcall.schedule.hook';
 
 const loadPersonnelTab = () => import('./components/tabs/PersonnelTab');
 const loadCalendarTab = () => import('./components/tabs/CalendarTab');
-const loadMovementTab = () => import('./components/tabs/MovementTab.tsx');
+const loadMovementTab = () => import('./components/tabs/MovementTab');
 const loadSettingsTab = () => import('./components/tabs/SettingsTab');
 const loadDutyScheduler = () => import('./components/duty/DutySchedulerWorkspace');
 

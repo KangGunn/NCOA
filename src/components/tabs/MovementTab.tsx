@@ -36,7 +36,7 @@ export default function MovementTab({ baseDate }: MovementTabProps) {
     } = useMovementSync(baseDate);
 
     return (
-        <div className="pt-8 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
             <MovementHeader
                 sheetMode={sheetMode}
                 toggleMode={toggleMode}
