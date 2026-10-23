@@ -109,7 +109,7 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
     };
 
     return (
-        <div className="w-full max-w-7xl mx-auto pb-6 animate-in fade-in duration-500">
+        <div className="w-full max-w-7xl mx-auto pb-nav-clearance animate-in fade-in duration-500">
             <CalendarHeader
                 currentDate={currentDate}
                 prevMonth={prevMonth}

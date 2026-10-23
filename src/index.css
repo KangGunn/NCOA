@@ -22,6 +22,10 @@
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+.pb-nav-clearance {
+  padding-bottom: calc(3.25rem + env(safe-area-inset-bottom, 0px));
+}
+
 /* Prevent auto-zoom on mobile inputs */
 @media screen and (max-width: 768px) {
   input, select, textarea {
