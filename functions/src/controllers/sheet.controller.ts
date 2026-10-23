@@ -42,13 +42,13 @@ export const syncMovementToSheet = onRequest((req, res) => {
 export const updateMemberSchedule = onRequest((req, res) => {
     return corsHandler(req, res, async () => {
         try {
-            const { memberName, dayStatuses } = req.body;
-            if (!memberName || !dayStatuses) {
+            const { memberName, dayStatuses, cellUpdates } = req.body;
+            if (!memberName || (!dayStatuses && !cellUpdates)) {
                 return res.status(400).json({ status: "error", message: "memberName과 dayStatuses 데이터가 필요합니다." });
             }
 
             logger.info(`updateMemberSchedule called for ${memberName}`);
-            const result = await updateMemberScheduleInSheet(memberName, dayStatuses);
+            const result = await updateMemberScheduleInSheet(memberName, dayStatuses || {}, cellUpdates);
             return res.json(result);
         } catch (error: any) {
             logger.error("updateMemberSchedule error:", error);

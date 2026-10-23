@@ -5,6 +5,13 @@ import axios from 'axios';
 import { db } from '../../lib/firebase';
 import { cn } from '../../lib/utils';
 import type { MovementRecord } from '../../types/movement/movement.type';
+import { 
+    formatMDToISO, 
+    isPassInPeriod, 
+    isVacationLinkedToPass, 
+    getPeriodMovementsForMember 
+} from '../../utils/movement.utils';
+import { useMovementSettings } from '../../hooks/movement/useMovementSettings';
 
 interface MovementEditModalProps {
     memberName: string; // e.g. "이재영" (cleanName)
@@ -29,6 +36,7 @@ export function MovementEditModal({
     onClose,
     onSaveSuccess
 }: MovementEditModalProps) {
+    const { allowVacationPassLink } = useMovementSettings();
     const currentYear = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
 
     // Prevent body scrolling
@@ -41,113 +49,151 @@ export function MovementEditModal({
         };
     }, []);
 
-    // Timeline start and end ISO calculation
-    const [firstM, firstD] = (timeline[0] || '1.1').split('.').map(Number);
-    const [lastM, lastD] = (timeline[timeline.length - 1] || '1.1').split('.').map(Number);
-    const tStartIso = `${currentYear}-${String(firstM).padStart(2, '0')}-${String(firstD).padStart(2, '0')}`;
-    const tEndIso = `${currentYear}-${String(lastM).padStart(2, '0')}-${String(lastD).padStart(2, '0')}`;
+    const refMonth = parseInt((timeline[0] || '1.1').split('.')[0], 10);
+    const coreTimeline = timeline.slice(0, 7); // Wed ~ Tue (7 days)
+    const coreStartIso = formatMDToISO(coreTimeline[0] || '1.1', currentYear, refMonth);
+    const coreEndIso = formatMDToISO(coreTimeline[coreTimeline.length - 1] || '1.1', currentYear, refMonth);
+    const periodStartIso = formatMDToISO(timeline[0] || '1.1', currentYear, refMonth);
+    const periodEndIso = formatMDToISO(timeline[timeline.length - 1] || '1.1', currentYear, refMonth);
 
     // Clean name without rank (e.g. "차희원")
     const cleanName = memberName.replace(/\s*(병장|상병|일병|이병)/g, '').trim();
-    const memberMovements = movements.filter(m => m.name === cleanName);
 
-    // Helper to find contiguous status range across current timeline and adjacent sheetWeeks
-    const inferContiguousDatesFromStatuses = (statusTypes: string[]) => {
-        const matchedDates = timeline.filter(dateStr => statusTypes.includes(initialDayStatuses[dateStr]));
+    // Helper to check status on any date across current week and all sheetWeeks
+    const checkStatusOnDate = (date: Date): { isVac: boolean; isPass: boolean } => {
+        const m = date.getMonth() + 1;
+        const d = date.getDate();
+        const dateStr = `${m}.${d}`;
+
+        if (initialDayStatuses[dateStr] !== undefined) {
+            const st = initialDayStatuses[dateStr];
+            return {
+                isVac: st === 'vacation' || st === 'linked' || st === 'vacation-pass-depart',
+                isPass: st === 'pass' || st === 'pass-depart' || st === 'linked' || st === 'vacation-pass-depart'
+            };
+        }
+
+        if (sheetWeeks && sheetWeeks.length > 0) {
+            for (const week of sheetWeeks) {
+                if (week.data && Array.isArray(week.data)) {
+                    const row = week.data.find((r: any) => {
+                        const c = r.name.replace(/^(병장|상병|일병|이병)\s*/, '').trim();
+                        return c === cleanName;
+                    });
+                    if (row && row.dayStatuses && row.dayStatuses[dateStr] !== undefined) {
+                        const st = row.dayStatuses[dateStr];
+                        return {
+                            isVac: st === 'vacation' || st === 'linked' || st === 'vacation-pass-depart',
+                            isPass: st === 'pass' || st === 'pass-depart' || st === 'linked' || st === 'vacation-pass-depart'
+                        };
+                    }
+                }
+            }
+        }
+
+        return { isVac: false, isPass: false };
+    };
+
+    // 1. 수요일부터 다음주 화요일 사이에 있는 외박과 그와 연계되는 휴가
+    // 2. 외휴연계 혹은 휴외연계되지 않는 기간 내 휴가
+    const { thisPeriodPass, thisPeriodVacation } = getPeriodMovementsForMember(
+        cleanName,
+        timeline,
+        currentYear,
+        movements,
+        initialDayStatuses
+    );
+
+    const existingPass = thisPeriodPass;
+    const existingVacation = thisPeriodVacation;
+
+    // Helper to find pass range strictly within coreTimeline (Wed~Tue) and expand if continuing across weeks
+    const inferPassFromStatuses = () => {
+        const matchedDates = coreTimeline.filter(dateStr => ['pass', 'linked', 'vacation-pass-depart'].includes(initialDayStatuses[dateStr]));
         if (matchedDates.length === 0) return { start: '', end: '' };
 
         const [fM, fD] = matchedDates[0].split('.').map(Number);
         const [lM, lD] = matchedDates[matchedDates.length - 1].split('.').map(Number);
 
-        let startDateObj = new Date(currentYear, fM - 1, fD, 12, 0, 0, 0);
-        let endDateObj = new Date(currentYear, lM - 1, lD, 12, 0, 0, 0);
+        let sObj = new Date(currentYear, fM - 1, fD, 12, 0, 0, 0);
+        let eObj = new Date(currentYear, lM - 1, lD, 12, 0, 0, 0);
 
-        // Helper to check if a specific Date has one of statusTypes in sheetWeeks
-        const checkStatusOnDate = (dateObj: Date): boolean => {
-            if (!sheetWeeks || sheetWeeks.length === 0) return false;
-            const m = dateObj.getMonth() + 1;
-            const d = dateObj.getDate();
-            const dateStr = `${m}.${d}`;
-
-            for (const week of sheetWeeks) {
-                if (week.data && Array.isArray(week.data)) {
-                    const memberRow = week.data.find((row: any) => {
-                        const clean = row.name.replace(/^(병장|상병|일병|이병)\s*/, '').trim();
-                        return clean === cleanName;
-                    });
-                    if (memberRow && memberRow.dayStatuses && statusTypes.includes(memberRow.dayStatuses[dateStr])) {
-                        return true;
-                    }
-                }
-            }
-            return false;
-        };
-
-        // If the activity touches the first date of current timeline, trace backwards into previous weeks
-        if (matchedDates[0] === timeline[0]) {
-            let prevDate = new Date(startDateObj);
-            prevDate.setDate(prevDate.getDate() - 1);
-            while (checkStatusOnDate(prevDate)) {
-                startDateObj = new Date(prevDate);
-                prevDate.setDate(prevDate.getDate() - 1);
-            }
+        // Check if pass continues forward past coreTimeline across timeline and sheetWeeks
+        let nextD = new Date(eObj);
+        nextD.setDate(nextD.getDate() + 1);
+        while (checkStatusOnDate(nextD).isPass) {
+            eObj = new Date(nextD);
+            nextD.setDate(nextD.getDate() + 1);
         }
 
-        // If the activity touches the last date of current timeline, trace forwards into subsequent weeks
-        if (matchedDates[matchedDates.length - 1] === timeline[timeline.length - 1]) {
-            let nextDate = new Date(endDateObj);
-            nextDate.setDate(nextDate.getDate() + 1);
-            while (checkStatusOnDate(nextDate)) {
-                endDateObj = new Date(nextDate);
-                nextDate.setDate(nextDate.getDate() + 1);
-            }
-        }
-
-        const sYear = startDateObj.getFullYear();
-        const sMonth = String(startDateObj.getMonth() + 1).padStart(2, '0');
-        const sDay = String(startDateObj.getDate()).padStart(2, '0');
-
-        const eYear = endDateObj.getFullYear();
-        const eMonth = String(endDateObj.getMonth() + 1).padStart(2, '0');
-        const eDay = String(endDateObj.getDate()).padStart(2, '0');
+        const formatIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
         return {
-            start: `${sYear}-${sMonth}-${sDay}`,
-            end: `${eYear}-${eMonth}-${eDay}`
+            start: formatIso(sObj),
+            end: formatIso(eObj)
         };
     };
 
-    const inferredPass = inferContiguousDatesFromStatuses(['pass']);
-    const inferredVac = inferContiguousDatesFromStatuses(['vacation', 'linked', 'vacation-pass-depart']);
+    // Helper to find vacation range within timeline and expand across sheetWeeks boundaries
+    const inferVacFromStatuses = () => {
+        const matchedDates = timeline.filter(dateStr => ['vacation', 'linked', 'vacation-pass-depart'].includes(initialDayStatuses[dateStr]));
+        if (matchedDates.length === 0) return { start: '', end: '' };
 
-    // Check existing movements overlapping either the timeline or contiguous range
-    const existingPass = memberMovements.find(m => {
-        if (m.type !== 'pass') return false;
-        const checkStart = inferredPass.start || tStartIso;
-        const checkEnd = inferredPass.end || tEndIso;
-        return m.startDate <= checkEnd && m.endDate >= checkStart;
-    });
+        const [fM, fD] = matchedDates[0].split('.').map(Number);
+        const [lM, lD] = matchedDates[matchedDates.length - 1].split('.').map(Number);
 
-    const existingVacation = memberMovements.find(m => {
-        if (m.type !== 'vacation') return false;
-        const checkStart = inferredVac.start || tStartIso;
-        const checkEnd = inferredVac.end || tEndIso;
-        return m.startDate <= checkEnd && m.endDate >= checkStart;
-    });
+        let sObj = new Date(currentYear, fM - 1, fD, 12, 0, 0, 0);
+        let eObj = new Date(currentYear, lM - 1, lD, 12, 0, 0, 0);
 
-    const initialPassStart = existingPass?.startDate || inferredPass.start;
-    const initialPassEnd = existingPass?.endDate || inferredPass.end;
+        // Expand backward across sheetWeeks if vacation touches timeline start
+        if (matchedDates[0] === timeline[0]) {
+            let prevD = new Date(sObj);
+            prevD.setDate(prevD.getDate() - 1);
+            while (checkStatusOnDate(prevD).isVac) {
+                sObj = new Date(prevD);
+                prevD.setDate(prevD.getDate() - 1);
+            }
+        }
+
+        // Expand forward across sheetWeeks if vacation touches timeline end
+        if (matchedDates[matchedDates.length - 1] === timeline[timeline.length - 1]) {
+            let nextD = new Date(eObj);
+            nextD.setDate(nextD.getDate() + 1);
+            while (checkStatusOnDate(nextD).isVac) {
+                eObj = new Date(nextD);
+                nextD.setDate(nextD.getDate() + 1);
+            }
+        }
+
+        const formatIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+        return {
+            start: formatIso(sObj),
+            end: formatIso(eObj)
+        };
+    };
+
+    const inferredPass = inferPassFromStatuses();
+    const inferredVac = inferVacFromStatuses();
+
+    const initialPassStart = (existingPass && inferredPass.start && inferredPass.start < existingPass.startDate ? inferredPass.start : existingPass?.startDate) || inferredPass.start;
+    const initialPassEnd = (existingPass && inferredPass.end && inferredPass.end > existingPass.endDate ? inferredPass.end : existingPass?.endDate) || inferredPass.end;
     const initialPassReason = existingPass?.reason || '';
 
-    const initialVacStart = existingVacation?.startDate || inferredVac.start;
-    const initialVacEnd = existingVacation?.endDate || inferredVac.end;
+    const initialVacStart = (existingVacation && inferredVac.start && inferredVac.start < existingVacation.startDate ? inferredVac.start : existingVacation?.startDate) || inferredVac.start;
+    const initialVacEnd = (existingVacation && inferredVac.end && inferredVac.end > existingVacation.endDate ? inferredVac.end : existingVacation?.endDate) || inferredVac.end;
     let initialVacReason = existingVacation?.reason || '';
-    if (!initialVacReason && initialVacStart && initialVacEnd) {
+    if (initialVacStart && initialVacEnd) {
         const sD = new Date(initialVacStart);
         const eD = new Date(initialVacEnd);
         const days = Math.round((eD.getTime() - sD.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-        if (days > 0) {
+        if (!initialVacReason && days > 0) {
             initialVacReason = `연가 ${days}일`;
+        } else if (initialVacReason && /\d+일/.test(initialVacReason)) {
+            const match = initialVacReason.match(/(\d+)일/);
+            if (match && parseInt(match[1], 10) !== days) {
+                initialVacReason = initialVacReason.replace(/\d+일/, `${days}일`);
+            }
         }
     }
 
@@ -180,13 +226,10 @@ export function MovementEditModal({
 
     // Real-time calculation of day statuses when settings change
     useEffect(() => {
-        const newStatuses: Record<string, string> = {};
+        const newStatuses: Record<string, string> = { ...initialDayStatuses };
 
         timeline.forEach((dateStr, tIdx) => {
-            const [m, d] = dateStr.split('.').map(Number);
-            const dateIso = `${currentYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-
-            let status = 'none';
+            const dateIso = formatMDToISO(dateStr, currentYear, refMonth);
 
             let isPassDay = false;
             let isPassDepartDay = false;
@@ -219,38 +262,61 @@ export function MovementEditModal({
                 }
             }
 
-            if (isLinked && dateIso === vacationStart) {
-                status = 'linked';
-            } else if (isVacationReturnDay && (isPassDepartDay || (isPassDay && dateIso === passStart))) {
-                status = 'vacation-pass-depart';
-            } else if (isVacationDay) {
-                status = 'vacation';
-            } else if (isPassDay) {
-                status = 'pass';
-            } else if (isPassDepartDay) {
-                status = 'pass-depart';
-            }
+            const initialStatus = initialDayStatuses[dateStr] || 'none';
+            const isCoreDay = coreTimeline.includes(dateStr);
 
-            // Check recovery-pass-depart: if departing for pass on day after duty
-            if (status === 'pass-depart' || status === 'pass') {
-                const yesterdayStr = tIdx > 0 ? timeline[tIdx - 1] : null;
-                const yesterdayStatus = yesterdayStr ? initialDayStatuses[yesterdayStr] : null;
-                if (yesterdayStatus === 'duty') {
-                    status = 'recovery-pass-depart';
+            if (isLinked && dateIso === vacationStart) {
+                newStatuses[dateStr] = 'linked';
+            } else if (isVacationReturnDay && (isPassDepartDay || (isPassDay && dateIso === passStart))) {
+                newStatuses[dateStr] = 'vacation-pass-depart';
+            } else if (isVacationDay) {
+                newStatuses[dateStr] = 'vacation';
+            } else if (isPassDay) {
+                newStatuses[dateStr] = 'pass';
+            } else if (isPassDepartDay) {
+                let pDep = 'pass-depart';
+                let isYesterdayDuty = false;
+                if (tIdx > 0) {
+                    const yesterdayStr = timeline[tIdx - 1];
+                    isYesterdayDuty = initialDayStatuses[yesterdayStr] === 'duty';
+                } else {
+                    const [m, d] = dateStr.split('.').map(Number);
+                    const yesterdayDate = new Date(currentYear, m - 1, d - 1, 12, 0, 0, 0);
+                    const yesterdayStr = `${yesterdayDate.getMonth() + 1}.${yesterdayDate.getDate()}`;
+                    if (initialDayStatuses[yesterdayStr] === 'duty') {
+                        isYesterdayDuty = true;
+                    } else if (sheetWeeks && sheetWeeks.length > 0) {
+                        for (const week of sheetWeeks) {
+                            if (week.data && Array.isArray(week.data)) {
+                                const row = week.data.find((r: any) => r.name.replace(/^(병장|상병|일병|이병)\s*/, '').trim() === cleanName);
+                                if (row?.dayStatuses?.[yesterdayStr] === 'duty') {
+                                    isYesterdayDuty = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                if (isYesterdayDuty) {
+                    pDep = 'recovery-pass-depart';
+                }
+                newStatuses[dateStr] = pDep;
+            } else {
+                // Not covered by edited pass or vacation
+                if (initialStatus === 'duty' || initialStatus === 'recovery') {
+                    newStatuses[dateStr] = initialStatus;
+                } else if (!isCoreDay) {
+                    // Preserve status outside core window (e.g. adjacent week's pass / pass-depart)
+                    newStatuses[dateStr] = initialStatus;
+                } else {
+                    // Inside core window and not duty/recovery/pass/vacation:
+                    newStatuses[dateStr] = 'none';
                 }
             }
-
-            // Preserve duty or recovery if not overridden
-            const initialStatus = initialDayStatuses[dateStr];
-            if (status === 'none' && (initialStatus === 'duty' || initialStatus === 'recovery')) {
-                status = initialStatus;
-            }
-
-            newStatuses[dateStr] = status;
         });
 
         setDayStatuses(newStatuses);
-    }, [hasPass, passStart, passEnd, hasVacation, vacationStart, vacationEnd, isLinked, timeline, currentYear, initialDayStatuses]);
+    }, [hasPass, passStart, passEnd, hasVacation, vacationStart, vacationEnd, isLinked, timeline, currentYear, initialDayStatuses, refMonth, coreTimeline]);
 
     // Save changes to Firestore and Google Spreadsheet
     const handleSave = async () => {
@@ -269,11 +335,17 @@ export function MovementEditModal({
 
             const batch = writeBatch(db);
 
-            // Handle Pass Movement
-            const currentPassDoc = existingDocs.find(m => m.type === 'pass' && m.startDate <= tEndIso && m.endDate >= tStartIso);
+            // Handle Pass Movement:
+            // Match pass docs belonging to THIS period (Wednesday ~ next Tuesday)
+            const periodPassDocs = existingDocs.filter(m => 
+                (m.type === 'pass' || m.type === 'stay') && 
+                isPassInPeriod(m, coreStartIso, coreEndIso)
+            );
+            const targetPassDoc = (existingPass?.id ? existingDocs.find(d => d.id === existingPass.id) : null) || periodPassDocs[0];
+
             if (hasPass && passStart && passEnd) {
-                if (currentPassDoc) {
-                    batch.update(doc(db, 'movements', currentPassDoc.id), {
+                if (targetPassDoc) {
+                    batch.update(doc(db, 'movements', targetPassDoc.id), {
                         startDate: passStart,
                         endDate: passEnd,
                         reason: passReason.trim(),
@@ -290,12 +362,42 @@ export function MovementEditModal({
                         createdAt: serverTimestamp()
                     });
                 }
-            } else if (currentPassDoc) {
-                batch.delete(doc(db, 'movements', currentPassDoc.id));
+                // Clean up any extra duplicate pass docs for this period from previous bugs
+                periodPassDocs.forEach(d => {
+                    if (targetPassDoc && d.id !== targetPassDoc.id) {
+                        batch.delete(doc(db, 'movements', d.id));
+                    }
+                });
+            } else if (periodPassDocs.length > 0) {
+                periodPassDocs.forEach(d => {
+                    batch.delete(doc(db, 'movements', d.id));
+                });
             }
 
-            // Handle Vacation Movement
-            const currentVacDoc = existingDocs.find(m => m.type === 'vacation' && m.startDate <= tEndIso && m.endDate >= tStartIso);
+            // Handle Vacation Movement:
+            // Match vacation docs belonging to THIS period
+            const periodVacDocs = existingDocs.filter(m => {
+                if (m.type !== 'vacation') return false;
+                // Check if linked to this period's pass
+                if (hasPass && passStart && passEnd) {
+                    const tempPass = { type: 'pass', startDate: passStart, endDate: passEnd } as any;
+                    if (isVacationLinkedToPass(m, tempPass)) return true;
+                }
+                if (targetPassDoc && isVacationLinkedToPass(m, targetPassDoc)) return true;
+
+                // Check if linked to another pass
+                const otherPass = existingDocs.find(other => 
+                    (other.type === 'pass' || other.type === 'stay') && 
+                    !isPassInPeriod(other, coreStartIso, coreEndIso) && 
+                    isVacationLinkedToPass(m, other)
+                );
+                if (otherPass) return false;
+
+                // Unlinked vacation within the period
+                return m.startDate <= periodEndIso && m.endDate >= periodStartIso;
+            });
+            const targetVacDoc = (existingVacation?.id ? existingDocs.find(d => d.id === existingVacation.id) : null) || periodVacDocs[0];
+
             if (hasVacation && vacationStart && vacationEnd) {
                 let finalVacReason = vacationReason.trim();
                 if (isLinked) {
@@ -306,8 +408,8 @@ export function MovementEditModal({
                     finalVacReason = finalVacReason.replace(/,?\s*외휴연계\s*[OX]?/gi, '').trim();
                 }
 
-                if (currentVacDoc) {
-                    batch.update(doc(db, 'movements', currentVacDoc.id), {
+                if (targetVacDoc) {
+                    batch.update(doc(db, 'movements', targetVacDoc.id), {
                         startDate: vacationStart,
                         endDate: vacationEnd,
                         reason: finalVacReason,
@@ -324,8 +426,16 @@ export function MovementEditModal({
                         createdAt: serverTimestamp()
                     });
                 }
-            } else if (currentVacDoc) {
-                batch.delete(doc(db, 'movements', currentVacDoc.id));
+                // Clean up any extra duplicate vacation docs for this period
+                periodVacDocs.forEach(d => {
+                    if (targetVacDoc && d.id !== targetVacDoc.id) {
+                        batch.delete(doc(db, 'movements', d.id));
+                    }
+                });
+            } else if (periodVacDocs.length > 0) {
+                periodVacDocs.forEach(d => {
+                    batch.delete(doc(db, 'movements', d.id));
+                });
             }
 
             await batch.commit();
@@ -338,6 +448,83 @@ export function MovementEditModal({
                 return `${parseInt(parts[1], 10)}.${parseInt(parts[2], 10)}`;
             };
 
+            const cellUpdates: Record<string, string> = {};
+
+            let passDepartMD = '';
+            // 1. Pass cells
+            if (hasPass && passStart && passEnd) {
+                const [psY, psM, psD] = passStart.split('-').map(Number);
+                const [peY, peM, peD] = passEnd.split('-').map(Number);
+                const startD = new Date(psY, psM - 1, psD, 12, 0, 0, 0);
+                const endD = new Date(peY, peM - 1, peD, 12, 0, 0, 0);
+
+                // Depart day: 1 day before passStart
+                const departD = new Date(startD);
+                departD.setDate(departD.getDate() - 1);
+                passDepartMD = `${departD.getMonth() + 1}.${departD.getDate()}`;
+                cellUpdates[passDepartMD] = '외박출발';
+
+                // Days from passStart to passEnd
+                const cur = new Date(startD);
+                while (cur <= endD) {
+                    const md = `${cur.getMonth() + 1}.${cur.getDate()}`;
+                    if (cur.getTime() === endD.getTime()) {
+                        cellUpdates[md] = isLinked ? '휴가출발(연계)' : '외박복귀';
+                    } else {
+                        cellUpdates[md] = '외박';
+                    }
+                    cur.setDate(cur.getDate() + 1);
+                }
+            }
+
+            // 2. Vacation cells
+            if (hasVacation && vacationStart && vacationEnd) {
+                const [vsY, vsM, vsD] = vacationStart.split('-').map(Number);
+                const [veY, veM, veD] = vacationEnd.split('-').map(Number);
+                const startD = new Date(vsY, vsM - 1, vsD, 12, 0, 0, 0);
+                const endD = new Date(veY, veM - 1, veD, 12, 0, 0, 0);
+                const isSingleDay = vacationStart === vacationEnd;
+
+                const cur = new Date(startD);
+                while (cur <= endD) {
+                    const md = `${cur.getMonth() + 1}.${cur.getDate()}`;
+                    if (cur.getTime() === startD.getTime()) {
+                        if (!isLinked) {
+                            cellUpdates[md] = isSingleDay ? '휴가' : '휴가출발';
+                        }
+                    } else if (cur.getTime() === endD.getTime()) {
+                        cellUpdates[md] = '휴가복귀';
+                    } else {
+                        cellUpdates[md] = '휴가';
+                    }
+                    cur.setDate(cur.getDate() + 1);
+                }
+
+                // 휴외연계: 휴가 복귀하는 날 외박 출발한다면 (허용 시 '외박출발(연계)', 미허용 시 '외박 휴가복귀/외박출발')
+                if (hasPass && passDepartMD) {
+                    const vacEndMD = `${veM}.${veD}`;
+                    if (vacEndMD === passDepartMD) {
+                        cellUpdates[vacEndMD] = allowVacationPassLink ? '외박출발(연계)' : '외박 휴가복귀/외박출발';
+                    }
+                }
+            }
+
+            // dayStatuses 에 vacation-pass-depart 가 있는 경우에도 확실히 적용
+            Object.entries(dayStatuses).forEach(([md, st]) => {
+                if (st === 'vacation-pass-depart') {
+                    cellUpdates[md] = allowVacationPassLink ? '외박출발(연계)' : '외박 휴가복귀/외박출발';
+                }
+            });
+
+            // 3. Handle cleared days within core window
+            coreTimeline.forEach(dateStr => {
+                if (dayStatuses[dateStr] === 'none' && cellUpdates[dateStr] === undefined) {
+                    cellUpdates[dateStr] = '';
+                } else if (dayStatuses[dateStr] === 'duty' && cellUpdates[dateStr] === undefined) {
+                    cellUpdates[dateStr] = '당직';
+                }
+            });
+
             const passDays = Object.entries(dayStatuses)
                 .filter(([_, st]) => st === 'pass')
                 .map(([d]) => d);
@@ -346,7 +533,8 @@ export function MovementEditModal({
                 .filter(([_, st]) => st === 'vacation' || st === 'linked' || st === 'vacation-pass-depart')
                 .map(([d]) => d);
 
-            const passDepartMD = Object.entries(dayStatuses).find(([_, st]) => st === 'pass-depart' || st === 'recovery-pass-depart' || st === 'vacation-pass-depart')?.[0]
+            passDepartMD = passDepartMD
+                || Object.entries(dayStatuses).find(([_, st]) => st === 'pass-depart' || st === 'recovery-pass-depart' || st === 'vacation-pass-depart')?.[0]
                 || (hasPass && passStart ? (() => {
                     const d = new Date(passStart);
                     d.setDate(d.getDate() - 1);
@@ -391,14 +579,16 @@ export function MovementEditModal({
                 movements: [movementItem],
                 memberUpdate: {
                     memberName: cleanName,
-                    dayStatuses
+                    dayStatuses,
+                    cellUpdates
                 }
             };
 
             try {
                 await axios.post(`${baseUrl}/updateMemberSchedule`, {
                     memberName: cleanName,
-                    dayStatuses
+                    dayStatuses,
+                    cellUpdates
                 });
             } catch (postErr) {
                 await axios.post(`${baseUrl}/syncMovementToSheet`, payload);

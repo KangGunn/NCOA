@@ -29,6 +29,11 @@ export async function updateSeniorSetting(name: string): Promise<void> {
     await db.collection("settings").doc("senior").set({ name }, { merge: true });
 }
 
+export async function getMovementSetting(): Promise<any> {
+    const snap = await db.collection("settings").doc("movement").get();
+    return snap.exists ? snap.data() : null;
+}
+
 export async function refreshSpreadsheetUpdatedAt(mode: "test" | "prod"): Promise<void> {
     const updateKey = mode === "prod" ? "prodUpdatedAt" : "testUpdatedAt";
     await db.collection("settings").doc("spreadsheet").set({

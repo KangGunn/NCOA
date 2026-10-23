@@ -177,7 +177,7 @@ export function useMovementSync(baseDate?: Date) {
     }, [sheetWeeks, currentWeekIndex]);
 
     const fetchSpreadsheet = async (mode: 'test' | 'prod', updatedAtStr?: string) => {
-        const cacheKey = updatedAtStr ? `ncoa_movement_${mode}_${updatedAtStr}_v2` : null;
+        const cacheKey = updatedAtStr ? `ncoa_movement_${mode}_${updatedAtStr}_v3` : null;
         const cached = cacheKey ? localStorage.getItem(cacheKey) : null;
 
         // 1. 로컬 브라우저 캐시 확인
@@ -200,7 +200,7 @@ export function useMovementSync(baseDate?: Date) {
         // 2. Firestore 공유 캐시 확인
         if (updatedAtStr) {
             try {
-                const cacheDoc = await getDoc(doc(db, "movement_cache_v2", `${mode}_${updatedAtStr}`));
+                const cacheDoc = await getDoc(doc(db, "movement_cache_v3", `${mode}_${updatedAtStr}`));
                 if (cacheDoc.exists()) {
                     const sharedData = cacheDoc.data().data;
                     setSheetWeeks(sharedData);
@@ -306,11 +306,17 @@ export function useMovementSync(baseDate?: Date) {
                                 if (cell.includes('휴가')) {
                                     status = 'vacation';
                                 }
-                                if (cell.includes('휴가') && (cell.includes('출발') || cell.includes('외박')) && !cell.includes('연계')) {
+                                if (cell.includes('외박출발') && cell.includes('연계')) {
+                                    status = 'vacation-pass-depart';
+                                } else if (cell.includes('휴가') && cell.includes('외박')) {
                                     status = 'vacation-pass-depart';
                                 }
                                 if (cell.includes('당직')) status = 'duty';
-                                if (cell.includes('연계')) status = 'linked';
+                                if (cell.includes('휴가출발') && cell.includes('연계')) {
+                                    status = 'linked';
+                                } else if (cell.includes('연계') && !cell.includes('외박')) {
+                                    status = 'linked';
+                                }
 
                                 if (status === 'none' && idx > 0) {
                                     const yesterdayCell = row[blockCols[idx - 1].col] || '';
@@ -347,7 +353,7 @@ export function useMovementSync(baseDate?: Date) {
                     }).filter(Boolean).filter((w: any) => w.data.length > 0) as any[];
 
                     if (updatedAtStr) {
-                        const cacheKey = `ncoa_movement_${mode}_${updatedAtStr}_v2`;
+                        const cacheKey = `ncoa_movement_${mode}_${updatedAtStr}_v3`;
 
                         const keysToRemove = [];
                         for (let i = 0; i < localStorage.length; i++) {
@@ -361,7 +367,7 @@ export function useMovementSync(baseDate?: Date) {
                         localStorage.setItem(cacheKey, JSON.stringify(parsedWeeks));
 
                         try {
-                            await setDoc(doc(db, "movement_cache_v2", `${mode}_${updatedAtStr}`), {
+                            await setDoc(doc(db, "movement_cache_v3", `${mode}_${updatedAtStr}`), {
                                 data: parsedWeeks,
                                 updatedAt: serverTimestamp()
                             });
@@ -1304,7 +1310,11 @@ export function useMovementSync(baseDate?: Date) {
             timeline.forEach((dateStr, tIdx) => {
                 let status = 'none';
                 items.forEach(item => {
-                    const yesterdayStr = tIdx > 0 ? timeline[tIdx - 1] : null;
+                    const yesterdayStr = tIdx > 0 ? timeline[tIdx - 1] : (() => {
+                        const prevD = new Date(startDate);
+                        prevD.setDate(prevD.getDate() - 1);
+                        return `${prevD.getMonth() + 1}.${prevD.getDate()}`;
+                    })();
                     const isRecovery = item.type === '당직' && item.date === yesterdayStr;
 
                     if (item.type === '당직' && item.date === dateStr) {

@@ -1,11 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { getGoogleSheetsInstance, getSpreadsheetIdForMode } from "../repositories/sheet.repository";
-import { getSpreadsheetSetting, refreshSpreadsheetUpdatedAt } from "../repositories/setting.repository";
+import { getSpreadsheetSetting, getMovementSetting, refreshSpreadsheetUpdatedAt } from "../repositories/setting.repository";
 import { getA1Address } from "../utils/sheet.util";
 import * as logger from "firebase-functions/logger";
 
 export async function syncMovements(movements: any[]) {
     const setting = await getSpreadsheetSetting();
+    const movementSetting = await getMovementSetting();
+    const allowVacationPassLink = !!movementSetting?.allowVacationPassLink;
     const sheetMode = (setting?.mode || "test") as "test" | "prod";
     const spreadsheetId = await getSpreadsheetIdForMode(sheetMode);
     
@@ -80,6 +82,10 @@ export async function syncMovements(movements: any[]) {
             }
         };
 
+        const hasPassDepart = !!m.depart;
+        const hasVacReturn = m.vacation && !!m.vacation.return;
+        const isVacPassOverlap = hasPassDepart && hasVacReturn && m.depart === m.vacation.return;
+
         if (m.depart) setStatus(m.depart, "외박출발");
         
         const isLinked = m.vacation && m.vacation.isLinked;
@@ -101,7 +107,7 @@ export async function syncMovements(movements: any[]) {
                 setStatus(v.depart, v.isLinked ? "휴가출발(연계)" : "휴가출발");
             }
             if (v.return) {
-                setStatus(v.return, "휴가복귀");
+                setStatus(v.return, isVacPassOverlap ? (allowVacationPassLink ? "외박출발(연계)" : "외박 휴가복귀/외박출발") : "휴가복귀");
             }
             if (v.stayDays) {
                 v.stayDays.forEach((d: string) => {
@@ -137,8 +143,14 @@ export async function syncMovements(movements: any[]) {
     return { status: "success", message: "업데이트할 항목이 없습니다." };
 }
 
-export async function updateMemberScheduleInSheet(memberName: string, dayStatuses: Record<string, string>) {
+export async function updateMemberScheduleInSheet(
+    memberName: string, 
+    dayStatuses: Record<string, string>,
+    cellUpdates?: Record<string, string>
+) {
     const setting = await getSpreadsheetSetting();
+    const movementSetting = await getMovementSetting();
+    const allowVacationPassLink = !!movementSetting?.allowVacationPassLink;
     const sheetMode = (setting?.mode || "test") as "test" | "prod";
     const spreadsheetId = await getSpreadsheetIdForMode(sheetMode);
     
@@ -175,7 +187,7 @@ export async function updateMemberScheduleInSheet(memberName: string, dayStatuse
         if (exactMatch) targetRowIdx = exactMatch.idx;
     }
 
-    // Determine start and return dates for pass and vacation to match sheet conventions (외박출발, 외박복귀, 휴가출발, 휴가복귀)
+    // Determine fallback start and return dates for pass and vacation if cellUpdates is not provided
     const passDates = Object.entries(dayStatuses).filter(([_, s]) => s === 'pass').map(([d]) => d);
     const lastPassDate = passDates[passDates.length - 1];
 
@@ -184,7 +196,11 @@ export async function updateMemberScheduleInSheet(memberName: string, dayStatuse
     const lastVacDate = vacDates[vacDates.length - 1];
 
     const updateData: any[] = [];
-    Object.entries(dayStatuses).forEach(([dateStr, status]) => {
+    const datesToProcess = cellUpdates 
+        ? Object.keys(cellUpdates) 
+        : Object.keys(dayStatuses);
+
+    datesToProcess.forEach((dateStr) => {
         const [targetM, targetD] = dateStr.split(".").map(Number);
         const colIdx = dateRow.findIndex((d: string) => {
             if (!d) return false;
@@ -200,28 +216,35 @@ export async function updateMemberScheduleInSheet(memberName: string, dayStatuse
 
         if (colIdx !== -1) {
             let cellValue = "";
-            if (status === "pass") {
-                cellValue = (dateStr === lastPassDate) ? "외박복귀" : "외박";
-            } else if (status === "pass-depart" || status === "recovery-pass-depart") {
-                cellValue = "외박출발";
-            } else if (status === "vacation") {
-                if (dateStr === firstVacDate && dateStr === lastVacDate) {
-                    cellValue = "휴가";
-                } else if (dateStr === firstVacDate) {
-                    cellValue = "휴가출발";
-                } else if (dateStr === lastVacDate) {
-                    cellValue = "휴가복귀";
-                } else {
-                    cellValue = "휴가";
-                }
-            } else if (status === "linked") {
-                cellValue = "휴가출발(연계)";
-            } else if (status === "duty") {
-                cellValue = "당직";
-            } else if (status === "recovery" || status === "none") {
-                cellValue = "";
+            if (cellUpdates && cellUpdates[dateStr] !== undefined) {
+                cellValue = cellUpdates[dateStr];
             } else {
-                cellValue = status;
+                const status = dayStatuses[dateStr];
+                if (status === "pass") {
+                    cellValue = (dateStr === lastPassDate) ? "외박복귀" : "외박";
+                } else if (status === "pass-depart" || status === "recovery-pass-depart") {
+                    cellValue = "외박출발";
+                } else if (status === "vacation-pass-depart") {
+                    cellValue = allowVacationPassLink ? "외박출발(연계)" : "외박 휴가복귀/외박출발";
+                } else if (status === "vacation") {
+                    if (dateStr === firstVacDate && dateStr === lastVacDate) {
+                        cellValue = "휴가";
+                    } else if (dateStr === firstVacDate) {
+                        cellValue = "휴가출발";
+                    } else if (dateStr === lastVacDate) {
+                        cellValue = "휴가복귀";
+                    } else {
+                        cellValue = "휴가";
+                    }
+                } else if (status === "linked") {
+                    cellValue = "휴가출발(연계)";
+                } else if (status === "duty") {
+                    cellValue = "당직";
+                } else if (status === "recovery" || status === "none") {
+                    cellValue = "";
+                } else {
+                    cellValue = status || "";
+                }
             }
 
             updateData.push({

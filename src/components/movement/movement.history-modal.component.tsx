@@ -34,10 +34,16 @@ export function MovementHistoryModal({
         };
     }, []);
 
-    // Filter and sort movements for this member
+    // Filter and sort movements for this member (descending by startDate, then by newest update/creation)
     const memberMovements = movements
         .filter(m => m.name === memberName)
-        .sort((a, b) => b.startDate.localeCompare(a.startDate)); // Descending order (newest first)
+        .sort((a, b) => {
+            const dateCompare = b.startDate.localeCompare(a.startDate);
+            if (dateCompare !== 0) return dateCompare;
+            const aTime = (a.updatedAt as any)?.seconds || (a.createdAt as any)?.seconds || 0;
+            const bTime = (b.updatedAt as any)?.seconds || (b.createdAt as any)?.seconds || 0;
+            return bTime - aTime;
+        });
 
     // Helper to format date string from YYYY-MM-DD to MM.DD
     const formatDate = (dateStr: string) => {
@@ -220,8 +226,12 @@ export function MovementHistoryModal({
                                     );
                                 }
 
-                                // 2. Handle normal movements sorting
-                                const items = [...rawItems].sort((a, b) => {
+                                // 2. Handle normal movements sorting and deduplication
+                                const uniqueItems = rawItems.filter((item, idx, arr) => 
+                                    arr.findIndex(x => x.type === item.type && x.startDate === item.startDate && x.endDate === item.endDate) === idx
+                                );
+
+                                const items = [...uniqueItems].sort((a, b) => {
                                     if (a.type === 'pass' && b.type === 'vacation') return -1;
                                     if (a.type === 'vacation' && b.type === 'pass') return 1;
                                     return 0;

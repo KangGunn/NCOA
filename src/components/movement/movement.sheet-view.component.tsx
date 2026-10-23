@@ -40,9 +40,10 @@ export function MovementSheetView({
             timeline,
             dutySchedules,
             dbMembers,
-            baseDate
+            baseDate,
+            sheetWeeks
         );
-    }, [currentWeek?.data, timeline, dutySchedules, dbMembers, baseDate]);
+    }, [currentWeek?.data, timeline, dutySchedules, dbMembers, baseDate, sheetWeeks]);
 
     if (sheetWeeks.length === 0) return null;
 
@@ -68,27 +69,20 @@ export function MovementSheetView({
         let sectionPrefix = '';
 
         if (!hasPrefix) {
-            if (sections.includes('S3') || sections.includes('S-3')) {
-                sectionPrefix = 'BLC/S3';
-            } else if (sections.includes('S6') || sections.includes('S-6')) {
-                sectionPrefix = 'BLC/S6';
-            } else if (sections.includes('PAO')) {
+            if (sections.includes('PAO')) {
                 sectionPrefix = 'PAO';
             } else if (sections.includes('KTA')) {
                 sectionPrefix = 'KTA';
             } else if (sections.includes('BLC')) {
                 sectionPrefix = 'BLC';
-            } else if (sections.length > 0) {
-                const firstSec = sections[0].toUpperCase();
-                if (firstSec === 'S3' || firstSec === 'S-3') {
-                    sectionPrefix = 'BLC/S3';
-                } else if (firstSec === 'S6' || firstSec === 'S-6') {
-                    sectionPrefix = 'BLC/S6';
-                } else {
-                    sectionPrefix = firstSec;
-                }
+            } else if (sections.includes('RSO')) {
+                sectionPrefix = 'RSO';
+            } else if (sections.includes('S3') || sections.includes('S-3')) {
+                sectionPrefix = 'BLC/S3';
+            } else if (sections.includes('S6') || sections.includes('S-6')) {
+                sectionPrefix = 'BLC/S6';
             } else {
-                sectionPrefix = 'BLC';
+                sectionPrefix = '[확인필요]';
             }
         }
 
@@ -188,23 +182,44 @@ export function MovementSheetView({
         const dayPattern = /(\d+(\.\d+)?\s*(데이|일)|(원|투|쓰리|포|파이브|식스|세븐|에잇|나인|텐)\s*데이)/ig;
         let targetB = remainder.replace(dayPattern, '').replace(/사용/gi, '').replace(/,/gi, '').trim();
 
-        // 3. (A) 원인 정규화
+        // 3. (A) 원인 정규화 (사유가 2개 이상일 때 누락 없이 처리, 우선순위: 당직근무 > KTA/MEDIC 업무)
         let normalizedCause = '';
         if (causePart) {
-            const causeLower = causePart.toLowerCase();
-            if (/([월화수목금토일]요일\s*당직|[월화수목금토일]\s*당|당직근무|당직)/i.test(causePart)) {
-                normalizedCause = '당직근무';
-            } else if (causeLower.includes('dbids') || causePart.includes('디비즈')) {
-                normalizedCause = 'KTA 업무';
-            } else if (causeLower.includes('prt demo') || causeLower.includes('prtdemo') || (causeLower.includes('prt') && causeLower.includes('demo'))) {
-                // PRT Demo 컴펜 사용한 건 (A)에 포함되어선 안 됨!
-                const isPrtComp = causeLower.includes('컴펜') || causeLower.includes('compensation') || raw.toLowerCase().includes('컴펜') || raw.toLowerCase().includes('compensation');
-                if (!isPrtComp) {
-                    normalizedCause = 'MEDIC 업무';
+            const rawTokens = causePart.split(/[,/&+]|\s+및\s+/).map(t => t.trim()).filter(Boolean);
+            const causes: string[] = [];
+
+            let hasDuty = false;
+            let hasKta = false;
+            let hasMedic = false;
+            const customCauses: string[] = [];
+
+            for (const token of rawTokens) {
+                const tokenLower = token.toLowerCase();
+                if (/([월화수목금토일]요일\s*당직|[월화수목금토일]\s*당|당직근무|당직)/i.test(token)) {
+                    hasDuty = true;
+                } else if (tokenLower.includes('dbids') || token.includes('디비즈') || tokenLower.includes('kta')) {
+                    hasKta = true;
+                } else if (tokenLower.includes('medic') || tokenLower.includes('prt demo') || tokenLower.includes('prtdemo') || (tokenLower.includes('prt') && tokenLower.includes('demo'))) {
+                    const isPrtComp = tokenLower.includes('컴펜') || tokenLower.includes('compensation') || raw.toLowerCase().includes('컴펜') || raw.toLowerCase().includes('compensation');
+                    if (!isPrtComp) {
+                        hasMedic = true;
+                    }
+                } else {
+                    customCauses.push(token);
                 }
-            } else {
-                normalizedCause = causePart;
             }
+
+            // 우선순위 정렬 및 조합: 1) 당직근무 -> 2) KTA / MEDIC 업무 -> 3) 기타 사유
+            if (hasDuty) causes.push('당직근무');
+            if (hasKta) causes.push('KTA 업무');
+            if (hasMedic) causes.push('MEDIC 업무');
+            for (const c of customCauses) {
+                if (!causes.includes(c)) {
+                    causes.push(c);
+                }
+            }
+
+            normalizedCause = causes.join(', ');
         }
 
         // 4. (B) 외박 사유 정규화
@@ -459,12 +474,12 @@ export function MovementSheetView({
 
             // 1. Check Pass blocks (bridged by duty/recovery across consecutive pass days)
             const coreTimeline = timeline.slice(0, 7);
-            const passBlocks = getWeekendBlocks(member, ['pass', 'pass-depart', 'recovery-pass-depart', 'vacation-pass-depart'], ['duty', 'recovery']);
+            const passBlocks = getWeekendBlocks(member, ['pass', 'pass-depart', 'recovery-pass-depart', 'vacation-pass-depart', 'linked'], ['duty', 'recovery']);
             if (passBlocks.length > 0) {
                 const processedMovIds = new Set<string>();
 
                 passBlocks.forEach(block => {
-                    // Only count actual pass days (exclude depart, duty, recovery)
+                    // Only count actual pass days (exclude depart, duty, recovery, and linked which is vacation start)
                     const passDays = block.filter(d => {
                         const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
                         const status = member.dayStatuses[dStr] || '';
@@ -472,21 +487,34 @@ export function MovementSheetView({
                     });
 
                     if (passDays.length > 0) {
-                        const matchedMov = findMatchingMovement(memberMovements, passDays, 'pass');
+                        const matchedMov = findMatchingMovement(memberMovements, passDays, 'pass', true);
                         if (matchedMov && isInCoreTimeline(matchedMov.startDate, coreTimeline)) {
                             const movId = `${matchedMov.startDate}_${matchedMov.endDate}_${matchedMov.reason}`;
                             if (processedMovIds.has(movId)) return;
                             processedMovIds.add(movId);
 
-                            const rawPassCount = extractDayCountFromText(matchedMov.reason);
-                            const hasLinked = Object.values(member.dayStatuses).includes('linked');
-                            const passDayCount = rawPassCount !== null ? (rawPassCount - (hasLinked ? 1 : 0)) : null;
+                            const parsedInfo = parsePassReason(matchedMov.reason);
+                            const rawPassCount = parsedInfo.parsedDays || extractDayCountFromText(matchedMov.reason);
 
-                            if (passDayCount !== null && passDayCount !== passDays.length) {
-                                activeWeekWarnings.push({
-                                    name: cleanName,
-                                    message: `외박 사유(${passDayCount + (hasLinked ? 1 : 0)}일)와 입력된 기간(${passDays.length}일)이 일치하지 않습니다.`
-                                });
+                            // Check if this pass block connects to a linked day or has linked in member's sheet
+                            const hasLinkedDay = block.some(d => {
+                                const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
+                                return member.dayStatuses[dStr] === 'linked';
+                            });
+
+                            // If raw reason says N days (e.g., 포데이 4일), but it is linked to vacation:
+                            // If user explicitly wrote "4일" in reason, in reality the actual pass days on sheet are (N - 1) days if linked replaced the last pass day.
+                            // If rawPassCount matches passDays.length directly (e.g. 쓰리데이 3일), it's valid.
+                            // If rawPassCount matches passDays.length + 1 with hasLinkedDay, it's also valid.
+                            if (rawPassCount !== null) {
+                                const isValid = (rawPassCount === passDays.length) || 
+                                                (hasLinkedDay && rawPassCount - 1 === passDays.length);
+                                if (!isValid) {
+                                    activeWeekWarnings.push({
+                                        name: cleanName,
+                                        message: `외박 사유(${rawPassCount}일)와 입력된 기간(${passDays.length}일)이 일치하지 않습니다.`
+                                    });
+                                }
                             }
                         }
                     }
@@ -1043,7 +1071,7 @@ export function MovementSheetView({
                     memberRole.includes('S3');
 
                 // 1. Process PASS blocks
-                const passBlocks = getWeekendBlocks(member, ['pass', 'pass-depart', 'recovery-pass-depart', 'vacation-pass-depart']);
+                const passBlocks = getWeekendBlocks(member, ['pass', 'pass-depart', 'recovery-pass-depart', 'vacation-pass-depart', 'linked']);
                 const vacationBlocks = getWeekendBlocks(member, ['vacation', 'linked', 'vacation-pass-depart'], [], timeline);
 
                 if (passBlocks.length > 0) {
@@ -1054,6 +1082,14 @@ export function MovementSheetView({
                     let actualPassDaysCount = 0;
 
                     passBlocks.forEach(block => {
+                        // pass block must have a pass signal (not just a standalone 'linked' without any pass/depart)
+                        const hasPassSignal = block.some(d => {
+                            const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
+                            const status = member.dayStatuses[dStr] || '';
+                            return status === 'pass' || status === 'pass-depart' || status === 'recovery-pass-depart' || status === 'vacation-pass-depart';
+                        });
+                        if (!hasPassSignal) return;
+
                         const passDays = block.filter(d => {
                             const dStr = `${d.getMonth() + 1}.${d.getDate()}`;
                             const status = member.dayStatuses[dStr] || '';
@@ -1091,11 +1127,26 @@ export function MovementSheetView({
                                 const movDays = Math.round((movEnd.getTime() - movStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
                                 totalPassDaysSum += movDays;
                                 if (!firstReason) firstReason = matchedMov.reason || '일반';
-                                const dateRangeKo = formatRemarksDateRange(matchedMov, true);
-                                memberPassItems.push({ dateRangeKo, mov: matchedMov });
 
-                                let curr = new Date(movStart);
-                                while (curr <= movEnd) {
+                                const actualFirstD = passDays[0];
+                                const actualLastD = passDays[passDays.length - 1];
+                                const actualStartIso = actualFirstD && actualLastD
+                                    ? `${actualFirstD.getFullYear()}-${String(actualFirstD.getMonth() + 1).padStart(2, '0')}-${String(actualFirstD.getDate()).padStart(2, '0')}`
+                                    : '';
+                                const actualEndIso = actualFirstD && actualLastD
+                                    ? `${actualLastD.getFullYear()}-${String(actualLastD.getMonth() + 1).padStart(2, '0')}-${String(actualLastD.getDate()).padStart(2, '0')}`
+                                    : '';
+                                const isPassReduced = actualPassDaysCount > 0 && actualPassDaysCount < totalPassDaysSum;
+                                const displayMov = (isPassReduced && actualStartIso && actualEndIso)
+                                    ? { startDate: actualStartIso, endDate: actualEndIso, reason: matchedMov.reason }
+                                    : matchedMov;
+
+                                const dateRangeKo = formatRemarksDateRange(displayMov, true);
+                                memberPassItems.push({ dateRangeKo, mov: displayMov });
+
+                                let curr = new Date(displayMov.startDate);
+                                const dispEnd = new Date(displayMov.endDate);
+                                while (curr <= dispEnd) {
                                     const y = curr.getFullYear();
                                     const m = String(curr.getMonth() + 1).padStart(2, '0');
                                     const d = String(curr.getDate()).padStart(2, '0');
@@ -1130,9 +1181,9 @@ export function MovementSheetView({
                         const isDutyReduced = (hasDutyKeyword || hasDutyInOfficialPeriod) &&
                             (totalPassDaysSum < holidayDays || (actualPassDaysCount > 0 && actualPassDaysCount < holidayDays));
 
-                        const totalMovDays = isDutyReduced && actualPassDaysCount > 0 && actualPassDaysCount < totalPassDaysSum
+                        const totalMovDays = ((isDutyReduced || !!parsedRemark.reductionCause) && actualPassDaysCount > 0 && actualPassDaysCount < totalPassDaysSum)
                             ? actualPassDaysCount
-                            : totalPassDaysSum;
+                            : (parsedRemark.parsedDays > 0 && parsedRemark.parsedDays < totalPassDaysSum ? parsedRemark.parsedDays : totalPassDaysSum);
 
                         // 포상외박(Enclosure) 목록 추가:
                         // (B)가 일반이 아닌 보상외박/컴펜 사유인 경우 Enclosure에 추가
@@ -1193,10 +1244,16 @@ export function MovementSheetView({
                         const reasonParts: string[] = [];
 
                         // 1) (A) 기간 축소 원인
-                        if (isDutyReduced || parsedRemark.reductionCause === '당직근무') {
-                            reasonParts.push('당직근무');
-                        } else if (parsedRemark.reductionCause) {
-                            reasonParts.push(parsedRemark.reductionCause);
+                        if (isDutyReduced) {
+                            if (!reasonParts.includes('당직근무')) reasonParts.push('당직근무');
+                        }
+                        if (parsedRemark.reductionCause) {
+                            const causes = parsedRemark.reductionCause.split(',').map(s => s.trim()).filter(Boolean);
+                            for (const c of causes) {
+                                if (!reasonParts.includes(c)) {
+                                    reasonParts.push(c);
+                                }
+                            }
                         }
 
                         if (!isOfficialCustomHoliday) {
@@ -1319,10 +1376,16 @@ export function MovementSheetView({
                         let retentionReasonStr = '';
                         const reasonParts: string[] = [];
 
-                        if (hasDutyInOfficialPeriod || parsedRetention.reductionCause === '당직근무') {
-                            reasonParts.push('당직근무');
-                        } else if (parsedRetention.reductionCause) {
-                            reasonParts.push(parsedRetention.reductionCause);
+                        if (hasDutyInOfficialPeriod) {
+                            if (!reasonParts.includes('당직근무')) reasonParts.push('당직근무');
+                        }
+                        if (parsedRetention.reductionCause) {
+                            const causes = parsedRetention.reductionCause.split(',').map(s => s.trim()).filter(Boolean);
+                            for (const c of causes) {
+                                if (!reasonParts.includes(c)) {
+                                    reasonParts.push(c);
+                                }
+                            }
                         }
 
                         if (!isOfficialCustomHoliday) {
@@ -1693,12 +1756,15 @@ export function MovementSheetView({
 
             const formatReasonStr = (reason: string, count: number, typeStr?: string, isLinked?: boolean, isVacPassLinked?: boolean) => {
                 if (typeStr === 'VACATION') {
-                    const linkStr = isLinked 
-                        ? '외휴연계 O' 
-                        : isVacPassLinked 
-                            ? (allowVacationPassLink ? '휴외연계 O' : '휴외연계 X') 
-                            : '외휴연계 X';
-                    return `${reason} ${count}일 사용, ${linkStr}`;
+                    let linkStr = '';
+                    if (isLinked) {
+                        linkStr = '외휴연계 O';
+                    } else if (isVacPassLinked) {
+                        linkStr = allowVacationPassLink ? '휴외연계 O' : '';
+                    } else {
+                        linkStr = '외휴연계 X';
+                    }
+                    return linkStr ? `${reason} ${count}일 사용, ${linkStr}` : `${reason} ${count}일 사용`;
                 }
                 let cleanReason = reason.trim();
                 if (cleanReason.includes('으로 인한') || cleanReason.includes('로 인한')) {
