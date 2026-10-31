@@ -60,27 +60,51 @@ export function MovementSheetView({
         const matchIndex = match.index || 0;
         const matchLength = match[0].length;
 
-        const textBeforeBatch = reasonStr.substring(0, matchIndex).trim();
+        let textBeforeBatch = reasonStr.substring(0, matchIndex).trim();
         const textAfterBatch = reasonStr.substring(matchIndex + matchLength).trim();
 
-        const hasPrefix = /(KTA|BLC|PAO|S3|BLC\/S3|S6|BLC\/S6|RSO)\s*$/i.test(textBeforeBatch);
+        // 접두사 단독 입력(RSO, PAO, S3, S6 등)에 대한 표준 접두사 변환
+        if (/(?:^|\s|\/)KTA\s*\/\s*RSO$/i.test(textBeforeBatch)) {
+            textBeforeBatch = textBeforeBatch.replace(/KTA\s*\/\s*RSO$/i, 'KTA/RSO');
+        } else if (/(?:^|\s)RSO$/i.test(textBeforeBatch)) {
+            textBeforeBatch = textBeforeBatch.replace(/RSO$/i, 'KTA/RSO');
+        } else if (/(?:^|\s|\/)KTA\s*\/\s*PAO$/i.test(textBeforeBatch)) {
+            textBeforeBatch = textBeforeBatch.replace(/KTA\s*\/\s*PAO$/i, 'KTA/PAO');
+        } else if (/(?:^|\s)PAO$/i.test(textBeforeBatch)) {
+            textBeforeBatch = textBeforeBatch.replace(/PAO$/i, 'KTA/PAO');
+        } else if (/(?:^|\s|\/)BLC\s*\/\s*S-?3$/i.test(textBeforeBatch)) {
+            textBeforeBatch = textBeforeBatch.replace(/BLC\s*\/\s*S-?3$/i, 'BLC/S3');
+        } else if (/(?:^|\s)S-?3$/i.test(textBeforeBatch)) {
+            textBeforeBatch = textBeforeBatch.replace(/S-?3$/i, 'BLC/S3');
+        } else if (/(?:^|\s|\/)BLC\s*\/\s*S-?6$/i.test(textBeforeBatch)) {
+            textBeforeBatch = textBeforeBatch.replace(/BLC\s*\/\s*S-?6$/i, 'BLC/S6');
+        } else if (/(?:^|\s)S-?6$/i.test(textBeforeBatch)) {
+            textBeforeBatch = textBeforeBatch.replace(/S-?6$/i, 'BLC/S6');
+        }
 
-        const sections: string[] = dbMember?.sections || [];
+        const hasPrefix = /(KTA|BLC|KTA\/PAO|KTA\/RSO|BLC\/S3|BLC\/S6)\s*$/i.test(textBeforeBatch);
+
+        const sections: string[] = (dbMember?.sections || []).map((s: string) => s.trim().toUpperCase());
+        const role: string = (dbMember?.role || '').trim().toUpperCase();
+        const hasSec = (sec: string) => sections.includes(sec) || role === sec || role.includes(sec);
+
         let sectionPrefix = '';
 
         if (!hasPrefix) {
-            if (sections.includes('PAO')) {
-                sectionPrefix = 'PAO';
-            } else if (sections.includes('KTA')) {
-                sectionPrefix = 'KTA';
-            } else if (sections.includes('BLC')) {
-                sectionPrefix = 'BLC';
-            } else if (sections.includes('RSO')) {
-                sectionPrefix = 'RSO';
-            } else if (sections.includes('S3') || sections.includes('S-3')) {
+            if (hasSec('PAO')) {
+                sectionPrefix = 'KTA/PAO';
+            } else if (hasSec('RSO')) {
+                sectionPrefix = 'KTA/RSO';
+            } else if (hasSec('S3') || hasSec('S-3')) {
                 sectionPrefix = 'BLC/S3';
-            } else if (sections.includes('S6') || sections.includes('S-6')) {
+            } else if (hasSec('S6') || hasSec('S-6')) {
                 sectionPrefix = 'BLC/S6';
+            } else if (hasSec('MEDIC')) {
+                sectionPrefix = 'KTA';
+            } else if (hasSec('KTA')) {
+                sectionPrefix = 'KTA';
+            } else if (hasSec('BLC')) {
+                sectionPrefix = 'BLC';
             } else {
                 sectionPrefix = '[확인필요]';
             }
@@ -894,23 +918,39 @@ export function MovementSheetView({
             const weekEndIso = coreIsoDates[coreIsoDates.length - 1] || '';
             const timelineEndIso = timelineIsoDates[timelineIsoDates.length - 1] || '';
 
-            const matchedHoliday = dutySchedules.find(s => {
+            const matchingHolidays = dutySchedules.filter(s => {
                 if (s.type !== 'holiday' || s.holidayType !== 'duty') return false;
                 const hStart = s.startDate;
                 const hEnd = s.endDate || s.startDate;
                 return coreIsoDates.some((iso: string) => iso >= hStart && iso <= hEnd);
             });
 
-            // 공식 휴일 정의 (캘린더 당직 모드 기준: 당직 휴일이 있다면 그것을 따르고, 그렇지 않다면 주말 일반 투데이)
-            const isOfficialCustomHoliday = !!matchedHoliday;
+            // 3일 이상 연휴 우선 탐색 (가장 긴 연휴 우선)
+            matchingHolidays.sort((a, b) => {
+                const aLen = (new Date(a.endDate || a.startDate).getTime() - new Date(a.startDate).getTime());
+                const bLen = (new Date(b.endDate || b.startDate).getTime() - new Date(b.startDate).getTime());
+                return bLen - aLen;
+            });
+
+            const matchedHoliday = matchingHolidays[0];
+
+            let matchedHolidayDays = 0;
+            if (matchedHoliday) {
+                const hStart = new Date(matchedHoliday.startDate);
+                const hEnd = new Date(matchedHoliday.endDate || matchedHoliday.startDate);
+                matchedHolidayDays = Math.max(1, Math.round((hEnd.getTime() - hStart.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+            }
+
+            // 공식 휴일 정의 (캘린더 당직 모드 기준: 3일 이상의 당직 연휴가 있다면 그것을 따르고, 그렇지 않다면 주말 일반 투데이)
+            const isOfficialCustomHoliday = !!(matchedHoliday && matchedHolidayDays >= 3);
             let holidayDays = 2;
             let holidayName = 'Weekend';
             const officialHolidayIsoDates: string[] = [];
 
-            if (matchedHoliday) {
+            if (isOfficialCustomHoliday && matchedHoliday) {
                 const hStart = new Date(matchedHoliday.startDate);
                 const hEnd = new Date(matchedHoliday.endDate || matchedHoliday.startDate);
-                holidayDays = Math.max(1, Math.round((hEnd.getTime() - hStart.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+                holidayDays = matchedHolidayDays;
                 holidayName = (matchedHoliday.memo || 'Holiday').trim();
 
                 let curr = new Date(hStart);
@@ -925,7 +965,7 @@ export function MovementSheetView({
                     curr.setDate(curr.getDate() + 1);
                 }
             } else {
-                // 당직 휴일이 없는 경우: 주말(토, 일)이 공식 휴일 (일반 투데이)
+                // 당직 연휴가 없거나 3일 미만인 경우: 주말(토, 일)이 공식 휴일 (일반 투데이)
                 coreTimeline.forEach((dateStr: string) => {
                     const [m, d] = dateStr.split('.').map(Number);
                     const dt = new Date(yearVal, m - 1, d);

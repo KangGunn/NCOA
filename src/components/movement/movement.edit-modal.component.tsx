@@ -681,26 +681,26 @@ export function MovementEditModal({
                         {hasPass && (
                             <div className="space-y-3 pt-1 animate-in fade-in duration-150">
                                 <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <label className="text-[11px] font-semibold text-gray-600 block mb-1">
+                                    <div className="min-w-0">
+                                        <label className="text-[11px] font-semibold text-gray-600 block mb-1 truncate">
                                             외박 시작일
                                         </label>
                                         <input
                                             type="date"
                                             value={passStart}
                                             onChange={(e) => setPassStart(e.target.value)}
-                                            className="w-full text-xs sm:text-sm px-2.5 py-1.5 sm:px-3 sm:py-2 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                                            className="w-full min-w-0 max-w-full text-xs sm:text-sm px-2 py-1.5 sm:px-3 sm:py-2 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
                                         />
                                     </div>
-                                    <div>
-                                        <label className="text-[11px] font-semibold text-gray-600 block mb-1">
+                                    <div className="min-w-0">
+                                        <label className="text-[11px] font-semibold text-gray-600 block mb-1 truncate">
                                             외박 종료일 (복귀)
                                         </label>
                                         <input
                                             type="date"
                                             value={passEnd}
                                             onChange={(e) => setPassEnd(e.target.value)}
-                                            className="w-full text-xs sm:text-sm px-2.5 py-1.5 sm:px-3 sm:py-2 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                                            className="w-full min-w-0 max-w-full text-xs sm:text-sm px-2 py-1.5 sm:px-3 sm:py-2 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
                                         />
                                     </div>
                                 </div>
@@ -742,26 +742,26 @@ export function MovementEditModal({
                         {hasVacation && (
                             <div className="space-y-3 pt-1 animate-in fade-in duration-150">
                                 <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <label className="text-[11px] font-semibold text-gray-600 block mb-1">
+                                    <div className="min-w-0">
+                                        <label className="text-[11px] font-semibold text-gray-600 block mb-1 truncate">
                                             휴가 시작일 (출발)
                                         </label>
                                         <input
                                             type="date"
                                             value={vacationStart}
                                             onChange={(e) => setVacationStart(e.target.value)}
-                                            className="w-full text-xs sm:text-sm px-2.5 py-1.5 sm:px-3 sm:py-2 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 font-medium"
+                                            className="w-full min-w-0 max-w-full text-xs sm:text-sm px-2 py-1.5 sm:px-3 sm:py-2 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 font-medium"
                                         />
                                     </div>
-                                    <div>
-                                        <label className="text-[11px] font-semibold text-gray-600 block mb-1">
+                                    <div className="min-w-0">
+                                        <label className="text-[11px] font-semibold text-gray-600 block mb-1 truncate">
                                             휴가 종료일 (복귀)
                                         </label>
                                         <input
                                             type="date"
                                             value={vacationEnd}
                                             onChange={(e) => setVacationEnd(e.target.value)}
-                                            className="w-full text-xs sm:text-sm px-2.5 py-1.5 sm:px-3 sm:py-2 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 font-medium"
+                                            className="w-full min-w-0 max-w-full text-xs sm:text-sm px-2 py-1.5 sm:px-3 sm:py-2 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 font-medium"
                                         />
                                     </div>
                                 </div>
