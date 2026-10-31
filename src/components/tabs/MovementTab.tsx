@@ -32,7 +32,9 @@ export default function MovementTab({ baseDate }: MovementTabProps) {
         toggleMode,
         handleFileUpload,
         handleSync,
-        getExcelTimelineAndData
+        getExcelTimelineAndData,
+        handleLocalScheduleUpdate,
+        isRecentlyEdited
     } = useMovementSync(baseDate);
 
     return (
@@ -66,6 +68,8 @@ export default function MovementTab({ baseDate }: MovementTabProps) {
                     baseDate={baseDate}
                     movements={movements}
                     dutySchedules={dutySchedules}
+                    onMemberScheduleUpdate={handleLocalScheduleUpdate}
+                    isRecentlyEdited={isRecentlyEdited}
                 />
             )}
 

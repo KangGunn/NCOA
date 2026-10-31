@@ -22,7 +22,7 @@ interface MovementEditModalProps {
     baseDate?: Date;
     sheetWeeks?: any[];
     onClose: () => void;
-    onSaveSuccess?: (updatedStatuses: Record<string, string>) => void;
+    onSaveSuccess?: (updatedStatuses: Record<string, string>, savedMovement?: any) => void;
 }
 
 interface DateInputBoxProps {
@@ -241,13 +241,11 @@ export function MovementEditModal({
         const sD = new Date(initialVacStart);
         const eD = new Date(initialVacEnd);
         const days = Math.round((eD.getTime() - sD.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-        if (!initialVacReason && days > 0) {
+        const clean = initialVacReason.replace(/,?\s*외휴연계\s*[OX]?/gi, '').trim();
+        if ((!clean || clean === '연가') && days > 0) {
             initialVacReason = `연가 ${days}일`;
-        } else if (initialVacReason && /\d+일/.test(initialVacReason)) {
-            const match = initialVacReason.match(/(\d+)일/);
-            if (match && parseInt(match[1], 10) !== days) {
-                initialVacReason = initialVacReason.replace(/\d+일/, `${days}일`);
-            }
+        } else {
+            initialVacReason = clean;
         }
     }
 
@@ -265,6 +263,132 @@ export function MovementEditModal({
     // Automatically calculate isLinked: true only if pass end date matches vacation start date
     const isLinked = !!(hasPass && hasVacation && passEnd && vacationStart && passEnd === vacationStart);
 
+    const PASS_DAY_NAMES: Record<number, string> = {
+        1: '원데이',
+        2: '투데이',
+        3: '쓰리데이',
+        4: '포데이',
+        5: '파이브데이',
+    };
+
+    const updatePassReasonForDays = (prev: string, days: number): string => {
+        if (days <= 0) return prev;
+        const targetWord = PASS_DAY_NAMES[days] || `${days}데이`;
+        const dayRegex = /(원|투|쓰리|포|파이브)\s*데이/i;
+        const numRegex = /\d+\s*(?:데이|Day|day)/i;
+
+        if (dayRegex.test(prev)) {
+            return prev.replace(dayRegex, targetWord);
+        } else if (numRegex.test(prev)) {
+            return prev.replace(numRegex, targetWord);
+        } else if (!prev.trim() || prev.trim() === '외박') {
+            return targetWord;
+        } else if (/^(일반|포상|위로|보상)$/.test(prev.trim())) {
+            return `${prev.trim()} ${targetWord}`;
+        }
+        return prev;
+    };
+
+    const handlePassStartChange = (newStart: string) => {
+        setPassStart(newStart);
+        if (newStart && passEnd) {
+            const [sY, sM, sD] = newStart.split('-').map(Number);
+            const [eY, eM, eD] = passEnd.split('-').map(Number);
+            const sDate = new Date(sY, sM - 1, sD, 12, 0, 0, 0);
+            const eDate = new Date(eY, eM - 1, eD, 12, 0, 0, 0);
+            const days = Math.round((eDate.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+            if (days > 0) {
+                setPassReason(prev => updatePassReasonForDays(prev, days));
+            }
+        }
+    };
+
+    const handlePassEndChange = (newEnd: string) => {
+        setPassEnd(newEnd);
+        if (passStart && newEnd) {
+            const [sY, sM, sD] = passStart.split('-').map(Number);
+            const [eY, eM, eD] = newEnd.split('-').map(Number);
+            const sDate = new Date(sY, sM - 1, sD, 12, 0, 0, 0);
+            const eDate = new Date(eY, eM - 1, eD, 12, 0, 0, 0);
+            const days = Math.round((eDate.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+            if (days > 0) {
+                setPassReason(prev => updatePassReasonForDays(prev, days));
+            }
+        }
+    };
+
+    const handleTogglePass = (checked: boolean) => {
+        setHasPass(checked);
+        if (checked && passStart && passEnd) {
+            const [sY, sM, sD] = passStart.split('-').map(Number);
+            const [eY, eM, eD] = passEnd.split('-').map(Number);
+            const sDate = new Date(sY, sM - 1, sD, 12, 0, 0, 0);
+            const eDate = new Date(eY, eM - 1, eD, 12, 0, 0, 0);
+            const days = Math.round((eDate.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+            if (days > 0) {
+                setPassReason(prev => updatePassReasonForDays(prev, days));
+            }
+        }
+    };
+
+    const handleVacationStartChange = (newStart: string) => {
+        setVacationStart(newStart);
+        if (newStart && vacationEnd) {
+            const sD = new Date(newStart);
+            const eD = new Date(vacationEnd);
+            const days = Math.round((eD.getTime() - sD.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+            if (days > 0) {
+                setVacationReason(prev => {
+                    const clean = prev.replace(/,?\s*외휴연계\s*[OX]?/gi, '').trim();
+                    if (!clean || clean === '연가' || /^연가\s*\d+일/.test(clean)) {
+                        return `연가 ${days}일`;
+                    } else if (/\d+일/.test(clean)) {
+                        return clean.replace(/\d+일/, `${days}일`);
+                    }
+                    return clean;
+                });
+            }
+        }
+    };
+
+    const handleVacationEndChange = (newEnd: string) => {
+        setVacationEnd(newEnd);
+        if (vacationStart && newEnd) {
+            const sD = new Date(vacationStart);
+            const eD = new Date(newEnd);
+            const days = Math.round((eD.getTime() - sD.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+            if (days > 0) {
+                setVacationReason(prev => {
+                    const clean = prev.replace(/,?\s*외휴연계\s*[OX]?/gi, '').trim();
+                    if (!clean || clean === '연가' || /^연가\s*\d+일/.test(clean)) {
+                        return `연가 ${days}일`;
+                    } else if (/\d+일/.test(clean)) {
+                        return clean.replace(/\d+일/, `${days}일`);
+                    }
+                    return clean;
+                });
+            }
+        }
+    };
+
+    const handleToggleVacation = (checked: boolean) => {
+        setHasVacation(checked);
+        if (checked && vacationStart && vacationEnd) {
+            const sD = new Date(vacationStart);
+            const eD = new Date(vacationEnd);
+            const days = Math.round((eD.getTime() - sD.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+            if (days > 0) {
+                setVacationReason(prev => {
+                    const clean = prev.replace(/,?\s*외휴연계\s*[OX]?/gi, '').trim();
+                    if (!clean || clean === '연가') {
+                        return `연가 ${days}일`;
+                    }
+                    return clean;
+                });
+            }
+        }
+    };
+
     const [saving, setSaving] = useState(false);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -272,6 +396,32 @@ export function MovementEditModal({
     // Helper for date to ISO
     const formatDateStr = (date: Date) => {
         return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    };
+
+    // Helper to check if this member is assigned staff duty on a given date
+    const isMemberDutyOnDate = (date: Date): boolean => {
+        const m = date.getMonth() + 1;
+        const d = date.getDate();
+        const dateStr = `${m}.${d}`;
+
+        if (initialDayStatuses[dateStr] === 'duty') {
+            return true;
+        }
+
+        if (sheetWeeks && sheetWeeks.length > 0) {
+            for (const week of sheetWeeks) {
+                if (week.data && Array.isArray(week.data)) {
+                    const row = week.data.find((r: any) => 
+                        r.name.replace(/^(병장|상병|일병|이병)\s*/, '').trim() === cleanName
+                    );
+                    if (row?.dayStatuses && row.dayStatuses[dateStr] === 'duty') {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
     };
 
     // Real-time calculation of day statuses when settings change (memoized to prevent update loop)
@@ -370,9 +520,79 @@ export function MovementEditModal({
 
     // Save changes to Firestore and Google Spreadsheet
     const handleSave = async () => {
-        setSaving(true);
         setErrorMessage(null);
         setSuccessMessage(null);
+
+        // 1. 외박 검증: 시작/종료일 및 사유 기간 일치 확인
+        if (hasPass) {
+            if (!passStart || !passEnd) {
+                setErrorMessage('외박 시작일과 종료일을 모두 입력해주세요.');
+                return;
+            }
+            if (passStart > passEnd) {
+                setErrorMessage('외박 시작일이 복귀일보다 늦을 수 없습니다.');
+                return;
+            }
+            const [psY, psM, psD] = passStart.split('-').map(Number);
+            const [peY, peM, peD] = passEnd.split('-').map(Number);
+            const pSD = new Date(psY, psM - 1, psD, 12, 0, 0, 0);
+            const pED = new Date(peY, peM - 1, peD, 12, 0, 0, 0);
+            const passDays = Math.round((pED.getTime() - pSD.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+
+            const korMatch = passReason.match(/(원|투|쓰리|포|파이브)\s*데이/);
+            const numMatch = passReason.match(/(\d+)\s*(?:데이|Day|day)/i);
+            const passDayMap: Record<string, number> = { '원': 1, '투': 2, '쓰리': 3, '포': 4, '파이브': 5 };
+            let expectedPassDays = 0;
+            if (numMatch) expectedPassDays = parseInt(numMatch[1], 10);
+            else if (korMatch) expectedPassDays = passDayMap[korMatch[1]];
+
+            if (expectedPassDays > 0 && expectedPassDays !== passDays) {
+                setErrorMessage(`외박 기간(${passDays}일)과 외박 사유에 입력된 기간(${expectedPassDays}일)이 일치하지 않습니다.`);
+                return;
+            }
+        }
+
+        // 2. 휴가 검증: 시작/종료일, 사유 기간 일치, 당직 중복 검사
+        if (hasVacation) {
+            if (!vacationStart || !vacationEnd) {
+                setErrorMessage('휴가 시작일과 종료일을 모두 입력해주세요.');
+                return;
+            }
+            if (vacationStart > vacationEnd) {
+                setErrorMessage('휴가 시작일이 복귀일보다 늦을 수 없습니다.');
+                return;
+            }
+
+            const [vsY, vsM, vsD] = vacationStart.split('-').map(Number);
+            const [veY, veM, veD] = vacationEnd.split('-').map(Number);
+            const vSD = new Date(vsY, vsM - 1, vsD, 12, 0, 0, 0);
+            const vED = new Date(veY, veM - 1, veD, 12, 0, 0, 0);
+            const vacationDays = Math.round((vED.getTime() - vSD.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+
+            // 사유에 적힌 일수와 선택 기간 일치 여부 확인
+            const match = vacationReason.match(/(\d+(\.\d+)?)\s*일/);
+            if (match) {
+                const parsedDays = parseFloat(match[1]);
+                if (parsedDays !== vacationDays) {
+                    setErrorMessage(`휴가 기간(${vacationDays}일)과 휴가 사유에 적힌 기간(${parsedDays}일)이 일치하지 않습니다.`);
+                    return;
+                }
+            }
+
+            // 당직 근무와 겹치는지 검사
+            const cur = new Date(vSD);
+            while (cur <= vED) {
+                if (isMemberDutyOnDate(cur)) {
+                    const m = cur.getMonth() + 1;
+                    const d = cur.getDate();
+                    setErrorMessage(`${m}월 ${d}일에 당직근무가 편성되어 있어 휴가를 설정할 수 없습니다. 당직 일정을 먼저 변경해주세요.`);
+                    return;
+                }
+                cur.setDate(cur.getDate() + 1);
+            }
+        }
+
+        setSaving(true);
 
         try {
             // 1. Update Firestore movements
@@ -428,6 +648,8 @@ export function MovementEditModal({
             // Match vacation docs belonging to THIS period
             const periodVacDocs = existingDocs.filter(m => {
                 if (m.type !== 'vacation') return false;
+                if (existingVacation?.id && m.id === existingVacation.id) return true;
+                if (vacationStart && vacationEnd && m.startDate <= vacationEnd && m.endDate >= vacationStart) return true;
                 // Check if linked to this period's pass
                 if (hasPass && passStart && passEnd) {
                     const tempPass = { type: 'pass', startDate: passStart, endDate: passEnd } as any;
@@ -446,17 +668,21 @@ export function MovementEditModal({
                 // Unlinked vacation within the period
                 return m.startDate <= periodEndIso && m.endDate >= periodStartIso;
             });
-            const targetVacDoc = (existingVacation?.id ? existingDocs.find(d => d.id === existingVacation.id) : null) || periodVacDocs[0];
+            const targetVacDoc = (existingVacation?.id ? existingDocs.find(d => d.id === existingVacation.id) : null)
+                || periodVacDocs.find(d => d.startDate === vacationStart)
+                || periodVacDocs[0];
 
+            let finalVacReason = vacationReason.trim();
             if (hasVacation && vacationStart && vacationEnd) {
-                let finalVacReason = vacationReason.trim();
-                if (isLinked) {
-                    if (!finalVacReason.includes('외휴연계')) {
-                        finalVacReason = finalVacReason ? `${finalVacReason}, 외휴연계 O` : '외휴연계 O';
-                    }
-                } else {
-                    finalVacReason = finalVacReason.replace(/,?\s*외휴연계\s*[OX]?/gi, '').trim();
+                const sD = new Date(vacationStart);
+                const eD = new Date(vacationEnd);
+                const days = Math.round((eD.getTime() - sD.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+
+                let cleanReason = finalVacReason.replace(/,?\s*외휴연계\s*[OX]?/gi, '').trim();
+                if ((!cleanReason || cleanReason === '연가') && days > 0) {
+                    cleanReason = `연가 ${days}일`;
                 }
+                finalVacReason = cleanReason;
 
                 if (targetVacDoc) {
                     batch.update(doc(db, 'movements', targetVacDoc.id), {
@@ -478,7 +704,8 @@ export function MovementEditModal({
                 }
                 // Clean up any extra duplicate vacation docs for this period
                 periodVacDocs.forEach(d => {
-                    if (targetVacDoc && d.id !== targetVacDoc.id) {
+                    const chosenVacId = targetVacDoc ? targetVacDoc.id : null;
+                    if (!chosenVacId || d.id !== chosenVacId) {
                         batch.delete(doc(db, 'movements', d.id));
                     }
                 });
@@ -644,8 +871,26 @@ export function MovementEditModal({
                 await axios.post(`${baseUrl}/syncMovementToSheet`, payload);
             }
 
+            const savedMovement: any = (hasVacation && vacationStart && vacationEnd) ? {
+                id: targetVacDoc ? targetVacDoc.id : `vac-${Date.now()}`,
+                name: cleanName,
+                type: 'vacation',
+                startDate: vacationStart,
+                endDate: vacationEnd,
+                reason: finalVacReason,
+                updatedAt: new Date()
+            } : (hasPass && passStart && passEnd) ? {
+                id: targetPassDoc ? targetPassDoc.id : `pass-${Date.now()}`,
+                name: cleanName,
+                type: 'pass',
+                startDate: passStart,
+                endDate: passEnd,
+                reason: passReason.trim(),
+                updatedAt: new Date()
+            } : null;
+
             // 3. Complete and notify
-            onSaveSuccess?.(dayStatuses);
+            onSaveSuccess?.(dayStatuses, savedMovement);
             setSuccessMessage('성공적으로 저장 및 스프레드시트에 반영되었습니다!');
             setTimeout(() => {
                 onClose();
@@ -716,7 +961,7 @@ export function MovementEditModal({
                                 <input
                                     type="checkbox"
                                     checked={hasPass}
-                                    onChange={(e) => setHasPass(e.target.checked)}
+                                    onChange={(e) => handleTogglePass(e.target.checked)}
                                     className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
                                 />
                                 <span>외박 설정</span>
@@ -734,13 +979,13 @@ export function MovementEditModal({
                                     <DateInputBox
                                         label="외박 시작일"
                                         value={passStart}
-                                        onChange={setPassStart}
+                                        onChange={handlePassStartChange}
                                         focusColor="blue"
                                     />
                                     <DateInputBox
                                         label="외박 종료일 (복귀)"
                                         value={passEnd}
-                                        onChange={setPassEnd}
+                                        onChange={handlePassEndChange}
                                         focusColor="blue"
                                     />
                                 </div>
@@ -767,7 +1012,7 @@ export function MovementEditModal({
                                 <input
                                     type="checkbox"
                                     checked={hasVacation}
-                                    onChange={(e) => setHasVacation(e.target.checked)}
+                                    onChange={(e) => handleToggleVacation(e.target.checked)}
                                     className="w-4 h-4 text-orange-600 rounded border-gray-300 focus:ring-orange-500"
                                 />
                                 <span>휴가 설정</span>
@@ -785,13 +1030,13 @@ export function MovementEditModal({
                                     <DateInputBox
                                         label="휴가 시작일 (출발)"
                                         value={vacationStart}
-                                        onChange={setVacationStart}
+                                        onChange={handleVacationStartChange}
                                         focusColor="orange"
                                     />
                                     <DateInputBox
                                         label="휴가 종료일 (복귀)"
                                         value={vacationEnd}
-                                        onChange={setVacationEnd}
+                                        onChange={handleVacationEndChange}
                                         focusColor="orange"
                                     />
                                 </div>

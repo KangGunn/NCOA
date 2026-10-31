@@ -16,6 +16,8 @@ interface MovementSheetViewProps {
     baseDate?: Date;
     movements: any[];
     dutySchedules?: any[];
+    onMemberScheduleUpdate?: (cleanName: string, updatedStatuses: Record<string, string>, savedMovement?: any) => void;
+    isRecentlyEdited?: (cleanName: string) => boolean;
 }
 
 export function MovementSheetView({
@@ -25,7 +27,9 @@ export function MovementSheetView({
     dbMembers,
     baseDate,
     movements,
-    dutySchedules = []
+    dutySchedules = [],
+    onMemberScheduleUpdate,
+    isRecentlyEdited
 }: MovementSheetViewProps) {
     const { allowVacationPassLink } = useMovementSettings();
     const [previewData, setPreviewData] = useState<{ html: string; text: string; enclosure: string; enclosureHtml: string; remarks: string; remarksHtml: string } | null>(null);
@@ -461,11 +465,34 @@ export function MovementSheetView({
         const blockStartIso = `${yearVal}-${String(startM).padStart(2, '0')}-${String(startDay).padStart(2, '0')}`;
         const blockEndIso = `${yearVal}-${String(endM).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`;
 
-        return memberMovements.find(mov => {
+        const matches = memberMovements.filter(mov => {
             if (mov.type !== expectedType) return false;
             if (expectedType === 'pass' && !allowGeneral && parsePassReason(mov.reason).isPlainGeneral) return false;
             return (mov.startDate <= blockEndIso && mov.endDate >= blockStartIso);
         });
+
+        if (matches.length === 0) return null;
+        if (matches.length === 1) return matches[0];
+
+        // If multiple overlapping movements, sort by best fit:
+        // 1. Exact start & end date match
+        // 2. Day count match with block length
+        // 3. Most recently updated/created
+        return matches.sort((a, b) => {
+            const aExact = a.startDate === blockStartIso && a.endDate === blockEndIso ? 1 : 0;
+            const bExact = b.startDate === blockStartIso && b.endDate === blockEndIso ? 1 : 0;
+            if (aExact !== bExact) return bExact - aExact;
+
+            const aDays = Math.round((new Date(a.endDate).getTime() - new Date(a.startDate).getTime()) / 86400000) + 1;
+            const bDays = Math.round((new Date(b.endDate).getTime() - new Date(b.startDate).getTime()) / 86400000) + 1;
+            const aDiff = Math.abs(aDays - block.length);
+            const bDiff = Math.abs(bDays - block.length);
+            if (aDiff !== bDiff) return aDiff - bDiff;
+
+            const aTime = a.updatedAt?.toMillis?.() || a.createdAt?.toMillis?.() || 0;
+            const bTime = b.updatedAt?.toMillis?.() || b.createdAt?.toMillis?.() || 0;
+            return bTime - aTime;
+        })[0];
     };
 
     const isInCoreTimeline = (dateIsoStr: string, coreTimelineList: string[]) => {
@@ -494,6 +521,7 @@ export function MovementSheetView({
         const dataList = currentWeek.data || [];
         dataList.forEach((member: any) => {
             const cleanName = member.name.replace(/^(병장|상병|일병|이병)\s*/, '');
+            if (isRecentlyEdited?.(cleanName)) return; // Skip warnings while background sync is settling
             const memberMovements = movements.filter(mov => mov.name === cleanName);
 
             // 1. Check Pass blocks (bridged by duty/recovery across consecutive pass days)
@@ -2015,6 +2043,7 @@ export function MovementSheetView({
                 movements={movements}
                 sheetWeeks={sheetWeeks}
                 allowVacationPassLink={allowVacationPassLink}
+                onMemberScheduleUpdate={onMemberScheduleUpdate}
             />
         </div>
     );

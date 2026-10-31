@@ -99,6 +99,55 @@ export function useMovementSync(baseDate?: Date) {
     const [movements, setMovements] = useState<MovementRecord[]>([]);
     const [dutySchedules, setDutySchedules] = useState<any[]>([]);
 
+    const recentEditsRef = useRef<Map<string, { dayStatuses: Record<string, string>; timestamp: number }>>(new Map());
+
+    const isRecentlyEdited = (cleanName: string): boolean => {
+        const item = recentEditsRef.current.get(cleanName);
+        if (!item) return false;
+        if (Date.now() - item.timestamp < 45000) return true;
+        recentEditsRef.current.delete(cleanName);
+        return false;
+    };
+
+    const handleLocalScheduleUpdate = (cleanName: string, updatedStatuses: Record<string, string>, savedMovement?: any) => {
+        recentEditsRef.current.set(cleanName, { dayStatuses: updatedStatuses, timestamp: Date.now() });
+
+        setSheetWeeks(prevWeeks => {
+            return prevWeeks.map(week => {
+                const rowIdx = week.data.findIndex((r: any) => {
+                    const c = r.name.replace(/^(병장|상병|일병|이병)\s*/, '').trim();
+                    return c === cleanName;
+                });
+                if (rowIdx === -1) return week;
+                const updatedData = [...week.data];
+                updatedData[rowIdx] = {
+                    ...updatedData[rowIdx],
+                    dayStatuses: {
+                        ...updatedData[rowIdx].dayStatuses,
+                        ...updatedStatuses
+                    }
+                };
+                return {
+                    ...week,
+                    data: updatedData
+                };
+            });
+        });
+
+        if (savedMovement) {
+            setMovements(prev => {
+                const filtered = prev.filter(m => {
+                    if (m.name !== cleanName) return true;
+                    if (savedMovement.type === m.type && m.startDate <= savedMovement.endDate && m.endDate >= savedMovement.startDate) {
+                        return false;
+                    }
+                    return true;
+                });
+                return [...filtered, savedMovement];
+            });
+        }
+    };
+
     useEffect(() => {
         const unsub = onSnapshot(doc(db, 'settings', 'spreadsheet'), (snap) => {
             if (snap.exists()) {
@@ -334,6 +383,17 @@ export function useMovementSync(baseDate?: Date) {
                                 }
                                 dayStatuses[c.dateStr] = status;
                             });
+
+                            const clean = nameWithRank.replace(/^(병장|상병|일병|이병)\s*/, '').trim();
+                            const pending = recentEditsRef.current.get(clean);
+                            if (pending) {
+                                if (Date.now() - pending.timestamp < 45000) {
+                                    Object.assign(dayStatuses, pending.dayStatuses);
+                                    hasActivity = Object.values(dayStatuses).some(s => s !== 'none');
+                                } else {
+                                    recentEditsRef.current.delete(clean);
+                                }
+                            }
 
                             if (hasActivity) {
                                 weekData.push({
@@ -705,8 +765,6 @@ export function useMovementSync(baseDate?: Date) {
                     vReason = vReason.replace(singleRegex, '');
                     vReason = vReason.replace(/\([^\)]+\)/g, '');
                     vReason = vReason.replace(/외휴연계\s*[OX]?/gi, '');
-                    const vDayPattern = /(\d+(\.\d+)?\s*(데이|일)|(원|투|쓰리|포|파이브|식스|세븐|에잇|나인|텐)\s*데이)/ig;
-                    vReason = vReason.replace(vDayPattern, '');
                     vReason = vReason.replace(/사용/gi, '').trim();
                     vReason = vReason.replace(/,/gi, '').trim();
                     vReason = vReason.trim();
@@ -716,6 +774,13 @@ export function useMovementSync(baseDate?: Date) {
                     let warning: string | null = null;
                     if (parsedCount !== null && parsedCount !== diffDays) {
                         warning = `휴가 사유(${parsedCount}일)와 입력된 기간(${diffDays}일)이 일치하지 않습니다.`;
+                    }
+
+                    // "연가 N일" 그대로 보존 및 사유 미지정 시 자동 계산
+                    if (!vReason || vReason === '연가') {
+                        vReason = `연가 ${diffDays}일`;
+                    } else if (!/\d+일/.test(vReason) && diffDays > 0) {
+                        vReason = `${vReason} ${diffDays}일`;
                     }
 
                     return {
@@ -1394,6 +1459,8 @@ export function useMovementSync(baseDate?: Date) {
         handleFileUpload,
         handleSync,
         getExcelTimelineAndData,
-        fetchSpreadsheet
+        fetchSpreadsheet,
+        handleLocalScheduleUpdate,
+        isRecentlyEdited
     };
 }

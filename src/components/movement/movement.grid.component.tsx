@@ -23,9 +23,10 @@ interface MovementGridProps {
     movements?: MovementRecord[];
     sheetWeeks?: any[];
     allowVacationPassLink?: boolean;
+    onMemberScheduleUpdate?: (cleanName: string, updatedStatuses: Record<string, string>, savedMovement?: any) => void;
 }
 
-export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movements = [], sheetWeeks = [], allowVacationPassLink = false }: MovementGridProps) {
+export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movements = [], sheetWeeks = [], allowVacationPassLink = false, onMemberScheduleUpdate }: MovementGridProps) {
     const [activeCardIndex, setActiveCardIndex] = useState<number | null>(null);
     const [historyMember, setHistoryMember] = useState<{ name: string; fullName: string } | null>(null);
     const [editingMember, setEditingMember] = useState<{
@@ -243,17 +244,23 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                 if (contiguousEnd > existingVac.endDate) {
                                     existingVac.endDate = contiguousEnd;
                                 }
-                                if (!existingVac.reason) {
-                                    existingVac.reason = '연가';
+                                if (!existingVac.reason || existingVac.reason === '연가') {
+                                    const sD = new Date(existingVac.startDate);
+                                    const eD = new Date(existingVac.endDate);
+                                    const days = Math.round((eD.getTime() - sD.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                                    existingVac.reason = days > 0 ? `연가 ${days}일` : '연가';
                                 }
                             } else {
+                                const sD = new Date(contiguousStart);
+                                const eD = new Date(contiguousEnd);
+                                const days = Math.round((eD.getTime() - sD.getTime()) / (1000 * 60 * 60 * 24)) + 1;
                                 memberMovements.push({
                                     id: `synth-vac-${cleanName}`,
                                     name: cleanName,
                                     type: 'vacation',
                                     startDate: contiguousStart,
                                     endDate: contiguousEnd,
-                                    reason: '연가'
+                                    reason: days > 0 ? `연가 ${days}일` : '연가'
                                 });
                             }
                         }
@@ -380,11 +387,11 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                                             .replace(/외휴연계\s*[OX]?/gi, '')
                                                             .replace(/휴외연계\s*[OX]?/gi, '')
                                                             .trim();
-                                                        const dayPattern = /(\d+(\.\d+)?\s*(데이|일)|(원|투|쓰리|포|파이브|식스|세븐|에잇|나인|텐)\s*데이)/ig;
-                                                        cleanReason = cleanReason.replace(dayPattern, '').trim();
                                                         cleanReason = cleanReason.replace(/사용/gi, '').trim();
                                                         cleanReason = cleanReason.replace(/,/gi, '').trim();
-                                                        if (!cleanReason) cleanReason = '연가';
+                                                        if (!/\d+일/.test(cleanReason)) {
+                                                            cleanReason = cleanReason ? `${cleanReason} ${totalDays}일` : `연가 ${totalDays}일`;
+                                                        }
 
                                                         let linkStr = '';
                                                         if (isLinked) {
@@ -395,7 +402,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                                             linkStr = '외휴연계 X';
                                                         }
 
-                                                        displayReason = linkStr ? `${cleanReason} ${totalDays}일, ${linkStr}` : `${cleanReason} ${totalDays}일`;
+                                                        displayReason = linkStr ? `${cleanReason}, ${linkStr}` : cleanReason;
                                                     }
 
                                                     return (
@@ -609,7 +616,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                     baseDate={baseDate}
                     sheetWeeks={sheetWeeks}
                     onClose={() => setEditingMember(null)}
-                    onSaveSuccess={(updatedStatuses) => {
+                    onSaveSuccess={(updatedStatuses, savedMovement) => {
                         const target = dataList.find(d => {
                             const c = d.name.replace(/^(병장|상병|일병|이병)\s*/, '');
                             return c === editingMember.name;
@@ -617,6 +624,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                         if (target) {
                             target.dayStatuses = { ...target.dayStatuses, ...updatedStatuses };
                         }
+                        onMemberScheduleUpdate?.(editingMember.name, updatedStatuses, savedMovement);
                     }}
                 />
             )}
