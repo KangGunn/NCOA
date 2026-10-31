@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { X, Save, AlertCircle, Check, Loader2, Pencil } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { X, Save, AlertCircle, Check, Loader2, Pencil, Calendar } from 'lucide-react';
 import { doc, getDocs, collection, query, where, writeBatch, serverTimestamp } from 'firebase/firestore';
 import axios from 'axios';
 import { db } from '../../lib/firebase';
@@ -23,6 +23,60 @@ interface MovementEditModalProps {
     sheetWeeks?: any[];
     onClose: () => void;
     onSaveSuccess?: (updatedStatuses: Record<string, string>) => void;
+}
+
+interface DateInputBoxProps {
+    label: string;
+    value: string;
+    onChange: (value: string) => void;
+    focusColor?: 'blue' | 'orange';
+}
+
+function DateInputBox({ label, value, onChange, focusColor = 'blue' }: DateInputBoxProps) {
+    const focusRingClass = focusColor === 'orange'
+        ? 'focus-within:ring-2 focus-within:ring-orange-500 focus-within:border-orange-500'
+        : 'focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500';
+
+    const formatDateDisplay = (isoStr: string) => {
+        if (!isoStr) return '날짜 선택';
+        const parts = isoStr.split('-');
+        if (parts.length === 3) {
+            return `${parts[0]}. ${parseInt(parts[1], 10)}. ${parseInt(parts[2], 10)}.`;
+        }
+        return isoStr;
+    };
+
+    return (
+        <div className="min-w-0">
+            <label className="text-[11px] font-semibold text-gray-600 block mb-1 truncate">
+                {label}
+            </label>
+            <div className={cn(
+                "relative flex items-center justify-between w-full min-w-0 overflow-hidden px-2.5 py-1.5 sm:px-3 sm:py-2 bg-white border border-gray-300 rounded-xl transition-all shadow-sm",
+                focusRingClass
+            )}>
+                <span className={cn(
+                    "text-xs sm:text-sm font-medium truncate pointer-events-none select-none",
+                    value ? "text-gray-800" : "text-gray-400"
+                )}>
+                    {formatDateDisplay(value)}
+                </span>
+                <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400 shrink-0 ml-1 pointer-events-none" />
+                <input
+                    type="date"
+                    value={value}
+                    onChange={(e) => onChange(e.target.value)}
+                    onClick={(e) => {
+                        try {
+                            e.currentTarget.showPicker?.();
+                        } catch {}
+                    }}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10 m-0 p-0 border-0"
+                    style={{ fontSize: '16px' }}
+                />
+            </div>
+        </div>
+    );
 }
 
 export function MovementEditModal({
@@ -50,7 +104,7 @@ export function MovementEditModal({
     }, []);
 
     const refMonth = parseInt((timeline[0] || '1.1').split('.')[0], 10);
-    const coreTimeline = timeline.slice(0, 7); // Wed ~ Tue (7 days)
+    const coreTimeline = useMemo(() => timeline.slice(0, 7), [timeline]); // Wed ~ Tue (7 days)
     const coreStartIso = formatMDToISO(coreTimeline[0] || '1.1', currentYear, refMonth);
     const coreEndIso = formatMDToISO(coreTimeline[coreTimeline.length - 1] || '1.1', currentYear, refMonth);
     const periodStartIso = formatMDToISO(timeline[0] || '1.1', currentYear, refMonth);
@@ -211,10 +265,6 @@ export function MovementEditModal({
     // Automatically calculate isLinked: true only if pass end date matches vacation start date
     const isLinked = !!(hasPass && hasVacation && passEnd && vacationStart && passEnd === vacationStart);
 
-    const [dayStatuses, setDayStatuses] = useState<Record<string, string>>(() => ({
-        ...initialDayStatuses
-    }));
-
     const [saving, setSaving] = useState(false);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -224,8 +274,8 @@ export function MovementEditModal({
         return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
     };
 
-    // Real-time calculation of day statuses when settings change
-    useEffect(() => {
+    // Real-time calculation of day statuses when settings change (memoized to prevent update loop)
+    const dayStatuses = useMemo<Record<string, string>>(() => {
         const newStatuses: Record<string, string> = { ...initialDayStatuses };
 
         timeline.forEach((dateStr, tIdx) => {
@@ -315,8 +365,8 @@ export function MovementEditModal({
             }
         });
 
-        setDayStatuses(newStatuses);
-    }, [hasPass, passStart, passEnd, hasVacation, vacationStart, vacationEnd, isLinked, timeline, currentYear, initialDayStatuses, refMonth, coreTimeline]);
+        return newStatuses;
+    }, [hasPass, passStart, passEnd, hasVacation, vacationStart, vacationEnd, isLinked, timeline, currentYear, initialDayStatuses, refMonth, coreTimeline, cleanName, sheetWeeks]);
 
     // Save changes to Firestore and Google Spreadsheet
     const handleSave = async () => {
@@ -681,28 +731,18 @@ export function MovementEditModal({
                         {hasPass && (
                             <div className="space-y-3 pt-1 animate-in fade-in duration-150">
                                 <div className="grid grid-cols-2 gap-2">
-                                    <div className="min-w-0">
-                                        <label className="text-[11px] font-semibold text-gray-600 block mb-1 truncate">
-                                            외박 시작일
-                                        </label>
-                                        <input
-                                            type="date"
-                                            value={passStart}
-                                            onChange={(e) => setPassStart(e.target.value)}
-                                            className="w-full min-w-0 max-w-full text-xs sm:text-sm px-2 py-1.5 sm:px-3 sm:py-2 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-                                        />
-                                    </div>
-                                    <div className="min-w-0">
-                                        <label className="text-[11px] font-semibold text-gray-600 block mb-1 truncate">
-                                            외박 종료일 (복귀)
-                                        </label>
-                                        <input
-                                            type="date"
-                                            value={passEnd}
-                                            onChange={(e) => setPassEnd(e.target.value)}
-                                            className="w-full min-w-0 max-w-full text-xs sm:text-sm px-2 py-1.5 sm:px-3 sm:py-2 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-                                        />
-                                    </div>
+                                    <DateInputBox
+                                        label="외박 시작일"
+                                        value={passStart}
+                                        onChange={setPassStart}
+                                        focusColor="blue"
+                                    />
+                                    <DateInputBox
+                                        label="외박 종료일 (복귀)"
+                                        value={passEnd}
+                                        onChange={setPassEnd}
+                                        focusColor="blue"
+                                    />
                                 </div>
                                 <div>
                                     <label className="text-[11px] font-semibold text-gray-600 block mb-1">
@@ -742,28 +782,18 @@ export function MovementEditModal({
                         {hasVacation && (
                             <div className="space-y-3 pt-1 animate-in fade-in duration-150">
                                 <div className="grid grid-cols-2 gap-2">
-                                    <div className="min-w-0">
-                                        <label className="text-[11px] font-semibold text-gray-600 block mb-1 truncate">
-                                            휴가 시작일 (출발)
-                                        </label>
-                                        <input
-                                            type="date"
-                                            value={vacationStart}
-                                            onChange={(e) => setVacationStart(e.target.value)}
-                                            className="w-full min-w-0 max-w-full text-xs sm:text-sm px-2 py-1.5 sm:px-3 sm:py-2 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 font-medium"
-                                        />
-                                    </div>
-                                    <div className="min-w-0">
-                                        <label className="text-[11px] font-semibold text-gray-600 block mb-1 truncate">
-                                            휴가 종료일 (복귀)
-                                        </label>
-                                        <input
-                                            type="date"
-                                            value={vacationEnd}
-                                            onChange={(e) => setVacationEnd(e.target.value)}
-                                            className="w-full min-w-0 max-w-full text-xs sm:text-sm px-2 py-1.5 sm:px-3 sm:py-2 bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 font-medium"
-                                        />
-                                    </div>
+                                    <DateInputBox
+                                        label="휴가 시작일 (출발)"
+                                        value={vacationStart}
+                                        onChange={setVacationStart}
+                                        focusColor="orange"
+                                    />
+                                    <DateInputBox
+                                        label="휴가 종료일 (복귀)"
+                                        value={vacationEnd}
+                                        onChange={setVacationEnd}
+                                        focusColor="orange"
+                                    />
                                 </div>
                                 <div>
                                     <label className="text-[11px] font-semibold text-gray-600 block mb-1">
