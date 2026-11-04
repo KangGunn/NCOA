@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowRightLeft, ShieldCheck, AlertCircle, Phone, Copy, Check, Code2 } from 'lucide-react';
+import { ArrowRightLeft, ShieldCheck, AlertCircle, Phone, Copy, Check, Code2, BookOpen, ExternalLink } from 'lucide-react';
 import { useMovementSettings } from '../../hooks/movement/useMovementSettings';
 
 export default function SettingsTab() {
@@ -133,6 +133,39 @@ export default function SettingsTab() {
                         </div>
                     </div>
                 </div>
+            </div>
+
+            {/* Section: 앱 사용 매뉴얼 */}
+            <div className="space-y-4 pt-6">
+                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">
+                    앱 사용 매뉴얼
+                </div>
+
+                <a
+                    href="https://app.notion.com/p/NCOA-Senior-KATUSA-App-Manual-40ec21950ad680fb81e4f05633d77b6e?source=copy_link"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4 sm:p-5 flex items-center justify-between gap-4 hover:border-blue-300 hover:shadow-md transition-all group cursor-pointer block"
+                >
+                    <div className="flex items-center gap-3.5">
+                        <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                            <BookOpen className="w-5 h-5" />
+                        </div>
+                        <div>
+                            <div className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-1.5">
+                                <span>NCOA Senior KATUSA 매뉴얼</span>
+                            </div>
+                            <div className="text-xs text-slate-500 font-medium mt-0.5">
+                                노션(Notion) 공식 가이드 문서 바로가기
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-slate-600 group-hover:text-blue-600 transition-colors shrink-0 px-3 py-2 rounded-xl bg-slate-50 group-hover:bg-blue-50">
+                        <span>열기</span>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                    </div>
+                </a>
             </div>
 
             {/* Section: 개발자 문의 (Developer POC) */}
