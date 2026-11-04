@@ -27,7 +27,7 @@ interface MonthOption {
 }
 
 const MONTH_LABELS: MonthOption[] = [
-    { label: '3월 이전 (누적 기준선)', key: 'baseline', year: 2026, month: 3 },
+    { label: '2026년 3월까지 (누적 기준선)', key: 'baseline', year: 2026, month: 3 },
     { label: '2026년 4월 (누적)', key: '2026-04', year: 2026, month: 4 },
     { label: '2026년 5월 (누적)', key: '2026-05', year: 2026, month: 5 },
     { label: '2026년 6월 (누적)', key: '2026-06', year: 2026, month: 6 },
@@ -43,6 +43,7 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
     const [showCompleted, setShowCompleted] = useState(false);
     const [showCriteriaSettings, setShowCriteriaSettings] = useState(false);
     const [showInfo, setShowInfo] = useState(false);
+    const [expandedMemberId, setExpandedMemberId] = useState<string | null>(null);
 
     const [criteriaWeekday, setCriteriaWeekday] = useState<number>(() => {
         const saved = localStorage.getItem('ncoa_criteria_weekday');
@@ -166,6 +167,59 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
 
     const isBaselineMode = selectedMonthIndex === 0;
 
+    const getDutyTypeForEvent = (d: CalendarEvent, member: CalendarMember): 'weekday' | 'friSun' | 'sat' => {
+        const isKtaOrMedicMember = member.sections?.includes('KTA') || member.sections?.includes('MEDIC');
+        let type = d.customDutyType || getDutyType(d.startDate);
+        if (!d.customDutyType && isKtaOrMedicMember && isDateDuringKtaPeriod(d.startDate, events) && !isDateAffectedByDonsa(d.startDate, events)) {
+            const dObj = new Date(d.startDate + 'T00:00:00');
+            const dayOfWeek = dObj.getDay();
+            if (dayOfWeek === 6) {
+                type = 'sat';
+            } else if (dayOfWeek === 0 || dayOfWeek === 5) {
+                type = 'friSun';
+            } else {
+                type = 'weekday';
+            }
+        }
+        return type;
+    };
+
+    const formatDutyDate = (dateStr: string) => {
+        const parts = dateStr.split('-');
+        if (parts.length < 3) return dateStr;
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10);
+        const d = parseInt(parts[2], 10);
+        const dateObj = new Date(dateStr + 'T00:00:00');
+        const days = ['일', '월', '화', '수', '목', '금', '토'];
+        const dayName = days[dateObj.getDay()];
+        return `${y}년 ${m}월 ${d}일 (${dayName})`;
+    };
+
+    const getMemberDutyDates = (member: CalendarMember) => {
+        const memberDuties = events
+            .filter(e => e.type === 'duty' && e.memo === member.name && e.startDate >= '2026-04-01')
+            .sort((a, b) => a.startDate.localeCompare(b.startDate));
+
+        const weekdayList: string[] = [];
+        const friSunList: string[] = [];
+        const satList: string[] = [];
+
+        memberDuties.forEach(d => {
+            const type = getDutyTypeForEvent(d, member);
+            const formatted = formatDutyDate(d.startDate);
+            if (type === 'weekday') weekdayList.push(formatted);
+            else if (type === 'friSun') friSunList.push(formatted);
+            else if (type === 'sat') satList.push(formatted);
+        });
+
+        return {
+            weekdayList,
+            friSunList,
+            satList
+        };
+    };
+
     const isDateAffectedByDonsa = (dateStr: string, allEvents: CalendarEvent[]): boolean => {
         const getPrevDateStrLocal = (dStr: string) => {
             const d = new Date(dStr + 'T00:00:00');
@@ -223,21 +277,7 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
                 const eventYear = parseInt(parts[0], 10);
 
                 if (eventYear === 2026 && eventMonth >= 4 && eventMonth <= targetMonth) {
-                    const isKtaOrMedicMember = member.sections?.includes('KTA') || member.sections?.includes('MEDIC');
-                    let type = d.customDutyType || getDutyType(d.startDate);
-                    if (!d.customDutyType && isKtaOrMedicMember && isDateDuringKtaPeriod(d.startDate, events) && !isDateAffectedByDonsa(d.startDate, events)) {
-                        // KTA 기수 중에는 공휴일이 없었던 것처럼 요일 기준으로만 계산합니다.
-                        const dObj = new Date(d.startDate + 'T00:00:00');
-                        const dayOfWeek = dObj.getDay();
-                        if (dayOfWeek === 6) {
-                            type = 'sat';
-                        } else if (dayOfWeek === 0 || dayOfWeek === 5) {
-                            type = 'friSun';
-                        } else {
-                            type = 'weekday';
-                        }
-                    }
-
+                    const type = getDutyTypeForEvent(d, member);
                     if (type === 'weekday') extraWeekday++;
                     else if (type === 'friSun') extraFriSun++;
                     else if (type === 'sat') extraSat++;
@@ -317,7 +357,14 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
     const activeStats = sortedStats.filter(s => !s.isCompleted);
     const completedStats = sortedStats.filter(s => s.isCompleted);
 
-    const renderMemberCard = ({ member, name, rank, weekday, friSun, sat, total, isCompleted, isSK, localBaseline, effectiveCriteriaW, effectiveCriteriaF, effectiveCriteriaS }: any) => (
+    const renderMemberCard = ({ member, name, rank, weekday, friSun, sat, total, isCompleted, isSK, localBaseline, effectiveCriteriaW, effectiveCriteriaF, effectiveCriteriaS }: any) => {
+        const isExpanded = expandedMemberId === member.id;
+        const bWeekday = typeof localBaseline.weekday === 'string' ? (parseInt(localBaseline.weekday, 10) || 0) : (localBaseline.weekday || 0);
+        const bFriSun = typeof localBaseline.friSun === 'string' ? (parseInt(localBaseline.friSun, 10) || 0) : (localBaseline.friSun || 0);
+        const bSat = typeof localBaseline.sat === 'string' ? (parseInt(localBaseline.sat, 10) || 0) : (localBaseline.sat || 0);
+        const { weekdayList, friSunList, satList } = getMemberDutyDates(member);
+
+        return (
         <div 
             key={member.id} 
             style={{ transition: 'all 0.2s ease-in-out' }}
@@ -328,8 +375,11 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
                     : "border-gray-100 hover:border-yellow-250 hover:bg-yellow-50/5"
             )}
         >
-            {/* Main Info Row */}
-            <div className="flex items-center justify-between">
+            {/* Main Info Row (Clickable to toggle accordion) */}
+            <div 
+                className="flex items-center justify-between cursor-pointer select-none"
+                onClick={() => setExpandedMemberId(prev => prev === member.id ? null : member.id)}
+            >
                 <div className="flex items-center gap-2">
                     <span className="text-xs font-black text-gray-900">{name}</span>
                     <span className="text-[10px] font-bold text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100">{rank}</span>
@@ -340,13 +390,19 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
                     )}
                 </div>
                 
-                <div className={cn(
-                    "text-xs font-black px-3 py-1 rounded-xl border",
-                    isCompleted 
-                        ? "text-green-600 bg-green-50 border-green-100/30" 
-                        : "text-slate-600 bg-slate-50 border-slate-200/60"
-                )}>
-                    누적합: <span className={cn("text-sm font-extrabold ml-0.5", isCompleted ? "text-green-700" : "text-slate-800")}>{total}회</span>
+                <div className="flex items-center gap-1.5">
+                    <div className={cn(
+                        "text-xs font-black px-3 py-1 rounded-xl border",
+                        isCompleted 
+                            ? "text-green-600 bg-green-50 border-green-100/30" 
+                            : "text-slate-600 bg-slate-50 border-slate-200/60"
+                    )}>
+                        누적합: <span className={cn("text-sm font-extrabold ml-0.5", isCompleted ? "text-green-700" : "text-slate-800")}>{total}회</span>
+                    </div>
+                    <ChevronDown className={cn(
+                        "w-4 h-4 text-gray-400 transition-transform duration-200",
+                        isExpanded && "rotate-180"
+                    )} />
                 </div>
             </div>
             
@@ -488,9 +544,94 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
                             <span className={cn("text-sm font-extrabold ml-0.5", sat >= (effectiveCriteriaS || criteriaSat) ? "text-green-600" : "text-rose-500")}>{sat}회</span>
                         </span>
                     </div>
-                )}</div>
+                )}
+            </div>
+
+            {/* Expandable Duty Dates Section */}
+            {isExpanded && (
+                <div className="pt-3 border-t border-gray-100 space-y-3 animate-in fade-in duration-200 text-left">
+                    {/* 상세 당직 날짜 목록 나열 (3월까지 누적 횟수 포함) */}
+                    <div className="space-y-3 px-1 text-xs">
+                        {/* 평당 */}
+                        <div className="space-y-1">
+                            <div className="font-black text-amber-600 text-xs flex items-center justify-between border-b border-amber-100 pb-1">
+                                <span>평당</span>
+                                <span className="text-[11px] font-bold text-gray-500">
+                                    {bWeekday > 0 ? (
+                                        <>총 <strong className="text-amber-600 font-black">{bWeekday + weekdayList.length}회</strong> (3월까지 {bWeekday}회 + 이후 {weekdayList.length}회)</>
+                                    ) : (
+                                        <>총 <strong className="text-amber-600 font-black">{weekdayList.length}회</strong></>
+                                    )}
+                                </span>
+                            </div>
+                            {weekdayList.length > 0 ? (
+                                <div className="space-y-1 pt-0.5">
+                                    {weekdayList.map((dStr, idx) => (
+                                        <div key={idx} className="text-gray-700 font-bold text-[11px] pl-1">
+                                            {dStr}
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="text-[11px] text-gray-400 font-medium pl-1 pt-0.5">배정된 당직 없음</div>
+                            )}
+                        </div>
+
+                        {/* 금일당 */}
+                        <div className="space-y-1">
+                            <div className="font-black text-sky-600 text-xs flex items-center justify-between border-b border-sky-100 pb-1">
+                                <span>금일당</span>
+                                <span className="text-[11px] font-bold text-gray-500">
+                                    {bFriSun > 0 ? (
+                                        <>총 <strong className="text-sky-600 font-black">{bFriSun + friSunList.length}회</strong> (3월까지 {bFriSun}회 + 이후 {friSunList.length}회)</>
+                                    ) : (
+                                        <>총 <strong className="text-sky-600 font-black">{friSunList.length}회</strong></>
+                                    )}
+                                </span>
+                            </div>
+                            {friSunList.length > 0 ? (
+                                <div className="space-y-1 pt-0.5">
+                                    {friSunList.map((dStr, idx) => (
+                                        <div key={idx} className="text-gray-700 font-bold text-[11px] pl-1">
+                                            {dStr}
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="text-[11px] text-gray-400 font-medium pl-1 pt-0.5">배정된 당직 없음</div>
+                            )}
+                        </div>
+
+                        {/* 토당 */}
+                        <div className="space-y-1">
+                            <div className="font-black text-rose-600 text-xs flex items-center justify-between border-b border-rose-100 pb-1">
+                                <span>토당</span>
+                                <span className="text-[11px] font-bold text-gray-500">
+                                    {bSat > 0 ? (
+                                        <>총 <strong className="text-rose-600 font-black">{bSat + satList.length}회</strong> (3월까지 {bSat}회 + 이후 {satList.length}회)</>
+                                    ) : (
+                                        <>총 <strong className="text-rose-600 font-black">{satList.length}회</strong></>
+                                    )}
+                                </span>
+                            </div>
+                            {satList.length > 0 ? (
+                                <div className="space-y-1 pt-0.5">
+                                    {satList.map((dStr, idx) => (
+                                        <div key={idx} className="text-gray-700 font-bold text-[11px] pl-1">
+                                            {dStr}
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="text-[11px] text-gray-400 font-medium pl-1 pt-0.5">배정된 당직 없음</div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
-    );
+        );
+    };
 
     return createPortal(
         <div className="fixed inset-y-0 left-1/2 -translate-x-1/2 w-full max-w-md z-[100] flex items-center justify-center bg-black/30 backdrop-blur-sm p-4 animate-in fade-in duration-200">

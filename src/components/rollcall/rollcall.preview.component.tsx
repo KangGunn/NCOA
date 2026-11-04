@@ -48,7 +48,7 @@ export function RollCallPreview({ eveningReportText, morningReportText }: RollCa
 
     return (
         <div className="pt-8 space-y-6">
-            <h2 className="text-2xl font-black text-gray-900 tracking-tight ml-1">점호 보고서 미리보기</h2>
+            <h2 className="text-2xl font-black text-gray-900 tracking-tight ml-1">점호 보고 문자 미리보기</h2>
 
             {/* Evening Roll Call Preview */}
             <div className="rounded-3xl bg-slate-900 shadow-2xl border border-slate-800 relative flex flex-col">
