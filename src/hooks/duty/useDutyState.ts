@@ -13,11 +13,30 @@ interface UseDutyStateProps {
 
 export function useDutyState({ events, members, personalRestrictions, dutyHolidays, showToast }: UseDutyStateProps) {
     const [currentDate, setCurrentDate] = useState(() => {
+        const savedDate = localStorage.getItem('ncoa_duty_current_date');
+        if (savedDate) {
+            const parsed = new Date(savedDate);
+            if (!isNaN(parsed.getTime())) return parsed;
+        }
         const today = new Date();
         return new Date(today.getFullYear(), today.getMonth() + 1, 1);
     });
 
-    const [viewMode, setViewMode] = useState<'actual' | 'kta-template' | 'blc-template'>('actual');
+    const [viewMode, setViewMode] = useState<'actual' | 'kta-template' | 'blc-template'>(() => {
+        const savedMode = localStorage.getItem('ncoa_duty_view_mode');
+        if (savedMode === 'actual' || savedMode === 'kta-template' || savedMode === 'blc-template') {
+            return savedMode;
+        }
+        return 'actual';
+    });
+
+    useEffect(() => {
+        localStorage.setItem('ncoa_duty_current_date', currentDate.toISOString());
+    }, [currentDate]);
+
+    useEffect(() => {
+        localStorage.setItem('ncoa_duty_view_mode', viewMode);
+    }, [viewMode]);
     const [restrictionBrush, setRestrictionBrush] = useState<string | null>(null);
     const [selectedMember, setSelectedMember] = useState<CalendarMember | null>(null);
 

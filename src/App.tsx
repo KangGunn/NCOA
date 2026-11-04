@@ -45,7 +45,13 @@ function App() {
     return savedTab || 'rollcall';
   });
   const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set([activeTab]));
-  const [showDutyScheduler, setShowDutyScheduler] = useState(false);
+  const [showDutyScheduler, setShowDutyScheduler] = useState(() => {
+    return localStorage.getItem('ncoa_show_duty_scheduler') === 'true';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('ncoa_show_duty_scheduler', String(showDutyScheduler));
+  }, [showDutyScheduler]);
 
   useEffect(() => {
     localStorage.setItem('ncoa_active_tab', activeTab);
