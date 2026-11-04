@@ -1,6 +1,6 @@
 # 🎖️ NCOA Management System
 
-**NCOA Management System**은 KATUSA 및 육군 부대 내 대원들의 **점호(Roll Call), 당직 스케줄링(Duty Planner), 유동병력(Movement), 신상 정보(Personnel)**를 통합 관리하고 자동화하는 웹 애플리케이션 및 챗봇 솔루션입니다.
+**NCOA Management System**은 KATUSA 및 육군 부대 내 대원들의 **점호, 당직 스케줄링, 유동병력, 신상 정보**를 통합 관리하고 자동화하는 웹 애플리케이션 및 챗봇 솔루션입니다.
 
 클라이언트 단의 실시간 상태 구독 및 엑셀 파싱과 서버리스 백엔드(Firebase Cloud Functions, Google Sheets API, 카카오톡·텔레그램 봇)를 결합하여 부대 행정 및 점호 보고 업무를 자동화합니다.
 
