@@ -87,11 +87,16 @@ export function generateEveningReportText({
     const sortedTomorrowDuties = sortDisplayNames(evening.tomorrowDuties || [], members, baseDate);
     const sortedRecoveries = sortDisplayNames(evening.recoveries || [], members, baseDate);
     const sortedTomorrowDeparts = sortDisplayNames(evening.tomorrowDeparts || [], members, baseDate);
+    const sortedTomorrowPassDeparts = sortDisplayNames(evening.tomorrowPassDeparts || [], members, baseDate);
 
     sortedTomorrowDuties.forEach((name: string) => { report += `-${name} 당직\n`; hasSpecial = true; });
     sortedRecoveries.forEach((name: string) => { report += `-${name} 리커버리\n`; hasSpecial = true; });
     if (sortedTomorrowDeparts.length > 0) {
         report += `-${sortedTomorrowDeparts.join(', ')} 휴가 출발\n`;
+        hasSpecial = true;
+    }
+    if (sortedTomorrowPassDeparts.length > 0) {
+        report += `-${sortedTomorrowPassDeparts.join(', ')} 외박 출발\n`;
         hasSpecial = true;
     }
     if (tomorrowNote.trim()) {

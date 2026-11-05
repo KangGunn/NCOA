@@ -29,6 +29,7 @@ interface RollCallTabProps {
     addCustomSchedule: (name: string) => void;
     removeCustomSchedule: (name: string) => void;
     toggleMember: (memberName: string, category: string) => void;
+    holidays?: { startDate: string; endDate: string }[];
 }
 
 export default function RollCallTab({
@@ -44,7 +45,8 @@ export default function RollCallTab({
     customSchedules,
     addCustomSchedule,
     removeCustomSchedule,
-    toggleMember
+    toggleMember,
+    holidays = []
 }: RollCallTabProps) {
     const { rollCallData: rawRollCallData, handleManualRefresh } = useRollCallSync(baseDate);
     const { members: allMembers } = useMembers();
@@ -113,7 +115,87 @@ export default function RollCallTab({
             }
         });
 
-        if (returnAndDepartNames.size === 0) return rawRollCallData;
+        // 4. 공식 휴일 외박 출발일 제외 및 익일 외박 출발자 계산
+        const isHolidayDate = (ds: string) => {
+            const d = new Date(ds + "T00:00:00");
+            const day = d.getDay();
+            if (day === 0 || day === 6) return true;
+            return (holidays || []).some((h: any) => ds >= h.startDate && ds <= h.endDate);
+        };
+
+        const isOfficialPassDepartDate = (ds: string) => {
+            if (isHolidayDate(ds)) return false;
+            const nextD = new Date(ds + "T00:00:00");
+            nextD.setDate(nextD.getDate() + 1);
+            const nextDs = `${nextD.getFullYear()}-${String(nextD.getMonth() + 1).padStart(2, "0")}-${String(nextD.getDate()).padStart(2, "0")}`;
+            return isHolidayDate(nextDs);
+        };
+
+        const isOfficialTomorrow = isOfficialPassDepartDate(tomorrowStr);
+        const todayPassNames = new Set(
+            (rawRollCallData.evening?.passes || []).map((p: any) => {
+                const n = typeof p === 'string' ? p : p.name;
+                return n.replace(/^(병장|상병|일병|이병)\s*/, '').trim();
+            })
+        );
+        let tomorrowPassDeparts: string[] = [];
+
+        if (!isOfficialTomorrow) {
+            if (rawRollCallData.evening?.tomorrowPassDeparts && rawRollCallData.evening.tomorrowPassDeparts.length > 0) {
+                tomorrowPassDeparts = rawRollCallData.evening.tomorrowPassDeparts.filter(name => !todayPassNames.has(name.replace(/^(병장|상병|일병|이병)\s*/, '').trim()));
+            } else {
+                const names = new Set<string>();
+                const getDisplayName = (memoName: string) => {
+                    const cleanName = memoName.replace(/^(병장|상병|일병|이병)\s*/, '').trim();
+                    const member = members.find(m => m.name === cleanName);
+                    if (member) {
+                        if (member.enlistmentDate) {
+                            const { rank } = getRankDetails(new Date(member.enlistmentDate), baseDate, member.earlyPromotion || 0);
+                            return `${member.name} ${rank}`;
+                        } else {
+                            const rank = (member.rank || '').replace(/\s*\d+호봉/, '').trim();
+                            return `${member.name} ${rank}`.trim();
+                        }
+                    }
+                    return memoName;
+                };
+
+                sheetEvents.forEach(se => {
+                    if (se.type === 'pass' && se.startDate === tomorrowStr && se.isDepartDay && !todayPassNames.has(se.memo)) {
+                        const m = members.find(mem => mem.name === se.memo);
+                        if (m && m.role !== 'runner') {
+                            names.add(getDisplayName(se.memo));
+                        }
+                    }
+                });
+
+                movements.forEach(m => {
+                    if (m.type === 'pass') {
+                        const sD = new Date(m.startDate);
+                        sD.setDate(sD.getDate() - 1);
+                        const pDepartIso = `${sD.getFullYear()}-${String(sD.getMonth() + 1).padStart(2, '0')}-${String(sD.getDate()).padStart(2, '0')}`;
+                        if (pDepartIso === tomorrowStr && !todayPassNames.has(m.name)) {
+                            const mem = members.find(x => x.name === m.name);
+                            if (mem && mem.role !== 'runner') {
+                                names.add(getDisplayName(m.name));
+                            }
+                        }
+                    }
+                });
+
+                tomorrowPassDeparts = Array.from(names);
+            }
+        }
+
+        if (returnAndDepartNames.size === 0) {
+            return {
+                ...rawRollCallData,
+                evening: {
+                    ...rawRollCallData.evening,
+                    tomorrowPassDeparts
+                }
+            };
+        }
 
         // evening.passes 보정
         const existingPassNames = new Set((rawRollCallData.evening?.passes || []).map((p: any) => {
@@ -188,10 +270,11 @@ export default function RollCallTab({
             evening: {
                 ...rawRollCallData.evening,
                 passes: updatedPasses,
-                vacations: updatedVacations
+                vacations: updatedVacations,
+                tomorrowPassDeparts
             }
         };
-    }, [rawRollCallData, baseDate, members, movements]);
+    }, [rawRollCallData, baseDate, members, movements, holidays]);
 
     const handleSortSchedules = () => {
         const sorted = scheduleText

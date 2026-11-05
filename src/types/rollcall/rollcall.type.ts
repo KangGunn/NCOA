@@ -25,6 +25,7 @@ export interface EveningData {
     recoveries: string[];
     tomorrowDuties: string[];
     tomorrowDeparts: string[];
+    tomorrowPassDeparts?: string[];
 }
 
 export interface MorningData {
