@@ -81,6 +81,39 @@ export async function processRollCallData(dateStr: string, options: { excludeHol
         (e) => e.startDate === tomorrowStr && e.isDepartDay && e.type === "vacation"
     );
 
+    const holidays = schedules.filter((s: any) => s.type === "holiday");
+    const isHolidayDate = (ds: string) => {
+        const d = new Date(ds + "T00:00:00");
+        const day = d.getDay();
+        if (day === 0 || day === 6) return true;
+        return holidays.some((h: any) => {
+            const s = h.startDate;
+            const e = h.endDate || h.startDate;
+            return ds >= s && ds <= e;
+        });
+    };
+
+    const isOfficialPassDepartDate = (ds: string) => {
+        if (isHolidayDate(ds)) return false;
+        const nextD = new Date(ds + "T00:00:00");
+        nextD.setDate(nextD.getDate() + 1);
+        const nextDs = `${nextD.getFullYear()}-${String(nextD.getMonth() + 1).padStart(2, "0")}-${String(nextD.getDate()).padStart(2, "0")}`;
+        return isHolidayDate(nextDs);
+    };
+
+    const isOfficialPassDepartTomorrow = isOfficialPassDepartDate(tomorrowStr);
+    const todayPassMemos = new Set(todayPasses.map((p) => p.memo));
+    const tomorrowPassDeparts = isOfficialPassDepartTomorrow
+        ? []
+        : uniqueByMemo(
+            allMovementEvents.filter(
+                (e) => e.startDate === tomorrowStr && e.isDepartDay && e.type === "pass" && !todayPassMemos.has(e.memo)
+            ).filter((e) => {
+                const m = activeMembers.find((member) => member.name === e.memo);
+                return m && m.role !== "runner";
+            })
+        );
+
     const compareMembers = (nameA: string, nameB: string, asOfDate: Date = baseDate) => {
         const mA = activeMembers.find((m) => m.name === nameA);
         const mB = activeMembers.find((m) => m.name === nameB);
@@ -114,6 +147,7 @@ export async function processRollCallData(dateStr: string, options: { excludeHol
             recoveries: [...todayDuties].sort((a, b) => compareMembers(a.memo, b.memo)).map((d) => getEveningDisplayName(d.memo)),
             tomorrowDuties: [...tomorrowDuties].sort((a, b) => compareMembers(a.memo, b.memo)).map((d) => getEveningDisplayName(d.memo)),
             tomorrowDeparts: [...tomorrowDeparts].sort((a, b) => compareMembers(a.memo, b.memo)).map((e) => getEveningDisplayName(e.memo)),
+            tomorrowPassDeparts: [...tomorrowPassDeparts].sort((a, b) => compareMembers(a.memo, b.memo)).map((e) => getEveningDisplayName(e.memo)),
             vacations: [...todayVacations].sort((a, b) => compareMembers(a.memo, b.memo)).map((e) => ({
                 name: getEveningDisplayName(e.memo),
                 dateText: e.dateText || (() => {

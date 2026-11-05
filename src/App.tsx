@@ -360,6 +360,7 @@ function App() {
               addCustomSchedule={addCustomSchedule}
               removeCustomSchedule={removeCustomSchedule}
               toggleMember={toggleMember}
+              holidays={holidays}
             />
           </div>
           <Suspense fallback={renderTabFallback()}>
