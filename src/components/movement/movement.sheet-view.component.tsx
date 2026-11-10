@@ -3,10 +3,11 @@ import React, { useState, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Copy, AlertTriangle } from 'lucide-react';
 import { MovementGrid } from './movement.grid.component';
 import { MovementPreviewModal } from './movement.preview-modal.component';
-import { extractDayCountFromText, applyDutySchedulesToDataList, extractPureMemberName } from '../../utils/movement.utils';
+import { extractDayCountFromText, applyDutySchedulesToDataList, extractPureMemberName, formatMDToISO } from '../../utils/movement.utils';
 import { calculateRank, compareMembersByHobong } from '../../lib/rankUtils';
 import { isDateDuringKtaPeriod, isDateDuringBlcPeriod } from '../../utils/duty/dutyAutoDistribute';
 import { useMovementSettings } from '../../hooks/movement/useMovementSettings';
+import { compareTableOrder, getTableSectionInfo, toEnglishRank } from '../../utils/movement/movement.table-order';
 
 interface MovementSheetViewProps {
     sheetWeeks: any[];
@@ -39,7 +40,7 @@ export function MovementSheetView({
 
     // 저장된 당직자 목록(dutySchedules)을 실시간으로 읽어와 현재 주차 타임라인에 디스플레이 (시트에는 쓰지 않음)
     const displayDataList = useMemo(() => {
-        return applyDutySchedulesToDataList(
+        const merged = applyDutySchedulesToDataList(
             currentWeek?.data || [],
             timeline,
             dutySchedules,
@@ -47,6 +48,84 @@ export function MovementSheetView({
             baseDate,
             sheetWeeks
         );
+        // 시트에는 인원 행 아래에 집계 행(총원, 현재원, 병장 외박 …)이 있다.
+        // 이번 주 잔디가 없는 행은 인원 DB에 있는 이름일 때만 카드로 보여 준다.
+        // 이름 비교는 시트와 같은 방식으로 정리한 이름으로 한다 (예: DB 'S3 신병' → '신병' = 시트 '일병 신병')
+        const memberNames = new Set(dbMembers.flatMap((m: any) => [m.name, extractPureMemberName(m.name)]));
+
+        // 신병은 전입일이 들어 있는 주(수~화)부터 보여 준다 — 전입 전 주차에는 카드·패스지에서 뺀다.
+        // 같은 이름으로 정리되는 인원이 여럿이면(예: 이름 없는 신병 둘) 가장 이른 전입일 기준.
+        const refMonth = parseInt((timeline[0] || '1.1').split('.')[0], 10);
+        const year = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
+        const coreEndMD = timeline[Math.min(6, timeline.length - 1)];
+        const coreEndIso = coreEndMD ? formatMDToISO(coreEndMD, year, refMonth) : '';
+        const joinDateByName = new Map<string, string>();
+        dbMembers.forEach((m: any) => {
+            const key = extractPureMemberName(m.name);
+            // 전입일이 없는 인원(이미 전입)이 같은 이름이면 언제나 보인다
+            const joinDate = m.joinDate || '';
+            const prev = joinDateByName.get(key);
+            if (prev === undefined || joinDate < prev) joinDateByName.set(key, joinDate);
+        });
+        const joinedByThisWeek = (rowName: string) => {
+            const joinDate = joinDateByName.get(extractPureMemberName(rowName));
+            return !joinDate || !coreEndIso || joinDate <= coreEndIso;
+        };
+
+        // 전입 예정 신병: 전입일이 있고 시트에 아직 행이 없는 인원 (이름이 정해지면 시트에 직접 추가 예정).
+        // 이름이 없어 'S3 신병', 'BLC/S6 신병'처럼 같은 이름('신병')으로 정리되므로 인원 DB 기준으로 한 명씩 카드를 만든다.
+        const sheetNames = new Set((currentWeek?.data || []).map((r: any) => extractPureMemberName(r.name)));
+        const pendingRecruits = dbMembers.filter((m: any) =>
+            m.joinDate && m.role !== 'runner' && m.role !== 'holdover' && !sheetNames.has(extractPureMemberName(m.name))
+        );
+        const pendingRecruitNames = new Set(pendingRecruits.map((m: any) => extractPureMemberName(m.name)));
+
+        type DisplayRow = { name: string; dayStatuses: Record<string, string>; noSheetRow?: boolean; pendingRecruit?: boolean; memberId?: string };
+        const visible: DisplayRow[] = merged.filter(row =>
+            // 캘린더 당직 때문에 '일병 신병' 하나로 합쳐 생긴 행은 빼고, 아래에서 신병별로 다시 만든다
+            !(pendingRecruitNames.has(extractPureMemberName(row.name)) && !sheetNames.has(extractPureMemberName(row.name))) &&
+            joinedByThisWeek(row.name) && (
+                Object.values(row.dayStatuses || {}).some(status => status && status !== 'none') ||
+                memberNames.has(extractPureMemberName(row.name))
+            )
+        );
+
+        // 시트에 행이 없는 인원(캘린더 당직으로만 생긴 행)은 쓸 곳이 없으므로 카드만 보이고 수정은 막는다
+        visible.forEach(row => {
+            if (!sheetNames.has(extractPureMemberName(row.name))) row.noSheetRow = true;
+        });
+
+        // 전입일이 이번 주(수~화)까지인 신병만, 한 명씩 '전입 예정' 카드로
+        const weekDate = new Date(`${coreEndIso}T12:00:00`);
+        pendingRecruits
+            .filter((m: any) => coreEndIso && m.joinDate <= coreEndIso)
+            .sort((a: any, b: any) => (a.joinDate || '').localeCompare(b.joinDate || '') || (a.name || '').localeCompare(b.name || ''))
+            .forEach((m: any) => {
+                // 이 신병에게 배정된 당직만 (인원 id 우선, 없으면 메모가 이름과 같은 것)
+                const ownDuties = dutySchedules.filter((s: any) =>
+                    (s.type === 'duty' || !s.type) && (s.memberId ? s.memberId === m.id : (s.memo || '').trim() === m.name)
+                );
+                const [withDuty] = applyDutySchedulesToDataList(
+                    [{ name: extractPureMemberName(m.name), dayStatuses: {} }],
+                    timeline,
+                    ownDuties,
+                    [],
+                    baseDate
+                );
+                // 계급은 그 주차 날짜 기준 (캘린더 당직으로 생기는 행과 같은 방식)
+                const rankWord = m.enlistmentDate
+                    ? calculateRank(new Date(m.enlistmentDate), m.earlyPromotion || 0, weekDate).split(' ')[0]
+                    : (m.rank || '').split(' ')[0];
+                visible.push({
+                    name: rankWord ? `${rankWord} ${m.name}` : m.name,
+                    dayStatuses: withDuty?.dayStatuses || {},
+                    noSheetRow: true,
+                    pendingRecruit: true,
+                    memberId: m.id
+                });
+            });
+
+        return visible;
     }, [currentWeek?.data, timeline, dutySchedules, dbMembers, baseDate, sheetWeeks]);
 
     if (sheetWeeks.length === 0) return null;
@@ -637,7 +716,11 @@ export function MovementSheetView({
 
     const handleCopyTable = async () => {
         try {
-            const dataList = displayDataList;
+            // 카드는 모든 인원을 보여 주지만, 패스지는 이번 주 잔디가 하나라도 있는 인원만 쓴다
+            // (출타·당직·회복이 없는 인원이 '잔류'로 들어가지 않게 — 이전과 같은 결과)
+            const dataList = displayDataList.filter(row =>
+                Object.values(row.dayStatuses || {}).some(status => status && status !== 'none')
+            );
 
             // Sort logic matching MovementGrid
             const sortedEntries = [...dataList].sort((a, b) => {
@@ -675,35 +758,12 @@ export function MovementSheetView({
                 const englishName = dbMember?.englishName || cleanName;
                 const phoneNumber = dbMember?.phoneNumber || '—';
 
-                const rankMap: Record<string, string> = {
-                    '병장': 'SGT', '상병': 'CPL', '일병': 'PFC', '이병': 'PV2',
-                    'SGT': 'SGT', 'CPL': 'CPL', 'PFC': 'PFC', 'PV2': 'PV2', 'PVT': 'PVT'
-                };
                 const dbRankStr = dbMember?.enlistmentDate
                     ? calculateRank(new Date(dbMember.enlistmentDate), dbMember.earlyPromotion || 0, baseDate || new Date())
                     : (dbMember?.rank || '');
-                const matchedRankKey = Object.keys(rankMap).find(key => dbRankStr.startsWith(key)) || '';
-                const rankEnglish = rankMap[matchedRankKey] || (Object.keys(rankMap).find(key => member.name.startsWith(key)) ? rankMap[Object.keys(rankMap).find(key => member.name.startsWith(key))!] : 'PFC');
+                const rankEnglish = toEnglishRank(dbRankStr, member.name);
 
-                const sections = dbMember?.sections || [];
-                let mainSec = '—';
-                let subSec = '';
-                if (sections.includes('KTA')) {
-                    mainSec = 'KTA';
-                } else if (sections.includes('BLC')) {
-                    mainSec = 'BLC';
-                } else {
-                    const hqSub = sections.find((s: string) => /^S\d$/.test(s));
-                    if (hqSub) {
-                        mainSec = 'HQ';
-                        subSec = hqSub.replace('S', 'S-');
-                    } else if (sections.includes('HQ')) {
-                        mainSec = 'HQ';
-                        subSec = sections.find((s: string) => s !== 'HQ') || '';
-                    } else if (sections.length > 0) {
-                        mainSec = sections[0];
-                    }
-                }
+                const { mainSec, subSec } = getTableSectionInfo(dbMember?.sections);
 
                 const memberMovements = movements.filter(mov => mov.name === cleanName);
                 const coreTimeline = timeline.slice(0, 7); // Wed ~ Tue
@@ -776,39 +836,11 @@ export function MovementSheetView({
             }).filter(Boolean) as any[];
 
             // Sort by mainSec, then by seniority (enlistment date), then rank, then name
-            const sectionOrder = ['BLC', 'MEDIC', 'KTA', 'RSO', 'HQ'];
-            finalRows.sort((a, b) => {
-                const idxA = sectionOrder.indexOf(a.mainSec);
-                const idxB = sectionOrder.indexOf(b.mainSec);
-                const orderA = idxA === -1 ? 999 : idxA;
-                const orderB = idxB === -1 ? 999 : idxB;
-
-                if (orderA !== orderB) return orderA - orderB;
-
-                // Sort HQ sub-sections S-1 to S-6
-                if (a.mainSec === 'HQ' && b.mainSec === 'HQ') {
-                    if (a.subSec !== b.subSec) {
-                        return a.subSec.localeCompare(b.subSec);
-                    }
-                }
-
-                const enlistA = a.dbMember?.enlistmentDate || '';
-                const enlistB = b.dbMember?.enlistmentDate || '';
-                if (enlistA && enlistB) {
-                    if (enlistA !== enlistB) return enlistA < enlistB ? -1 : 1;
-                } else if (enlistA) {
-                    return -1;
-                } else if (enlistB) {
-                    return 1;
-                }
-
-                const rankPriority: Record<string, number> = { 'SGT': 1, 'CPL': 2, 'PFC': 3, 'PV2': 4, 'PVT': 5 };
-                const pA = rankPriority[a.rankEnglish] || 99;
-                const pB = rankPriority[b.rankEnglish] || 99;
-                if (pA !== pB) return pA - pB;
-
-                return a.englishName.localeCompare(b.englishName);
-            });
+            // (외특 탭 인원 카드도 같은 기준을 쓴다: utils/movement/movement.table-order.ts)
+            finalRows.sort((a, b) => compareTableOrder(
+                { ...a, enlistmentDate: a.dbMember?.enlistmentDate },
+                { ...b, enlistmentDate: b.dbMember?.enlistmentDate }
+            ));
 
             finalRows.forEach((row, i) => {
                 row.no = i + 1;
@@ -2043,6 +2075,7 @@ export function MovementSheetView({
                 movements={movements}
                 sheetWeeks={sheetWeeks}
                 allowVacationPassLink={allowVacationPassLink}
+                dutySchedules={dutySchedules}
                 onMemberScheduleUpdate={onMemberScheduleUpdate}
             />
         </div>

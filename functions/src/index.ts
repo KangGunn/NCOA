@@ -5,3 +5,4 @@ import "./config/firebase.config";
 export * from "./controllers/rollCall.controller";
 export * from "./controllers/chatbot.controller";
 export * from "./controllers/sheet.controller";
+export * from "./controllers/rankSync.controller";

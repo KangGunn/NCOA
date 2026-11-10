@@ -1,38 +1,63 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { History, Pencil } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { calculateRank } from '../../lib/rankUtils';
 import type { MovementRecord } from '../../types/movement/movement.type';
-import { extractPureMemberName, getPeriodMovementsForMember } from '../../utils/movement.utils';
+import { extractPureMemberName, getPeriodMovementsForMember, applyDutySchedulesToDataList } from '../../utils/movement.utils';
+import {
+    compareTableOrder,
+    getTableSectionInfo,
+    getTableSectionLabel,
+    toEnglishRank,
+    type TableOrderKey
+} from '../../utils/movement/movement.table-order';
 import { MovementHistoryModal } from './movement.history-modal.component';
-import { MovementEditModal } from './movement.edit-modal.component';
+import { MovementEditPage } from './movement.edit-page.component';
+
+/** 이름이 정해지지 않아 시트에 아직 없는 신병 카드 묶음 */
+const PENDING_RECRUIT_GROUP = '전입 예정';
 
 export interface DbMember {
+    id?: string;
     name: string;
     enlistmentDate?: string;
+    earlyPromotion?: number;
     englishName?: string;
     rank?: string;
+    role?: string;
     sections?: string[];
     phoneNumber?: string;
 }
 
 interface MovementGridProps {
     timeline: string[];
-    dataList: { name: string; dayStatuses: Record<string, string> }[];
+    /**
+     * noSheetRow: 시트에 이 인원의 행이 없음 (카드만 보여 주고 수정은 막는다)
+     * pendingRecruit: 이름이 정해지지 않아 시트에 아직 없는 신병 ('전입 예정' 묶음)
+     * memberId: 인원 DB id (이름만으로 인원을 찾을 수 없을 때)
+     */
+    dataList: { name: string; dayStatuses: Record<string, string>; noSheetRow?: boolean; pendingRecruit?: boolean; memberId?: string }[];
     dbMembers: DbMember[];
     baseDate?: Date;
     movements?: MovementRecord[];
     sheetWeeks?: any[];
     allowVacationPassLink?: boolean;
+    /** 캘린더 당직 일정 (편집 화면의 당직 겹침 검사용) */
+    dutySchedules?: any[];
     onMemberScheduleUpdate?: (cleanName: string, updatedStatuses: Record<string, string>, savedMovement?: any) => void;
 }
 
-export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movements = [], sheetWeeks = [], allowVacationPassLink = false, onMemberScheduleUpdate }: MovementGridProps) {
+export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movements = [], sheetWeeks = [], allowVacationPassLink = false, dutySchedules = [], onMemberScheduleUpdate }: MovementGridProps) {
     const [activeCardIndex, setActiveCardIndex] = useState<number | null>(null);
     const [historyMember, setHistoryMember] = useState<{ name: string; fullName: string } | null>(null);
     const [editingMember, setEditingMember] = useState<{
         name: string;
         fullName: string;
-        dayStatuses: Record<string, string>;
+        sectionLabel: string;
+        sections: string[];
+        role: string;
+        /** 지금 보고 있는 주차 기준으로 몇 주 앞/뒤를 편집 중인지 */
+        weekOffset: number;
     } | null>(null);
 
     useEffect(() => {
@@ -55,38 +80,51 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
 
     const currentYear = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
 
-    const sortedEntries = [...dataList].sort((a, b) => {
-        const cleanA = extractPureMemberName(a.name);
-        const cleanB = extractPureMemberName(b.name);
+    // 패스지 'Table'과 같은 기준(섹션 → HQ 부 섹션 → 입대일 → 계급 → 영문 이름)으로 정렬하고 섹션별로 묶는다.
+    // 카드 묶음은 HQ S-1 ~ S-6을 'HQ' 하나로 (묶음 안에서는 S-1 → S-6 순서 유지). 전입 예정 신병은 맨 뒤 '전입 예정'.
+    const keyedEntries = dataList.map((member) => {
+        const cleanName = extractPureMemberName(member.name);
+        const dbMember = member.memberId
+            ? dbMembers.find(m => m.id === member.memberId)
+            : dbMembers.find(m => m.name === cleanName);
+        const rankStr = dbMember?.enlistmentDate
+            ? calculateRank(new Date(dbMember.enlistmentDate), dbMember.earlyPromotion || 0, baseDate || new Date())
+            : (dbMember?.rank || '');
+        const sectionInfo = getTableSectionInfo(dbMember?.sections);
+        const orderKey: TableOrderKey = {
+            ...sectionInfo,
+            enlistmentDate: dbMember?.enlistmentDate,
+            rankEnglish: toEnglishRank(rankStr, member.name),
+            englishName: dbMember?.englishName || cleanName
+        };
+        const sectionLabel = member.pendingRecruit
+            ? PENDING_RECRUIT_GROUP
+            : sectionInfo.mainSec === 'HQ' ? 'HQ' : getTableSectionLabel(sectionInfo);
+        return { member, orderKey, sectionLabel, detailLabel: getTableSectionLabel(sectionInfo) };
+    }).sort((a, b) => compareTableOrder(a.orderKey, b.orderKey));
 
-        const memA = dbMembers.find(m => m.name === cleanA);
-        const memB = dbMembers.find(m => m.name === cleanB);
-
-        if (memA?.enlistmentDate && memB?.enlistmentDate) {
-            if (memA.enlistmentDate !== memB.enlistmentDate) {
-                return memA.enlistmentDate < memB.enlistmentDate ? -1 : 1;
-            }
-        } else if (memA?.enlistmentDate) {
-            return -1;
-        } else if (memB?.enlistmentDate) {
-            return 1;
-        }
-
-        const rankPriority: Record<string, number> = { '병장': 1, '상병': 2, '일병': 3, '이병': 4 };
-        const rA = Object.keys(rankPriority).find(r => a.name.includes(r)) || '';
-        const rB = Object.keys(rankPriority).find(r => b.name.includes(r)) || '';
-        const pA = rankPriority[rA] || 99;
-        const pB = rankPriority[rB] || 99;
-
-        if (pA !== pB) return pA - pB;
-        return a.name.localeCompare(b.name);
+    // 목록에 없는 섹션끼리 섞여 정렬되더라도 같은 섹션은 한 묶음으로 모은다 (처음 나온 순서 유지, '전입 예정'은 맨 뒤).
+    const groupRank = new Map<string, number>();
+    keyedEntries.forEach(entry => {
+        if (!groupRank.has(entry.sectionLabel)) groupRank.set(entry.sectionLabel, groupRank.size);
     });
+    if (groupRank.has(PENDING_RECRUIT_GROUP)) groupRank.set(PENDING_RECRUIT_GROUP, Number.MAX_SAFE_INTEGER);
+    const groupedEntries = keyedEntries
+        .map((entry, order) => ({ entry, order }))
+        .sort((a, b) => (groupRank.get(a.entry.sectionLabel)! - groupRank.get(b.entry.sectionLabel)!) || a.order - b.order)
+        .map(({ entry }) => entry);
+    const groupSizes = new Map<string, number>();
+    groupedEntries.forEach(entry => groupSizes.set(entry.sectionLabel, (groupSizes.get(entry.sectionLabel) || 0) + 1));
+
+    const sortedEntries = groupedEntries.map(entry => entry.member);
 
     return (
         <div className="grid gap-2">
             {sortedEntries.map((member, idx) => {
                 const cleanName = extractPureMemberName(member.name);
-                
+                const { sectionLabel, detailLabel } = groupedEntries[idx];
+                const isGroupStart = idx === 0 || groupedEntries[idx - 1].sectionLabel !== sectionLabel;
+
                 if (!timeline || timeline.length === 0) return null;
 
                 const coreTimeline = timeline.slice(0, 7);
@@ -270,8 +308,15 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                 const hasReason = memberMovements.length > 0;
 
                 return (
-                    <div 
-                        key={idx} 
+                    <Fragment key={`${sectionLabel}-${member.name}-${idx}`}>
+                    {isGroupStart && (
+                        <div className={cn("flex items-center gap-2 px-1", idx > 0 && "pt-3")}>
+                            <span className="text-[11px] sm:text-xs font-black text-gray-600 tracking-wide">{sectionLabel}</span>
+                            <span className="text-[10px] sm:text-[11px] font-bold text-gray-400">{groupSizes.get(sectionLabel)}명</span>
+                            <div className="flex-1 h-px bg-gray-200" />
+                        </div>
+                    )}
+                    <div
                         className="bg-white border border-gray-100 rounded-xl px-2 sm:px-3 py-0 shadow-sm transition-all flex items-center gap-2 sm:gap-4 relative h-[56px]"
                     >
                         <div className="w-20 sm:w-24 shrink-0 flex items-center">
@@ -576,23 +621,30 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                 <History className="w-4 h-4" />
                             </button>
                             <button
+                                disabled={!!member.noSheetRow}
                                 onClick={(e) => {
                                     e.stopPropagation();
+                                    if (member.noSheetRow) return;
                                     const rankMatch = member.name.match(/^(병장|상병|일병|이병)\s*(.*)$/);
                                     const formattedName = rankMatch ? `${rankMatch[2]} ${rankMatch[1]}` : member.name;
+                                    const dbMember = dbMembers.find(m => m.name === cleanName);
                                     setEditingMember({
                                         name: cleanName,
                                         fullName: formattedName,
-                                        dayStatuses: { ...member.dayStatuses }
+                                        sectionLabel: detailLabel === '섹션 미지정' ? '' : detailLabel,
+                                        sections: dbMember?.sections || [],
+                                        role: dbMember?.role || '',
+                                        weekOffset: 0
                                     });
                                 }}
-                                className="flex items-center justify-center p-1.5 rounded-lg bg-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0"
-                                title="출타 및 잔디 수정"
+                                className="flex items-center justify-center p-1.5 rounded-lg bg-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0 disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                                title={member.noSheetRow ? '스프레드시트에 이 인원의 행이 없어 수정할 수 없습니다' : '출타 및 잔디 수정'}
                             >
                                 <Pencil className="w-3.5 h-3.5" />
                             </button>
                         </div>
                     </div>
+                    </Fragment>
                 );
             })}
             {historyMember && (
@@ -606,28 +658,50 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                     timeline={timeline}
                 />
             )}
-            {editingMember && (
-                <MovementEditModal
+            {editingMember && (() => {
+                // 편집 중인 주차: 지금 보고 있는 주차에서 weekOffset만큼 앞/뒤
+                const baseWeekIdx = sheetWeeks.findIndex((w: any) => (w.timeline || [])[0] === timeline[0]);
+                const targetIdx = baseWeekIdx === -1 ? -1 : baseWeekIdx + editingMember.weekOffset;
+                const targetWeek = editingMember.weekOffset !== 0 && targetIdx >= 0 ? sheetWeeks[targetIdx] : null;
+                const editTimeline: string[] = targetWeek ? targetWeek.timeline : timeline;
+                // 카드와 같은 방식으로 캘린더 당직/회복을 합친 그 주차의 잔디
+                const weekRows = targetWeek
+                    ? applyDutySchedulesToDataList(targetWeek.data || [], editTimeline, dutySchedules, dbMembers, baseDate, sheetWeeks)
+                    : dataList;
+                const memberRow = weekRows.find(r => extractPureMemberName(r.name) === editingMember.name);
+                const canMove = (delta: number) => baseWeekIdx !== -1 && !!sheetWeeks[targetIdx + delta];
+                const move = (delta: number) => () =>
+                    setEditingMember(m => (m ? { ...m, weekOffset: m.weekOffset + delta } : m));
+
+                return (
+                <MovementEditPage
+                    key={`${editingMember.name}-${editTimeline[0]}`}
                     memberName={editingMember.name}
                     fullNameWithRank={editingMember.fullName}
-                    timeline={timeline}
-                    initialDayStatuses={editingMember.dayStatuses}
+                    sectionLabel={editingMember.sectionLabel}
+                    memberSections={editingMember.sections}
+                    memberRole={editingMember.role}
+                    onPrevWeek={canMove(-1) ? move(-1) : undefined}
+                    onNextWeek={canMove(1) ? move(1) : undefined}
+                    dutySchedules={dutySchedules}
+                    timeline={editTimeline}
+                    initialDayStatuses={{ ...(memberRow?.dayStatuses || {}) }}
                     movements={movements}
                     baseDate={baseDate}
                     sheetWeeks={sheetWeeks}
                     onClose={() => setEditingMember(null)}
                     onSaveSuccess={(updatedStatuses, savedMovement) => {
-                        const target = dataList.find(d => {
-                            const c = d.name.replace(/^(병장|상병|일병|이병)\s*/, '');
-                            return c === editingMember.name;
-                        });
-                        if (target) {
-                            target.dayStatuses = { ...target.dayStatuses, ...updatedStatuses };
+                        if (!targetWeek) {
+                            const target = dataList.find(d => extractPureMemberName(d.name) === editingMember.name);
+                            if (target) {
+                                target.dayStatuses = { ...target.dayStatuses, ...updatedStatuses };
+                            }
                         }
                         onMemberScheduleUpdate?.(editingMember.name, updatedStatuses, savedMovement);
                     }}
                 />
-            )}
+                );
+            })()}
         </div>
     );
 }

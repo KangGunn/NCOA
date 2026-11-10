@@ -9,6 +9,9 @@ import type { MovementRecord } from '../../types/movement/movement.type';
 import { extractDayCountFromText, extractPureMemberName } from '../../utils/movement.utils';
 
 
+/** 주차 데이터 캐시 버전. 파싱 결과 형태가 바뀌면 올린다. (v4: 활동이 없는 인원 행 포함) */
+const MOVEMENT_CACHE_VERSION = 'v4';
+
 const SPREADSHEET_URLS = {
     test: "https://docs.google.com/spreadsheets/d/1eyiNzyvJ1BguGzzpkYDnVegi-4U-zuCacCvy9bOW8R8/export?format=csv&gid=1529486829",
     prod: "https://docs.google.com/spreadsheets/d/1WBJXIzLbbtRxt09KOaJeXKXtgbht-GDjX3N4DyDztOY/export?format=csv&gid=1529486829"
@@ -226,7 +229,8 @@ export function useMovementSync(baseDate?: Date) {
     }, [sheetWeeks, currentWeekIndex]);
 
     const fetchSpreadsheet = async (mode: 'test' | 'prod', updatedAtStr?: string) => {
-        const cacheKey = updatedAtStr ? `ncoa_movement_${mode}_${updatedAtStr}_v3` : null;
+        // v4: 활동이 없는 인원 행도 포함 (v3 캐시에는 빠져 있으므로 버전을 올려 다시 읽는다)
+        const cacheKey = updatedAtStr ? `ncoa_movement_${mode}_${updatedAtStr}_${MOVEMENT_CACHE_VERSION}` : null;
         const cached = cacheKey ? localStorage.getItem(cacheKey) : null;
 
         // 1. 로컬 브라우저 캐시 확인
@@ -249,7 +253,7 @@ export function useMovementSync(baseDate?: Date) {
         // 2. Firestore 공유 캐시 확인
         if (updatedAtStr) {
             try {
-                const cacheDoc = await getDoc(doc(db, "movement_cache_v3", `${mode}_${updatedAtStr}`));
+                const cacheDoc = await getDoc(doc(db, "movement_cache_v3", `${mode}_${updatedAtStr}_${MOVEMENT_CACHE_VERSION}`));
                 if (cacheDoc.exists()) {
                     const sharedData = cacheDoc.data().data;
                     setSheetWeeks(sharedData);
@@ -342,7 +346,6 @@ export function useMovementSync(baseDate?: Date) {
                             if (!row || !row[0]) continue;
                             const nameWithRank = row[0].trim();
 
-                            let hasActivity = false;
                             const dayStatuses: Record<string, string> = {};
 
                             blockCols.forEach((c, idx) => {
@@ -378,9 +381,6 @@ export function useMovementSync(baseDate?: Date) {
                                     }
                                 }
 
-                                if (status !== 'none') {
-                                    hasActivity = true;
-                                }
                                 dayStatuses[c.dateStr] = status;
                             });
 
@@ -389,18 +389,17 @@ export function useMovementSync(baseDate?: Date) {
                             if (pending) {
                                 if (Date.now() - pending.timestamp < 45000) {
                                     Object.assign(dayStatuses, pending.dayStatuses);
-                                    hasActivity = Object.values(dayStatuses).some(s => s !== 'none');
                                 } else {
                                     recentEditsRef.current.delete(clean);
                                 }
                             }
 
-                            if (hasActivity) {
-                                weekData.push({
-                                    name: nameWithRank,
-                                    dayStatuses
-                                });
-                            }
+                            // 이번 주 출타·당직이 없는 인원도 카드로 보여 직접 입력할 수 있게 모든 행을 넣는다.
+                            // (패스지는 movement.sheet-view에서 활동이 있는 행만 골라 쓴다)
+                            weekData.push({
+                                name: nameWithRank,
+                                dayStatuses
+                            });
                         }
 
                         return {
@@ -413,7 +412,7 @@ export function useMovementSync(baseDate?: Date) {
                     }).filter(Boolean).filter((w: any) => w.data.length > 0) as any[];
 
                     if (updatedAtStr) {
-                        const cacheKey = `ncoa_movement_${mode}_${updatedAtStr}_v3`;
+                        const cacheKey = `ncoa_movement_${mode}_${updatedAtStr}_${MOVEMENT_CACHE_VERSION}`;
 
                         const keysToRemove = [];
                         for (let i = 0; i < localStorage.length; i++) {
@@ -427,7 +426,7 @@ export function useMovementSync(baseDate?: Date) {
                         localStorage.setItem(cacheKey, JSON.stringify(parsedWeeks));
 
                         try {
-                            await setDoc(doc(db, "movement_cache_v3", `${mode}_${updatedAtStr}`), {
+                            await setDoc(doc(db, "movement_cache_v3", `${mode}_${updatedAtStr}_${MOVEMENT_CACHE_VERSION}`), {
                                 data: parsedWeeks,
                                 updatedAt: serverTimestamp()
                             });
