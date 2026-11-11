@@ -9,6 +9,9 @@ import type { MovementRecord } from '../../types/movement/movement.type';
 import { extractDayCountFromText, extractPureMemberName } from '../../utils/movement.utils';
 
 
+/** 이 기기에서 저장한 뒤 이 시간 안에 오는 시트 갱신 신호는 조용히 다시 읽는다 */
+const SELF_UPDATE_WINDOW_MS = 90_000;
+
 /** 주차 데이터 캐시 버전. 파싱 결과 형태가 바뀌면 올린다. (v4: 활동이 없는 인원 행 포함) */
 const MOVEMENT_CACHE_VERSION = 'v4';
 
@@ -112,8 +115,12 @@ export function useMovementSync(baseDate?: Date) {
         return false;
     };
 
+    // 이 기기에서 저장한 직후 시트 갱신 신호가 오면, 화면은 이미 최신이므로 로딩 화면 없이 뒤에서만 다시 읽는다
+    const selfUpdateUntilRef = useRef(0);
+
     const handleLocalScheduleUpdate = (cleanName: string, updatedStatuses: Record<string, string>, savedMovement?: any) => {
         recentEditsRef.current.set(cleanName, { dayStatuses: updatedStatuses, timestamp: Date.now() });
+        selfUpdateUntilRef.current = Date.now() + SELF_UPDATE_WINDOW_MS;
 
         setSheetWeeks(prevWeeks => {
             return prevWeeks.map(week => {
@@ -209,9 +216,11 @@ export function useMovementSync(baseDate?: Date) {
             // 시트 타임스탬프가 변경된 경우(편집 발생): 4초 디바운스 대기하여 연속 편집 신호 수집
             // 초기 진입, 모드 전환인 경우: 즉시 로딩(0초)
             const delay = isTimestampChange ? 4000 : 0;
+            // 방금 이 기기에서 저장해서 생긴 갱신이면 조용히(로딩 화면·주차 이동 없이) 다시 읽는다
+            const silent = isTimestampChange && Date.now() < selfUpdateUntilRef.current;
 
             const timer = setTimeout(() => {
-                fetchSpreadsheet(sheetMode, sheetUpdatedAt);
+                fetchSpreadsheet(sheetMode, sheetUpdatedAt, { silent });
                 lastLoadedTimestampRef.current = sheetUpdatedAt;
                 lastLoadedModeRef.current = sheetMode;
             }, delay);
@@ -228,7 +237,22 @@ export function useMovementSync(baseDate?: Date) {
         }
     }, [sheetWeeks, currentWeekIndex]);
 
-    const fetchSpreadsheet = async (mode: 'test' | 'prod', updatedAtStr?: string) => {
+    const fetchSpreadsheet = async (mode: 'test' | 'prod', updatedAtStr?: string, options: { silent?: boolean } = {}) => {
+        // silent: 로딩 화면을 띄우지 않고, 보고 있던 주차를 유지한 채 데이터만 바꾼다
+        const silent = !!options.silent && sheetWeeks.length > 0;
+        const applyWeeks = (weeks: any[]) => {
+            setSheetWeeks(weeks);
+            if (silent) {
+                const keep = weeks.findIndex((w: any) => w.startDate === activeWeekStartDateRef.current);
+                setCurrentWeekIndex(keep !== -1 ? keep : selectDefaultWeekIndex(weeks, baseDate));
+            } else {
+                setCurrentWeekIndex(selectDefaultWeekIndex(weeks, baseDate));
+                setViewMode('sheet');
+                setParsedData(null);
+            }
+            setLoading(false);
+        };
+
         // v4: 활동이 없는 인원 행도 포함 (v3 캐시에는 빠져 있으므로 버전을 올려 다시 읽는다)
         const cacheKey = updatedAtStr ? `ncoa_movement_${mode}_${updatedAtStr}_${MOVEMENT_CACHE_VERSION}` : null;
         const cached = cacheKey ? localStorage.getItem(cacheKey) : null;
@@ -238,11 +262,7 @@ export function useMovementSync(baseDate?: Date) {
             try {
                 const parsed = JSON.parse(cached);
                 if (parsed && Array.isArray(parsed)) {
-                    setSheetWeeks(parsed);
-                    setCurrentWeekIndex(selectDefaultWeekIndex(parsed, baseDate));
-                    setViewMode('sheet');
-                    setParsedData(null);
-                    setLoading(false);
+                    applyWeeks(parsed);
                     return; // 완전 일치하는 캐시가 있으면 여기서 네트워크 요청 즉시 중단!
                 }
             } catch (e) {
@@ -256,17 +276,13 @@ export function useMovementSync(baseDate?: Date) {
                 const cacheDoc = await getDoc(doc(db, "movement_cache_v3", `${mode}_${updatedAtStr}_${MOVEMENT_CACHE_VERSION}`));
                 if (cacheDoc.exists()) {
                     const sharedData = cacheDoc.data().data;
-                    setSheetWeeks(sharedData);
-                    setCurrentWeekIndex(selectDefaultWeekIndex(sharedData, baseDate));
 
                     // 로컬에도 캐싱
                     if (cacheKey) {
                         localStorage.setItem(cacheKey, JSON.stringify(sharedData));
                     }
 
-                    setViewMode('sheet');
-                    setParsedData(null);
-                    setLoading(false);
+                    applyWeeks(sharedData);
                     return;
                 }
             } catch (e) {
@@ -274,9 +290,11 @@ export function useMovementSync(baseDate?: Date) {
             }
         }
 
-        // 캐시가 없거나, 구글 시트 변동으로 인해 새로운 updatedAt이 내려왔을 경우에만 스피너와 함께 새로 다운로드
-        setLoading(true);
-        setError(null);
+        // 캐시가 없거나, 구글 시트 변동으로 인해 새로운 updatedAt이 내려왔을 경우에만 새로 다운로드 (silent면 스피너 없이)
+        if (!silent) {
+            setLoading(true);
+            setError(null);
+        }
         try {
             const url = `${SPREADSHEET_URLS[mode]}&t=${Date.now()}`;
             const res = await axios.get(url);
@@ -435,16 +453,13 @@ export function useMovementSync(baseDate?: Date) {
                         }
                     }
 
-                    setSheetWeeks(parsedWeeks);
-                    setCurrentWeekIndex(selectDefaultWeekIndex(parsedWeeks, baseDate));
-                    setViewMode('sheet');
-                    setParsedData(null);
-                    setLoading(false);
+                    applyWeeks(parsedWeeks);
                 }
             });
         } catch (e) {
             console.error("fetchSpreadsheet error:", e);
-            setError('스프레드시트 데이터를 불러오는 중 오류가 발생했습니다.');
+            // 조용히 다시 읽다가 실패하면 지금 화면(이미 저장 내용 반영됨)을 그대로 둔다
+            if (!silent) setError('스프레드시트 데이터를 불러오는 중 오류가 발생했습니다.');
             setLoading(false);
         }
     };

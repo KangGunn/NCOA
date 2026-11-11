@@ -160,3 +160,33 @@ test('status run inference ignores runs that started before the window', () => {
         { start: '2026-11-21', end: '2026-11-23' }
     );
 });
+
+test('duty and recovery always show on the grass, even under a pass', () => {
+    const week = timelineOf('2026-11-25', '2026-12-04');
+    const dutyOn = (iso: string) => iso === '2026-11-28';
+    const ctx = { ...empty, ownedOriginalDates: [], retainedVacations: [], retainedPasses: [], isDutyOn: dutyOn };
+
+    // 당직(토) → 리커버리(일) → 외박 시작(월). 출발일(일)은 리커버리라 반반 잔디
+    const fromRecovery = computeEditedDayStatuses(week, {}, { ...ctx, hasPass: true, passStart: '2026-11-30', passEnd: '2026-12-01' });
+    assert.equal(fromRecovery['11.28'], 'duty');
+    assert.equal(fromRecovery['11.29'], 'recovery-pass-depart');
+    assert.equal(fromRecovery['11.30'], 'pass');
+
+    // 시트에서 온 당직·리커버리(캘린더에 없어도)도 유지
+    const fromSheet = computeEditedDayStatuses(week, { '12.2': 'duty', '12.3': 'recovery' }, { ...ctx, isDutyOn: () => false });
+    assert.equal(fromSheet['12.2'], 'duty');
+    assert.equal(fromSheet['12.3'], 'recovery');
+});
+
+test('a pass that departs on the recovery day writes 외박출발 there', () => {
+    const cells = buildCellUpdates({
+        ...empty,
+        hasPass: true, passStart: '2026-11-21', passEnd: '2026-11-24',
+        ownedOriginalDates: [], retainedVacations: [], retainedPasses: [],
+        isDutyOn: iso => iso === '2026-11-19',
+        allowVacationPassLink: false,
+    });
+    assert.equal(cells['11.20'], '외박출발');
+    assert.equal(cells['11.21'], '외박');
+    assert.equal(cells['11.24'], '외박복귀');
+});

@@ -718,8 +718,19 @@ export function MovementSheetView({
         try {
             // 카드는 모든 인원을 보여 주지만, 패스지는 이번 주 잔디가 하나라도 있는 인원만 쓴다
             // (출타·당직·회복이 없는 인원이 '잔류'로 들어가지 않게 — 이전과 같은 결과)
+            // 잔류는 외박 잔디가 없으므로 잔디가 없어도 이번 기간에 잔류 기록이 있는 인원은 포함한다 (출타 특이사항의 잔류 목록)
+            const copyYear = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
+            const copyRefMonth = parseInt((timeline[0] || '1.1').split('.')[0], 10);
+            const copyStartIso = formatMDToISO(timeline[0] || '1.1', copyYear, copyRefMonth);
+            const copyEndIso = formatMDToISO(timeline[Math.min(6, timeline.length - 1)] || '1.1', copyYear, copyRefMonth);
+            const stayNames = new Set(
+                movements
+                    .filter((m: any) => m.type === 'stay' && m.startDate <= copyEndIso && m.endDate >= copyStartIso)
+                    .map((m: any) => m.name)
+            );
             const dataList = displayDataList.filter(row =>
-                Object.values(row.dayStatuses || {}).some(status => status && status !== 'none')
+                Object.values(row.dayStatuses || {}).some(status => status && status !== 'none') ||
+                stayNames.has(extractPureMemberName(row.name))
             );
 
             // Sort logic matching MovementGrid

@@ -23,6 +23,8 @@ export type IssueCode =
     | 'pass-reason-missing'
     | 'pass-reason-days-mismatch'
     | 'pass-batch-missing'
+    | 'pass-duty-reduction-missing'
+    | 'stay-reason-missing'
     | 'pass-duty-overlap'
     | 'vacation-start-missing'
     | 'vacation-end-missing'
@@ -58,6 +60,10 @@ export interface MovementEditInput {
     passReason: string;
     /** 기수를 골라야 하는 사유(수료, DBIDS)를 골랐는데 기수가 비어 있음 */
     passBatchMissing?: boolean;
+    /** 이번 기간에 당직이 있는데, 그 당직 때문에 외박 일수가 줄었는지 아직 고르지 않음 */
+    passDutyReductionMissing?: boolean;
+    /** 외박도 휴가도 없는 잔류 기간인데 잔류 사유(당직·사유 버튼)를 고르지 않음 */
+    stayReasonMissing?: boolean;
     hasVacation: boolean;
     vacationStart: string;
     vacationEnd: string;
@@ -139,8 +145,13 @@ function rangesOverlap(aStart: string, aEnd: string, bStart: string, bEnd: strin
  */
 function passVacationConflict(pStart: string, pEnd: string, vStart: string, vEnd: string): boolean {
     if (!rangesOverlap(pStart, pEnd, vStart, vEnd)) return false;
-    if (pEnd === vStart && pStart < vStart) return false;
-    if (vEnd === pStart && vStart < pStart) return false;
+    // 외박과 휴가가 똑같은 하루뿐이면 연계가 아니라 겹침
+    const sameSingleDay = pStart === pEnd && vStart === vEnd && pStart === vStart;
+    if (sameSingleDay) return true;
+    // 외휴연계: 외박 복귀일 = 휴가 출발일 (원데이 외박도 포함)
+    if (pEnd === vStart) return false;
+    // 휴외연계: 휴가 복귀일 = 외박 시작일
+    if (vEnd === pStart) return false;
     return true;
 }
 
@@ -173,6 +184,8 @@ export function validateMovementEdit(input: MovementEditInput): EditIssue[] {
             issues.push({ code: 'pass-reason-missing', severity: 'error', fields: ['passReason'], message: '외박 사유를 선택하세요.' });
         } else if (input.passBatchMissing) {
             issues.push({ code: 'pass-batch-missing', severity: 'error', fields: ['passReason'], message: '기수를 선택하세요.' });
+        } else if (input.passDutyReductionMissing) {
+            issues.push({ code: 'pass-duty-reduction-missing', severity: 'error', fields: ['passReason'], message: '당직 때문에 외박 일수가 줄었는지 선택하세요.' });
         } else if (passRangeOk) {
             const expected = extractPassDaysFromReason(reason);
             const actual = countDaysInclusive(input.passStart, input.passEnd);
@@ -186,21 +199,27 @@ export function validateMovementEdit(input: MovementEditInput): EditIssue[] {
             }
         }
         if (passRangeOk) {
-            // 출발일(시작 전날)도 당직이면 안 된다
+            // 외박하는 날에 당직이 있으면 안 된다.
+            // 출발일(시작 전날)이 당직이면 안 된다. 당직 다음 날(리커버리)부터 시작하면 출발일이 당직이 되므로 불가.
             const departDay = addDaysIso(input.passStart, -1);
             const dutyDays = dutyDaysWithin(input.dutyIsoDates, departDay, input.passEnd);
+            const dutyLabel = dutyDays
+                .map(iso => (iso === departDay ? `출발일 ${formatIsoShort(iso)}` : formatIsoShort(iso)))
+                .join(', ');
             if (dutyDays.length > 0) {
-                const label = dutyDays
-                    .map(iso => (iso === departDay ? `출발일 ${formatIsoShort(iso)}` : formatIsoShort(iso)))
-                    .join(', ');
                 issues.push({
                     code: 'pass-duty-overlap',
                     severity: 'error',
                     fields: ['passStart', 'passEnd'],
-                    message: `외박 기간에 당직(${label})이 있습니다. 날짜나 당직 일정을 바꾸세요.`
+                    message: `외박 기간에 당직(${dutyLabel})이 있습니다. 날짜나 당직 일정을 바꾸세요.`
                 });
             }
         }
+    }
+
+    // 잔류: 외박도 휴가도 없는 기간이면 사유를 골라야 한다
+    if (input.stayReasonMissing) {
+        issues.push({ code: 'stay-reason-missing', severity: 'error', fields: ['passReason'], message: '잔류 사유를 선택하세요. (당직 날짜 또는 사유 버튼)' });
     }
 
     // 2. 휴가

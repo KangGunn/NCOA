@@ -87,7 +87,7 @@ test('vacation on a duty day is blocked', () => {
     assert.match(issues[0].message, /11\/11/);
 });
 
-test('duty on a pass day or on the departure day is blocked', () => {
+test('duty on a pass day or on its departure day is blocked', () => {
     const pass = { hasPass: true, passStart: '2026-11-14', passEnd: '2026-11-15', passReason: '일반 2일' };
     const issues = validateMovementEdit({ ...base, ...pass, dutyIsoDates: ['2026-11-15'] });
     assert.deepEqual(issues.map(i => i.code), ['pass-duty-overlap']);
@@ -98,8 +98,10 @@ test('duty on a pass day or on the departure day is blocked', () => {
     assert.deepEqual(depart.map(i => i.code), ['pass-duty-overlap']);
     assert.match(depart[0].message, /출발일 11\/13/);
 
-    // 출발일 전날(11/12) 당직 → 출발일은 회복일, 허용
-    assert.deepEqual(codes({ ...pass, dutyIsoDates: ['2026-11-12'] }), []);
+    // 리커버리(11/14)부터 시작하는 외박은 출발일이 당직이므로 불가
+    assert.deepEqual(codes({ ...pass, passStart: '2026-11-14', dutyIsoDates: ['2026-11-13'] }), ['pass-duty-overlap']);
+    // 당직 다음 날 리커버리 이후에 시작하면 허용
+    assert.deepEqual(codes({ ...pass, passStart: '2026-11-15', passEnd: '2026-11-16', dutyIsoDates: ['2026-11-13'] }), []);
 });
 
 test('a graduation reason without 기수 is blocked', () => {
@@ -132,6 +134,18 @@ test('the same conflict reported by two records appears once', () => {
         codes({ hasVacation: true, vacationStart: '2026-11-18', vacationEnd: '2026-11-20', vacationReason: '연가', otherMovements }),
         ['vacation-overlaps-existing']
     );
+});
+
+test('a one-day pass returning on the vacation start day is 외휴연계, not an overlap', () => {
+    assert.deepEqual(codes({
+        hasPass: true, passStart: '2026-11-20', passEnd: '2026-11-20', passReason: '일반 원데이',
+        hasVacation: true, vacationStart: '2026-11-20', vacationEnd: '2026-11-24', vacationReason: '연가 5일',
+    }), []);
+    // 외박과 휴가가 같은 하루뿐이면 겹침
+    assert.ok(codes({
+        hasPass: true, passStart: '2026-11-20', passEnd: '2026-11-20', passReason: '일반 원데이',
+        hasVacation: true, vacationStart: '2026-11-20', vacationEnd: '2026-11-20', vacationReason: '연가 1일',
+    }).includes('pass-vacation-overlap'));
 });
 
 test('pass and vacation overlap, but linked boundaries are allowed', () => {
@@ -172,4 +186,17 @@ test('conflicts with other remaining records', () => {
         codes({ hasVacation: true, vacationStart: '2026-11-22', vacationEnd: '2026-11-24', vacationReason: '연가 3일', otherMovements }),
         []
     );
+});
+
+test('the duty reduction question must be answered when there is a duty', () => {
+    const pass = { hasPass: true, passStart: '2026-11-21', passEnd: '2026-11-21', passReason: '일반 원데이' };
+    assert.deepEqual(codes({ ...pass, passDutyReductionMissing: true }), ['pass-duty-reduction-missing']);
+    assert.deepEqual(codes({ ...pass, passDutyReductionMissing: false }), []);
+    // '토당으로 인한 일반 원데이'도 일수(원데이)는 그대로 검사된다
+    assert.deepEqual(codes({ ...pass, passReason: '토당으로 인한 일반 원데이' }), []);
+});
+
+test('잔류 without a chosen reason is blocked', () => {
+    assert.deepEqual(codes({ stayReasonMissing: true }), ['stay-reason-missing']);
+    assert.deepEqual(codes({ stayReasonMissing: false }), []);
 });

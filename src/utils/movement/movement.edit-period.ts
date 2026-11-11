@@ -177,8 +177,18 @@ export function computeEditedDayStatuses(
         const isPassDay = inRange(iso, pass);
         const isDepartDay = !!pass && iso === passDepart;
         const isVacDay = inRange(iso, vac);
+        // 당직과 리커버리는 외박·휴가 입력과 상관없이 항상 잔디에 보인다 (당직과 겹치는 입력은 저장 시 검사로 막는다)
+        const isDutyDay = initialStatus === 'duty' || ctx.isDutyOn(iso);
+        const isRecoveryDay = !isDutyDay && (
+            initialStatus === 'recovery' || initialStatus === 'recovery-pass-depart' || ctx.isDutyOn(addDaysIso(iso, -1))
+        );
 
-        if (isLinked && iso === vac!.start) {
+        if (isDutyDay) {
+            out[md] = 'duty';
+        } else if (isRecoveryDay) {
+            // 리커버리 날이 외박 출발일이면 반반 잔디 (외특 탭 카드와 같은 규칙)
+            out[md] = isDepartDay ? 'recovery-pass-depart' : 'recovery';
+        } else if (isLinked && iso === vac!.start) {
             out[md] = 'linked';
         } else if (vacationReturnDays.has(iso) && (isDepartDay || (isPassDay && iso === pass!.start))) {
             out[md] = 'vacation-pass-depart';
@@ -187,9 +197,7 @@ export function computeEditedDayStatuses(
         } else if (isPassDay) {
             out[md] = 'pass';
         } else if (isDepartDay) {
-            out[md] = ctx.isDutyOn(addDaysIso(iso, -1)) ? 'recovery-pass-depart' : 'pass-depart';
-        } else if (initialStatus === 'duty' || initialStatus === 'recovery') {
-            out[md] = initialStatus;
+            out[md] = 'pass-depart';
         } else if (owned.has(iso)) {
             // 원래 이번 기간 기록이었는데 이제 덮이지 않는 날: 다른 기간 기록에 속하면 그 상태로, 아니면 비움
             if (ctx.retainedVacations.some(v => inRange(iso, v))) out[md] = 'vacation';
@@ -250,6 +258,7 @@ export function buildCellUpdates(ctx: CellUpdateContext): Record<string, string>
 
     // 2. 새 외박
     if (pass) {
+        // 시작 전날이 당직이면 리커버리 날(외박 첫날)에 바로 출발한다. 당직 칸에 '외박출발'을 쓰지 않는다.
         cells[isoToMD(passDepart)] = '외박출발';
         for (const iso of eachIsoDate(pass.start, pass.end)) {
             cells[isoToMD(iso)] = iso === pass.end ? (isLinked ? '휴가출발(연계)' : '외박복귀') : '외박';

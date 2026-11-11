@@ -93,6 +93,8 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
         const sectionInfo = getTableSectionInfo(dbMember?.sections);
         const orderKey: TableOrderKey = {
             ...sectionInfo,
+            // 카드에서는 HQ를 부 섹션(S-1~S-6) 구분 없이 입대일 → 계급 → 이름순 (패스지 Table은 부 섹션별 그대로)
+            subSec: sectionInfo.mainSec === 'HQ' ? '' : sectionInfo.subSec,
             enlistmentDate: dbMember?.enlistmentDate,
             rankEnglish: toEnglishRank(rankStr, member.name),
             englishName: dbMember?.englishName || cleanName
@@ -307,6 +309,24 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
 
                 const hasReason = memberMovements.length > 0;
 
+                // 출타 및 잔디 수정 화면 열기 (연필 버튼, 그리고 출타 내용이 없는 카드 자체)
+                const openEditor = () => {
+                    if (member.noSheetRow) return;
+                    const rankMatch = member.name.match(/^(병장|상병|일병|이병)\s*(.*)$/);
+                    const formattedName = rankMatch ? `${rankMatch[2]} ${rankMatch[1]}` : member.name;
+                    const dbMember = dbMembers.find(m => m.name === cleanName);
+                    setEditingMember({
+                        name: cleanName,
+                        fullName: formattedName,
+                        sectionLabel: detailLabel === '섹션 미지정' ? '' : detailLabel,
+                        sections: dbMember?.sections || [],
+                        role: dbMember?.role || '',
+                        weekOffset: 0
+                    });
+                };
+                // 출타 내용이 있으면 카드(잔디)를 눌러 내용을 보고, 없으면 카드 어디를 눌러도 바로 수정 화면
+                const opensEditorOnCardTap = !hasReason && !member.noSheetRow;
+
                 return (
                     <Fragment key={`${sectionLabel}-${member.name}-${idx}`}>
                     {isGroupStart && (
@@ -317,7 +337,20 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                         </div>
                     )}
                     <div
-                        className="bg-white border border-gray-100 rounded-xl px-2 sm:px-3 py-0 shadow-sm transition-all flex items-center gap-2 sm:gap-4 relative h-[56px]"
+                        className={cn(
+                            "bg-white border border-gray-100 rounded-xl px-2 sm:px-3 py-0 shadow-sm transition-all flex items-center gap-2 sm:gap-4 relative h-[56px]",
+                            opensEditorOnCardTap && "cursor-pointer hover:border-gray-200 hover:bg-gray-50/60 active:bg-gray-100/70"
+                        )}
+                        onClick={opensEditorOnCardTap ? openEditor : undefined}
+                        role={opensEditorOnCardTap ? 'button' : undefined}
+                        tabIndex={opensEditorOnCardTap ? 0 : undefined}
+                        aria-label={opensEditorOnCardTap ? `${member.name} 출타 및 잔디 수정` : undefined}
+                        onKeyDown={opensEditorOnCardTap ? (e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                openEditor();
+                            }
+                        } : undefined}
                     >
                         <div className="w-20 sm:w-24 shrink-0 flex items-center">
                             <span className="text-xs sm:text-sm font-black text-gray-900 truncate block">{member.name}</span>
@@ -523,7 +556,8 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                         return curDateIso === pDepartIso || curDateIso === mov.startDate;
                                     }) || (() => {
                                         const tomorrowStr = tIdx + 1 < timeline.length ? timeline[tIdx + 1] : null;
-                                        if (tomorrowStr && (member.dayStatuses[tomorrowStr] === 'pass' || member.dayStatuses[tomorrowStr] === 'pass-depart')) return true;
+                                        // 내일이 외박이면 오늘 출발. 내일이 '외박출발'이면 출발은 내일이므로 오늘은 아니다.
+                                        if (tomorrowStr && member.dayStatuses[tomorrowStr] === 'pass') return true;
                                         if (sheetWeeks) {
                                             const nextD = new Date(currentYear, m - 1, d + 1, 12, 0, 0, 0);
                                             const nextDStr = `${nextD.getMonth() + 1}.${nextD.getDate()}`;
@@ -624,18 +658,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                 disabled={!!member.noSheetRow}
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    if (member.noSheetRow) return;
-                                    const rankMatch = member.name.match(/^(병장|상병|일병|이병)\s*(.*)$/);
-                                    const formattedName = rankMatch ? `${rankMatch[2]} ${rankMatch[1]}` : member.name;
-                                    const dbMember = dbMembers.find(m => m.name === cleanName);
-                                    setEditingMember({
-                                        name: cleanName,
-                                        fullName: formattedName,
-                                        sectionLabel: detailLabel === '섹션 미지정' ? '' : detailLabel,
-                                        sections: dbMember?.sections || [],
-                                        role: dbMember?.role || '',
-                                        weekOffset: 0
-                                    });
+                                    openEditor();
                                 }}
                                 className="flex items-center justify-center p-1.5 rounded-lg bg-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0 disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed"
                                 title={member.noSheetRow ? '스프레드시트에 이 인원의 행이 없어 수정할 수 없습니다' : '출타 및 잔디 수정'}
