@@ -42,7 +42,11 @@ export const syncMovementToSheet = onRequest((req, res) => {
 export const updateMemberSchedule = onRequest((req, res) => {
     return corsHandler(req, res, async () => {
         try {
-            const { memberName, dayStatuses, cellUpdates } = req.body;
+            // 편집 화면을 열 때 앱이 보내는 깨우기 요청: 인스턴스만 켜 두고 바로 끝낸다
+            if (req.method === "GET" && req.query.warmup) {
+                return res.status(204).end();
+            }
+            const { memberName, dayStatuses, cellUpdates } = req.body || {};
             if (!memberName || (!dayStatuses && !cellUpdates)) {
                 return res.status(400).json({ status: "error", message: "memberName과 dayStatuses 데이터가 필요합니다." });
             }

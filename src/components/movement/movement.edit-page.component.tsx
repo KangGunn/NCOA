@@ -86,6 +86,8 @@ interface MovementEditPageProps {
 
 type Accent = 'blue' | 'orange';
 
+const SHEET_FUNCTIONS_BASE = 'https://asia-northeast3-seniorkatusa-aa594.cloudfunctions.net';
+
 const ACCENT = {
     blue: {
         ring: 'focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500',
@@ -1192,6 +1194,12 @@ export function MovementEditPage({
 
     const [saving, setSaving] = useState(false);
     const savingRef = useRef(false);
+
+    // 편집 화면을 여는 순간 시트 반영 함수를 미리 깨워 둔다.
+    // 함수가 잠들어 있으면 켜지는 데 3~4초가 걸리는데, 이 시간을 편집하는 동안 미리 치르게 한다.
+    useEffect(() => {
+        axios.get(`${SHEET_FUNCTIONS_BASE}/updateMemberSchedule`, { params: { warmup: 1 } }).catch(() => { /* 깨우기만 하면 된다 */ });
+    }, []);
     const [saved, setSaved] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -1291,152 +1299,159 @@ export function MovementEditPage({
         setSaving(true);
 
         try {
-            // 1. Update Firestore movements
-            const snapExisting = await getDocs(query(collection(db, 'movements'), where('name', '==', cleanName)));
-            const existingDocs = snapExisting.docs.map(d => ({ id: d.id, ...d.data() } as any));
-            // 이번 기간이 가진 문서만 덮어쓰거나 지운다 (다른 기간 휴가/외박은 건드리지 않음)
-            const savedSplit = splitMemberDocs(existingDocs, periodWindow);
-            const periodPassDocs = savedSplit.ownPassDocs;
-            const targetPassDoc = savedSplit.ownPass;
-            const periodVacDocs = savedSplit.ownVacDocs;
-            const targetVacDoc = savedSplit.ownVac;
-
-            const batch = writeBatch(db);
             const finalPassReason = passReason.trim();
             const finalVacReason = vacationReason.trim();
 
-            if (stayMode && stayRange) {
-                // 잔류: 외박 기록을 잔류(stay) 기록으로 바꾸거나 새로 만든다 (엑셀 잔류와 같은 기록)
-                const stayData = { type: 'stay', startDate: stayRange.start, endDate: stayRange.end, reason: stayReasonText };
-                if (targetPassDoc) {
-                    batch.update(doc(db, 'movements', targetPassDoc.id), { ...stayData, updatedAt: serverTimestamp() });
-                } else {
-                    batch.set(doc(collection(db, 'movements')), { name: cleanName, ...stayData, createdAt: serverTimestamp() });
-                }
-                periodPassDocs.forEach(d => {
-                    if (!targetPassDoc || d.id !== targetPassDoc.id) batch.delete(doc(db, 'movements', d.id));
-                });
-            } else if (hasPass && passStart && passEnd) {
-                if (targetPassDoc) {
-                    batch.update(doc(db, 'movements', targetPassDoc.id), {
-                        type: passIsStay ? 'stay' : 'pass',
-                        startDate: passStart,
-                        endDate: passEnd,
-                        reason: finalPassReason,
-                        updatedAt: serverTimestamp()
+            // Firestore 기록과 시트 반영은 서로 기다릴 필요가 없어 동시에 보낸다 (모바일 저장 시간 단축)
+            const firestoreWrite = (async () => {
+                const snapExisting = await getDocs(query(collection(db, 'movements'), where('name', '==', cleanName)));
+                const existingDocs = snapExisting.docs.map(d => ({ id: d.id, ...d.data() } as any));
+                // 이번 기간이 가진 문서만 덮어쓰거나 지운다 (다른 기간 휴가/외박은 건드리지 않음)
+                const savedSplit = splitMemberDocs(existingDocs, periodWindow);
+                const periodPassDocs = savedSplit.ownPassDocs;
+                const targetPassDoc = savedSplit.ownPass;
+                const periodVacDocs = savedSplit.ownVacDocs;
+                const targetVacDoc = savedSplit.ownVac;
+
+                const batch = writeBatch(db);
+
+                if (stayMode && stayRange) {
+                    // 잔류: 외박 기록을 잔류(stay) 기록으로 바꾸거나 새로 만든다 (엑셀 잔류와 같은 기록)
+                    const stayData = { type: 'stay', startDate: stayRange.start, endDate: stayRange.end, reason: stayReasonText };
+                    if (targetPassDoc) {
+                        batch.update(doc(db, 'movements', targetPassDoc.id), { ...stayData, updatedAt: serverTimestamp() });
+                    } else {
+                        batch.set(doc(collection(db, 'movements')), { name: cleanName, ...stayData, createdAt: serverTimestamp() });
+                    }
+                    periodPassDocs.forEach(d => {
+                        if (!targetPassDoc || d.id !== targetPassDoc.id) batch.delete(doc(db, 'movements', d.id));
+                    });
+                } else if (hasPass && passStart && passEnd) {
+                    if (targetPassDoc) {
+                        batch.update(doc(db, 'movements', targetPassDoc.id), {
+                            type: passIsStay ? 'stay' : 'pass',
+                            startDate: passStart,
+                            endDate: passEnd,
+                            reason: finalPassReason,
+                            updatedAt: serverTimestamp()
+                        });
+                    } else {
+                        batch.set(doc(collection(db, 'movements')), {
+                            name: cleanName,
+                            type: passIsStay ? 'stay' : 'pass',
+                            startDate: passStart,
+                            endDate: passEnd,
+                            reason: finalPassReason,
+                            createdAt: serverTimestamp()
+                        });
+                    }
+                    // Clean up any extra duplicate pass docs for this period from previous bugs
+                    periodPassDocs.forEach(d => {
+                        if (targetPassDoc && d.id !== targetPassDoc.id) batch.delete(doc(db, 'movements', d.id));
                     });
                 } else {
-                    batch.set(doc(collection(db, 'movements')), {
-                        name: cleanName,
-                        type: passIsStay ? 'stay' : 'pass',
-                        startDate: passStart,
-                        endDate: passEnd,
-                        reason: finalPassReason,
-                        createdAt: serverTimestamp()
-                    });
+                    periodPassDocs.forEach(d => batch.delete(doc(db, 'movements', d.id)));
                 }
-                // Clean up any extra duplicate pass docs for this period from previous bugs
-                periodPassDocs.forEach(d => {
-                    if (targetPassDoc && d.id !== targetPassDoc.id) batch.delete(doc(db, 'movements', d.id));
-                });
-            } else {
-                periodPassDocs.forEach(d => batch.delete(doc(db, 'movements', d.id)));
-            }
 
-            if (hasVacation && vacationStart && vacationEnd) {
-                if (targetVacDoc) {
-                    batch.update(doc(db, 'movements', targetVacDoc.id), {
-                        startDate: vacationStart,
-                        endDate: vacationEnd,
-                        reason: finalVacReason,
-                        updatedAt: serverTimestamp()
+                if (hasVacation && vacationStart && vacationEnd) {
+                    if (targetVacDoc) {
+                        batch.update(doc(db, 'movements', targetVacDoc.id), {
+                            startDate: vacationStart,
+                            endDate: vacationEnd,
+                            reason: finalVacReason,
+                            updatedAt: serverTimestamp()
+                        });
+                    } else {
+                        batch.set(doc(collection(db, 'movements')), {
+                            name: cleanName,
+                            type: 'vacation',
+                            startDate: vacationStart,
+                            endDate: vacationEnd,
+                            reason: finalVacReason,
+                            createdAt: serverTimestamp()
+                        });
+                    }
+                    // Clean up any extra duplicate vacation docs for this period
+                    periodVacDocs.forEach(d => {
+                        if (!targetVacDoc || d.id !== targetVacDoc.id) batch.delete(doc(db, 'movements', d.id));
                     });
                 } else {
-                    batch.set(doc(collection(db, 'movements')), {
-                        name: cleanName,
-                        type: 'vacation',
-                        startDate: vacationStart,
-                        endDate: vacationEnd,
-                        reason: finalVacReason,
-                        createdAt: serverTimestamp()
-                    });
+                    periodVacDocs.forEach(d => batch.delete(doc(db, 'movements', d.id)));
                 }
-                // Clean up any extra duplicate vacation docs for this period
-                periodVacDocs.forEach(d => {
-                    if (!targetVacDoc || d.id !== targetVacDoc.id) batch.delete(doc(db, 'movements', d.id));
-                });
-            } else {
-                periodVacDocs.forEach(d => batch.delete(doc(db, 'movements', d.id)));
-            }
 
-            await batch.commit();
+                await batch.commit();
+                return { targetPassDoc, targetVacDoc };
+            })();
 
-            // 2. Sync to Google Spreadsheet via Backend
-            const toMD = (isoStr: string) => {
-                if (!isoStr) return '';
-                const parts = isoStr.split('-');
-                if (parts.length < 3) return '';
-                return `${parseInt(parts[1], 10)}.${parseInt(parts[2], 10)}`;
-            };
-
-            // 원래 이번 기간 것이던 날 중 새 값이 없는 날은 핵심 구간 밖(타임라인 뒤쪽, 다음 주)이라도 비운다
-            const cellUpdates = buildCellUpdates({ ...statusContext, allowVacationPassLink });
-            let passDepartMD = sheetHasPass && passStart ? isoToMD(addDaysIso(passStart, -1)) : '';
-
-            const passDays = Object.entries(dayStatuses).filter(([, st]) => st === 'pass').map(([d]) => d);
-            const vacDays = Object.entries(dayStatuses)
-                .filter(([, st]) => st === 'vacation' || st === 'linked' || st === 'vacation-pass-depart')
-                .map(([d]) => d);
-
-            passDepartMD = passDepartMD
-                || Object.entries(dayStatuses).find(([, st]) => st === 'pass-depart' || st === 'recovery-pass-depart' || st === 'vacation-pass-depart')?.[0]
-                || (sheetHasPass && passStart ? (() => {
-                    const d = new Date(passStart);
-                    d.setDate(d.getDate() - 1);
-                    return `${d.getMonth() + 1}.${d.getDate()}`;
-                })() : '');
-
-            const passReturnMD = sheetHasPass && passEnd ? toMD(passEnd) : (passDays[passDays.length - 1] || '');
-
-            const movementItem: any = {
-                name: cleanName,
-                type: sheetHasPass ? '외박' : '잔류',
-                depart: passDepartMD,
-                return: passReturnMD,
-                stayDays: passDays,
-                period: sheetHasPass && passStart && passEnd ? `${toMD(passStart)}~${toMD(passEnd)}` : '',
-                reason: finalPassReason
-            };
-
-            if (hasVacation && vacationStart && vacationEnd) {
-                movementItem.vacation = {
-                    depart: toMD(vacationStart),
-                    return: toMD(vacationEnd),
-                    stayDays: vacDays,
-                    isLinked: !!isLinked,
-                    reason: finalVacReason
+            const sheetWrite = (async () => {
+                const toMD = (isoStr: string) => {
+                    if (!isoStr) return '';
+                    const parts = isoStr.split('-');
+                    if (parts.length < 3) return '';
+                    return `${parseInt(parts[1], 10)}.${parseInt(parts[2], 10)}`;
                 };
-            } else if (vacDays.length > 0) {
-                movementItem.vacation = {
-                    depart: vacDays[0],
-                    return: vacDays[vacDays.length - 1],
-                    stayDays: vacDays,
-                    isLinked: !!isLinked,
-                    reason: finalVacReason
+
+                // 원래 이번 기간 것이던 날 중 새 값이 없는 날은 핵심 구간 밖(타임라인 뒤쪽, 다음 주)이라도 비운다
+                const cellUpdates = buildCellUpdates({ ...statusContext, allowVacationPassLink });
+                let passDepartMD = sheetHasPass && passStart ? isoToMD(addDaysIso(passStart, -1)) : '';
+
+                const passDays = Object.entries(dayStatuses).filter(([, st]) => st === 'pass').map(([d]) => d);
+                const vacDays = Object.entries(dayStatuses)
+                    .filter(([, st]) => st === 'vacation' || st === 'linked' || st === 'vacation-pass-depart')
+                    .map(([d]) => d);
+
+                passDepartMD = passDepartMD
+                    || Object.entries(dayStatuses).find(([, st]) => st === 'pass-depart' || st === 'recovery-pass-depart' || st === 'vacation-pass-depart')?.[0]
+                    || (sheetHasPass && passStart ? (() => {
+                        const d = new Date(passStart);
+                        d.setDate(d.getDate() - 1);
+                        return `${d.getMonth() + 1}.${d.getDate()}`;
+                    })() : '');
+
+                const passReturnMD = sheetHasPass && passEnd ? toMD(passEnd) : (passDays[passDays.length - 1] || '');
+
+                const movementItem: any = {
+                    name: cleanName,
+                    type: sheetHasPass ? '외박' : '잔류',
+                    depart: passDepartMD,
+                    return: passReturnMD,
+                    stayDays: passDays,
+                    period: sheetHasPass && passStart && passEnd ? `${toMD(passStart)}~${toMD(passEnd)}` : '',
+                    reason: finalPassReason
                 };
-            }
 
-            const baseUrl = 'https://asia-northeast3-seniorkatusa-aa594.cloudfunctions.net';
-            const payload = {
-                movements: [movementItem],
-                memberUpdate: { memberName: cleanName, dayStatuses, cellUpdates }
-            };
+                if (hasVacation && vacationStart && vacationEnd) {
+                    movementItem.vacation = {
+                        depart: toMD(vacationStart),
+                        return: toMD(vacationEnd),
+                        stayDays: vacDays,
+                        isLinked: !!isLinked,
+                        reason: finalVacReason
+                    };
+                } else if (vacDays.length > 0) {
+                    movementItem.vacation = {
+                        depart: vacDays[0],
+                        return: vacDays[vacDays.length - 1],
+                        stayDays: vacDays,
+                        isLinked: !!isLinked,
+                        reason: finalVacReason
+                    };
+                }
 
-            try {
-                await axios.post(`${baseUrl}/updateMemberSchedule`, { memberName: cleanName, dayStatuses, cellUpdates });
-            } catch {
-                await axios.post(`${baseUrl}/syncMovementToSheet`, payload);
-            }
+                const baseUrl = SHEET_FUNCTIONS_BASE;
+                const payload = {
+                    movements: [movementItem],
+                    memberUpdate: { memberName: cleanName, dayStatuses, cellUpdates }
+                };
+
+                try {
+                    await axios.post(`${baseUrl}/updateMemberSchedule`, { memberName: cleanName, dayStatuses, cellUpdates });
+                } catch {
+                    await axios.post(`${baseUrl}/syncMovementToSheet`, payload);
+                }
+            })();
+
+            const [{ targetPassDoc, targetVacDoc }] = await Promise.all([firestoreWrite, sheetWrite]);
 
             const savedMovement: any = (hasVacation && vacationStart && vacationEnd) ? {
                 id: targetVacDoc ? targetVacDoc.id : `vac-${Date.now()}`,
@@ -1468,7 +1483,7 @@ export function MovementEditPage({
             setSuccessMessage('저장하고 스프레드시트에 반영했습니다.');
             // 성공 후 화면이 닫힐 때까지 버튼을 잠가 두 번 저장되지 않게 한다
             setSaved(true);
-            setTimeout(() => onClose(), 800);
+            setTimeout(() => onClose(), 300);
         } catch (err: any) {
             console.error('Save error:', err);
             setSaveError(err.response?.data?.message || err.message || '저장 중 오류가 발생했습니다.');

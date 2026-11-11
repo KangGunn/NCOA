@@ -148,25 +148,30 @@ export async function updateMemberScheduleInSheet(
     dayStatuses: Record<string, string>,
     cellUpdates?: Record<string, string>
 ) {
-    const setting = await getSpreadsheetSetting();
-    const movementSetting = await getMovementSetting();
+    // 서로 기다릴 필요 없는 설정 두 개와 시트 클라이언트를 한꺼번에 준비한다
+    const [setting, movementSetting, sheets] = await Promise.all([
+        getSpreadsheetSetting(),
+        getMovementSetting(),
+        getGoogleSheetsInstance(),
+    ]);
     const allowVacationPassLink = !!movementSetting?.allowVacationPassLink;
     const sheetMode = (setting?.mode || "test") as "test" | "prod";
     const spreadsheetId = await getSpreadsheetIdForMode(sheetMode);
-    
+
     logger.info(`updateMemberScheduleInSheet: using ${sheetMode} mode (${spreadsheetId}) for ${memberName}`);
     const sheetName = "NEW";
-    const range = `'${sheetName}'!A1:AZ200`;
 
-    const sheets = await getGoogleSheetsInstance();
-    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range });
-    const rows = response.data.values;
-    if (!rows || rows.length === 0) {
+    // 셀 위치를 찾는 데는 날짜 줄(1행)과 이름 열(A열)만 있으면 된다 — 표 전체(A1:AZ200)를 받지 않는다
+    const response = await sheets.spreadsheets.values.batchGet({
+        spreadsheetId,
+        ranges: [`'${sheetName}'!1:1`, `'${sheetName}'!A1:A200`],
+    });
+    const [headerRange, nameRange] = response.data.valueRanges || [];
+    const dateRow: string[] = headerRange?.values?.[0] || [];
+    const nameColumn: string[] = (nameRange?.values || []).map((r: any) => r?.[0]);
+    if (dateRow.length === 0 || nameColumn.length === 0) {
         throw new Error("시트 데이터를 읽을 수 없습니다.");
     }
-
-    const dateRow = rows[0];
-    const nameColumn = rows.map((r: any) => r[0]);
 
     const targetNameOnly = (memberName || "").replace(/\s*(병장|상병|일병|이병)/g, "").trim().split(/\s+/).pop();
     

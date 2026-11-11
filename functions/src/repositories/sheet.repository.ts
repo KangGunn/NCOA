@@ -53,7 +53,11 @@ export async function getSheetData(): Promise<any[]> {
     });
 }
 
+// 같은 인스턴스가 다음 요청을 받으면 인증 토큰과 클라이언트를 다시 만들지 않고 재사용한다
+let cachedSheets: ReturnType<typeof google.sheets> | null = null;
+
 export async function getGoogleSheetsInstance() {
+    if (cachedSheets) return cachedSheets;
     const keyPath = path.join(__dirname, "../../service-account.json");
     const options: any = {
         scopes: ["https://www.googleapis.com/auth/spreadsheets"],
@@ -62,7 +66,8 @@ export async function getGoogleSheetsInstance() {
         options.keyFile = keyPath;
     }
     const auth = new google.auth.GoogleAuth(options);
-    return google.sheets({ version: "v4", auth });
+    cachedSheets = google.sheets({ version: "v4", auth });
+    return cachedSheets;
 }
 
 export async function getSpreadsheetIdForMode(mode: "test" | "prod") {
