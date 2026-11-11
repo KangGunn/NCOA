@@ -7,6 +7,7 @@ import { doc, onSnapshot, setDoc, serverTimestamp, collection, getDoc, writeBatc
 import { db } from '../../lib/firebase';
 import type { MovementRecord } from '../../types/movement/movement.type';
 import { extractDayCountFromText, extractPureMemberName } from '../../utils/movement.utils';
+import { movementSaveQueue } from '../../utils/movement/movement.save-runner';
 
 
 /** 이 기기에서 저장한 뒤 이 시간 안에 오는 시트 갱신 신호는 조용히 다시 읽는다 */
@@ -110,7 +111,8 @@ export function useMovementSync(baseDate?: Date) {
     const isRecentlyEdited = (cleanName: string): boolean => {
         const item = recentEditsRef.current.get(cleanName);
         if (!item) return false;
-        if (Date.now() - item.timestamp < 45000) return true;
+        // 뒤에서 저장 중인(또는 실패해 다시 시도를 기다리는) 인원은 시간과 관계없이 화면 값을 유지한다
+        if (Date.now() - item.timestamp < 45000 || movementSaveQueue.hasPendingFor(cleanName)) return true;
         recentEditsRef.current.delete(cleanName);
         return false;
     };
@@ -217,7 +219,11 @@ export function useMovementSync(baseDate?: Date) {
             // 초기 진입, 모드 전환인 경우: 즉시 로딩(0초)
             const delay = isTimestampChange ? 4000 : 0;
             // 방금 이 기기에서 저장해서 생긴 갱신이면 조용히(로딩 화면·주차 이동 없이) 다시 읽는다
-            const silent = isTimestampChange && Date.now() < selfUpdateUntilRef.current;
+            const silent = isTimestampChange && (
+                Date.now() < selfUpdateUntilRef.current
+                || movementSaveQueue.getState().jobs.length > 0
+                || Date.now() - movementSaveQueue.getState().lastCompletedAt < 30_000
+            );
 
             const timer = setTimeout(() => {
                 fetchSpreadsheet(sheetMode, sheetUpdatedAt, { silent });
@@ -405,7 +411,7 @@ export function useMovementSync(baseDate?: Date) {
                             const clean = nameWithRank.replace(/^(병장|상병|일병|이병)\s*/, '').trim();
                             const pending = recentEditsRef.current.get(clean);
                             if (pending) {
-                                if (Date.now() - pending.timestamp < 45000) {
+                                if (Date.now() - pending.timestamp < 45000 || movementSaveQueue.hasPendingFor(clean)) {
                                     Object.assign(dayStatuses, pending.dayStatuses);
                                 } else {
                                     recentEditsRef.current.delete(clean);

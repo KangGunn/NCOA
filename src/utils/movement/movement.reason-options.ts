@@ -339,14 +339,14 @@ function reasonParticle(text: string): string {
     return '로';
 }
 
-/** 잔류 사유 문자열: '토당으로 인한 잔류', 'KTA 업무로 인한 잔류', '토당, KTA 업무로 인한 잔류'. 고른 것이 없으면 ''. */
+/** 잔류 사유 문자열: '토당으로 인한 잔류', 'KTA 업무로 인한 잔류', '토당, KTA 업무로 인한 잔류'. 고른 것이 없으면 그냥 '잔류'. */
 export function composeStayReason(choice: StayChoice, periodDutyIso: string[], taskLabel: string | null): string {
     const dutyTokens = [...new Set([...periodDutyIso].sort().map(dutyDayLabel))].filter(l => choice.dutyLabels.includes(l));
     const tokens = [...dutyTokens];
     if (choice.task && taskLabel) tokens.push(taskLabel);
     const custom = choice.customOn ? choice.custom.trim() : '';
     if (custom) tokens.push(custom);
-    if (tokens.length === 0) return '';
+    if (tokens.length === 0) return STAY_REASON;
     const joined = tokens.join(', ');
     return `${joined}${reasonParticle(joined)} 인한 잔류`;
 }

@@ -172,10 +172,12 @@ test('잔류 reason: 당직 요일과 업무 버튼을 X로 인한 잔류 형식
     assert.equal(composeStayReason({ ...none, task: true }, duty, 'KTA 업무'), 'KTA 업무로 인한 잔류');
     assert.equal(composeStayReason({ ...none, dutyLabels: ['일당', '토당'], task: true }, duty, 'BLC 업무'), '토당, 일당, BLC 업무로 인한 잔류');
     assert.equal(composeStayReason({ ...none, customOn: true, custom: '사정' }, duty, null), '사정으로 인한 잔류');
-    assert.equal(composeStayReason({ ...none, task: true }, duty, null), '');
-    assert.equal(composeStayReason(none, duty, 'PAO 업무'), '');
+    assert.equal(composeStayReason({ ...none, task: true }, duty, null), '잔류');
+    // 아무것도 고르지 않으면 그냥 '잔류'
+    assert.equal(composeStayReason(none, duty, 'PAO 업무'), '잔류');
+    assert.equal(composeStayReason({ ...none, customOn: true, custom: '  ' }, duty, null), '잔류');
     // 고른 당직 요일이 기간에 없으면 무시
-    assert.equal(composeStayReason({ ...none, dutyLabels: ['금당'] }, duty, null), '');
+    assert.equal(composeStayReason({ ...none, dutyLabels: ['금당'] }, duty, null), '잔류');
 });
 
 test('잔류 업무 버튼은 섹션에 따라 하나: KTA·MEDIC→KTA, BLC→BLC, PAO→PAO', () => {

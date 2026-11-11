@@ -1,5 +1,6 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
 import BottomNav from './components/BottomNav';
+import { MovementSaveStatus } from './components/movement/movement.save-status.component';
 import RollCallTab from './components/tabs/RollCallTab';
 import { auth, db } from './lib/firebase';
 import { onSnapshot, doc, collection, query, where } from 'firebase/firestore';
@@ -379,6 +380,7 @@ function App() {
           </Suspense>
         </div>
 
+        <MovementSaveStatus />
         <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
       </main>
     </div>
