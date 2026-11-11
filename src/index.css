@@ -22,6 +22,25 @@
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+/*
+ * 홈 화면에 설치한 웹앱(아이폰 black-translucent 상태 바, 갤럭시 전체 화면)에서
+ * 화면 전체를 덮는 페이지·모달이 상태 바·홈 표시줄 밑으로 들어가 버튼을 누를 수 없게 되는 것을 막는다.
+ * 일반 브라우저에서는 env() 값이 0이라 기존 여백(1rem)이 그대로 쓰인다.
+ */
+.safe-area-top-always {
+  padding-top: env(safe-area-inset-top);
+}
+
+.overlay-safe {
+  padding-top: max(1rem, env(safe-area-inset-top));
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+/* 모달 본문이 여백을 뺀 높이를 넘지 않게 (넘치면 위쪽이 상태 바 밑으로 밀려난다) */
+.overlay-safe > * {
+  max-height: 100%;
+}
+
 .pb-nav-clearance {
   padding-bottom: calc(3.25rem + env(safe-area-inset-bottom, 0px));
 }

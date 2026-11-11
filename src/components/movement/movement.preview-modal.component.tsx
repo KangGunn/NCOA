@@ -91,7 +91,7 @@ export function MovementPreviewModal({
         remarksHtmlContent;
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div className="overlay-safe fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
             <div className="w-full max-w-4xl h-[92vh] max-h-[96vh] bg-white rounded-[2rem] p-6 sm:p-8 space-y-6 shadow-2xl flex flex-col">
                 <div className="flex items-center justify-between shrink-0">
                     <div>

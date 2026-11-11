@@ -427,7 +427,7 @@ export function DutySidebar({
                 </div>
 
                 {isHolidayModalOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="overlay-safe fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
                         <div className="w-[450px] bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200 relative text-left">
                             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
                                 <div className="flex items-center gap-2">

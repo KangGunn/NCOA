@@ -493,7 +493,7 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex bg-slate-950 text-slate-100 overflow-hidden font-sans h-full w-full">
+        <div className="safe-area-top-always fixed inset-0 z-50 flex bg-slate-950 text-slate-100 overflow-hidden font-sans h-full w-full">
             {toast && (
                 <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 px-5 py-3.5 rounded-2xl shadow-2xl transition-all border animate-in slide-in-from-bottom-6 duration-300 pointer-events-none max-w-sm ${toast.type === 'success'
                     ? 'bg-emerald-950/80 border-emerald-500/30 text-emerald-300'
@@ -676,7 +676,7 @@ export default function DutySchedulerWorkspace({ onClose }: DutySchedulerWorkspa
             )}
 
             {exportPreviewUrl && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+                <div className="overlay-safe fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
                     <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-4xl w-full flex flex-col gap-4 shadow-2xl relative">
                         {/* Header */}
                         <div className="flex items-center justify-between pb-2 border-b border-slate-800">
@@ -768,7 +768,7 @@ function MonthlyLabelsModal({
     };
 
     return createPortal(
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="overlay-safe fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="w-[450px] bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200 relative text-left">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-800">
                     <div className="flex items-center gap-2">
@@ -890,7 +890,7 @@ function DutyInfoModal({ isOpen, onClose }: DutyInfoModalProps) {
     return createPortal(
         <div
             onClick={onClose}
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200"
+            className="overlay-safe fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200"
         >
             <style>{`
                 .info-modal-scrollbar::-webkit-scrollbar {

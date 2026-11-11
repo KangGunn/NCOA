@@ -196,7 +196,7 @@ export function EventModal(props: EventModalProps) {
     const [swapTargetDate, setSwapTargetDate] = useState<string>('');
 
     return createPortal(
-        <div className="fixed inset-y-0 left-1/2 -translate-x-1/2 w-full max-w-md z-[100] flex items-center justify-center bg-black/30 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div className="overlay-safe fixed inset-y-0 left-1/2 -translate-x-1/2 w-full max-w-md z-[100] flex items-center justify-center bg-black/30 backdrop-blur-sm p-4 animate-in fade-in duration-200">
             <div className="w-full max-w-md bg-white rounded-[2.5rem] p-8 space-y-5 shadow-2xl animate-in slide-in-from-bottom-10 max-h-[90vh] flex flex-col">
                 <div className="flex items-center justify-between shrink-0">
                     <div>
@@ -606,6 +606,14 @@ export function EventModal(props: EventModalProps) {
                                     className="flex-1 py-3 bg-blue-50 text-blue-600 rounded-2xl text-xs font-black hover:bg-blue-100 transition-colors disabled:opacity-50 whitespace-nowrap"
                                 >
                                     BLC Day 0
+                                </button>
+                            )}
+                            {props.calendarMode === 'schedule' && (
+                                <button
+                                    onClick={props.handleAutoBlcGradFourDay}
+                                    className="flex-1 py-3 bg-sky-50 text-sky-700 rounded-2xl text-xs font-black hover:bg-sky-100 transition-colors whitespace-nowrap"
+                                >
+                                    BLC 수료포데이
                                 </button>
                             )}
                         </div>

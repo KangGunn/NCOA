@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, getDocs, query, where } from 'firebase/firestore';
 import { db, auth } from '../../lib/firebase';
 import type { CalendarEvent } from '../../types/calendar/calendar.type';
-import { isBlc30Days } from '../../utils/calendar.utils';
+import { isBlc30Days, getBlcGraduationIso } from '../../utils/calendar.utils';
 
 export function useCalendarSchedule(
     events: CalendarEvent[],
@@ -198,32 +198,7 @@ export function useCalendarSchedule(
                 createdAt: serverTimestamp()
             });
 
-            // Automatically calculate and add BLC 수료포데이
-            const gradDayOfWeek = proposedEnd.getDay();
-            const startOfFourDay = new Date(proposedEnd);
-            if (gradDayOfWeek === 4 || gradDayOfWeek === 5) {
-                startOfFourDay.setDate(startOfFourDay.getDate() + 1);
-            } else {
-                const diff = 4 - gradDayOfWeek;
-                startOfFourDay.setDate(startOfFourDay.getDate() + diff);
-            }
-            const endOfFourDay = new Date(startOfFourDay);
-            endOfFourDay.setDate(endOfFourDay.getDate() + 3);
-
-            const formatDate = (d: Date) => {
-                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-            };
-
-            await addDoc(collection(db, "schedules"), {
-                uid: user.uid,
-                type: 'blc',
-                startDate: formatDate(startOfFourDay),
-                endDate: formatDate(endOfFourDay),
-                memo: `BLC 수료포데이 (${nextBatch})`,
-                batch: nextBatch,
-                createdAt: serverTimestamp()
-            });
-
+            // 수료포데이는 자동으로 만들지 않는다. 시작일에 'BLC 수료포데이' 버튼으로 추가한다.
             setIsAdding(false);
             setSelectedDate(null);
         } catch (error) {
@@ -237,13 +212,23 @@ export function useCalendarSchedule(
         const user = auth.currentUser;
         if (!user) return;
 
-        const lastDay0Event = [...events]
-            .filter(e => e.type === 'blc' && e.memo?.includes('Day 0'))
-            .sort((a, b) => b.startDate.localeCompare(a.startDate))[0];
+        // 고른 날짜 이전에 수료식이 끝난 기수 중 가장 최근 기수
+        const finished = events
+            .filter(e => e.type === 'blc' && e.memo?.includes('Day 0') && e.batch)
+            .map(e => ({ batch: e.batch as string, graduation: getBlcGraduationIso(e, events) }))
+            .filter(b => b.graduation < selectedDate)
+            .sort((a, b) => b.graduation.localeCompare(a.graduation))[0];
 
-        const batch = lastDay0Event ? (lastDay0Event.batch || "24-01") : "24-01";
+        if (!finished) {
+            alert("이 날짜 이전에 수료한 BLC 기수가 없습니다. 먼저 BLC Day 0을 등록하세요.");
+            return;
+        }
+        const batch = finished.batch;
 
-        const start = new Date(selectedDate);
+        const existing = events.find(e => e.type === 'blc' && e.batch === batch && e.memo?.includes('수료포데이'));
+        if (existing && !confirm(`${batch}기 수료포데이가 이미 ${existing.startDate}에 있습니다. 하나 더 추가할까요?`)) return;
+
+        const start = new Date(`${selectedDate}T00:00:00`);
         const end = new Date(start);
         end.setDate(end.getDate() + 3);
         const endStr = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
@@ -263,74 +248,6 @@ export function useCalendarSchedule(
         } catch (error) {
             console.error("Error setting BLC Grad Four Day:", error);
             alert("BLC 수료포데이 등록 중 오류가 발생했습니다.");
-        }
-    };
-
-    const syncBlcFourDays = async () => {
-        try {
-            const snap = await getDocs(collection(db, "schedules"));
-            const allEvents = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
-
-            const holidays = allEvents.filter(e => e.type === 'holiday' && e.holidayType !== 'duty');
-            const isHolidayDateLocal = (dStr: string) => {
-                return holidays.some(e => dStr >= e.startDate && dStr <= e.endDate);
-            };
-
-            const blcDay0s = allEvents.filter(e => e.type === 'blc' && e.memo?.includes('Day 0'));
-            const blcFourDays = allEvents.filter(e => e.type === 'blc' && e.memo?.includes('수료포데이'));
-
-            const formatDate = (d: Date) => {
-                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-            };
-
-            const updatePromises = blcDay0s.map(async (day0) => {
-                const batch = day0.batch;
-                if (!batch) return;
-
-                // Recalculate Day 30
-                const selectedStart = new Date(day0.startDate);
-                let dayCount = 0;
-                let current = new Date(selectedStart);
-                const limit = isBlc30Days(batch) ? 30 : 22;
-                while (dayCount < limit) {
-                    current.setDate(current.getDate() + 1);
-                    const currentStr = formatDate(current);
-                    if (current.getDay() !== 0 && !isHolidayDateLocal(currentStr)) {
-                        dayCount++;
-                    }
-                }
-                const proposedEnd = current;
-
-                // Calculate Four Day period
-                const gradDayOfWeek = proposedEnd.getDay();
-                const startOfFourDay = new Date(proposedEnd);
-                if (gradDayOfWeek === 4 || gradDayOfWeek === 5) {
-                    startOfFourDay.setDate(startOfFourDay.getDate() + 1);
-                } else {
-                    const diff = 4 - gradDayOfWeek;
-                    startOfFourDay.setDate(startOfFourDay.getDate() + diff);
-                }
-                const endOfFourDay = new Date(startOfFourDay);
-                endOfFourDay.setDate(endOfFourDay.getDate() + 3);
-
-                const newStartStr = formatDate(startOfFourDay);
-                const newEndStr = formatDate(endOfFourDay);
-
-                // Find existing BLC 수료포데이
-                const existingFourDay = blcFourDays.find(e => e.batch === batch);
-                if (existingFourDay) {
-                    if (existingFourDay.startDate !== newStartStr || existingFourDay.endDate !== newEndStr) {
-                        await updateDoc(doc(db, "schedules", existingFourDay.id), {
-                            startDate: newStartStr,
-                            endDate: newEndStr
-                        });
-                    }
-                }
-            });
-
-            await Promise.all(updatePromises);
-        } catch (error) {
-            console.error("Error syncing BLC Four Days:", error);
         }
     };
 
@@ -368,7 +285,6 @@ export function useCalendarSchedule(
                 holidayType: calendarMode === 'duty' ? 'duty' : 'blc',
                 createdAt: serverTimestamp()
             });
-            await syncBlcFourDays();
             setHolidayName('');
             setHolidayStartDate('');
             setHolidayEndDate('');
@@ -393,7 +309,6 @@ export function useCalendarSchedule(
                 startDate: editingHoliday.startDate,
                 endDate: editingHoliday.endDate
             });
-            await syncBlcFourDays();
             setEditingHoliday(null);
         } catch (error) {
             console.error("Error updating holiday:", error);
@@ -417,7 +332,6 @@ export function useCalendarSchedule(
                 setSelectedDate(null);
                 try {
                     await deleteDoc(doc(db, "schedules", id));
-                    await syncBlcFourDays();
                 } catch (error) {
                     console.error("Error deleting event:", error);
                     alert("삭제 중 오류가 발생했습니다.");
@@ -443,7 +357,6 @@ export function useCalendarSchedule(
                 await Promise.all(linkedEvents.map(e => deleteDoc(doc(db, "schedules", e.id))));
             } else {
                 await deleteDoc(doc(db, "schedules", eventToDelete.id));
-                await syncBlcFourDays();
             }
         } catch (error) {
             console.error("Error deleting event:", error);

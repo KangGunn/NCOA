@@ -156,7 +156,7 @@ export function MovementHistoryModal({
     });
 
     return (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-2 sm:p-4">
+        <div className="overlay-safe fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-2 sm:p-4">
             <div className="bg-white rounded-2xl sm:rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col max-h-[85vh]">
                 {/* Header */}
                 <div className="bg-slate-800 p-4 sm:p-6 text-slate-100 shrink-0 relative border-b border-slate-700">

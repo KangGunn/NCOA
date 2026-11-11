@@ -19,7 +19,7 @@ export function MovementAmbiguousModal({
     cancelResolving
 }: MovementAmbiguousModalProps) {
     return (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+        <div className="overlay-safe fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
             <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
                 <div className="bg-gradient-to-r from-orange-500 to-amber-500 p-6 text-white text-center">
                     <h3 className="text-xl font-black mb-1">동명이인 확인 필요</h3>

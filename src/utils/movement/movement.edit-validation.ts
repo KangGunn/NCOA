@@ -171,13 +171,13 @@ export function validateMovementEdit(input: MovementEditInput): EditIssue[] {
     const passRangeOk = input.hasPass && !!input.passStart && !!input.passEnd && input.passStart <= input.passEnd;
     if (input.hasPass) {
         if (!input.passStart) {
-            issues.push({ code: 'pass-start-missing', severity: 'error', fields: ['passStart'], message: '외박 시작일을 입력하세요.' });
+            issues.push({ code: 'pass-start-missing', severity: 'error', fields: ['passStart'], message: '외박 출발일을 입력하세요.' });
         }
         if (!input.passEnd) {
             issues.push({ code: 'pass-end-missing', severity: 'error', fields: ['passEnd'], message: '외박 복귀일을 입력하세요.' });
         }
         if (input.passStart && input.passEnd && input.passStart > input.passEnd) {
-            issues.push({ code: 'pass-range-inverted', severity: 'error', fields: ['passStart', 'passEnd'], message: '외박 시작일이 복귀일보다 늦습니다.' });
+            issues.push({ code: 'pass-range-inverted', severity: 'error', fields: ['passStart', 'passEnd'], message: '외박 복귀일은 출발일 다음 날 이후여야 합니다.' });
         }
         const reason = input.passReason.trim();
         if (!reason) {

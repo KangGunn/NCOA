@@ -134,66 +134,220 @@ function issueTone(issues: EditIssue[]): 'error' | 'warning' | null {
     return null;
 }
 
-interface DateFieldProps {
-    field: EditField;
-    label: string;
-    value: string;
-    onChange: (value: string) => void;
+const WEEKDAY_KO = ['일', '월', '화', '수', '목', '금', '토'];
+
+const parseIso = (iso: string) => {
+    const [y, m, d] = iso.split('-').map(Number);
+    return new Date(y, m - 1, d);
+};
+const toIso = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const formatDateKo = (iso: string) => {
+    if (!iso) return '';
+    const d = parseIso(iso);
+    return `${d.getMonth() + 1}월 ${d.getDate()}일 (${WEEKDAY_KO[d.getDay()]})`;
+};
+
+interface DateRangeFieldProps {
+    startField: EditField;
+    endField: EditField;
+    startLabel: string;
+    endLabel: string;
+    start: string;
+    end: string;
+    /** 두 번째 날짜를 고르면 한 번에 바뀐다 */
+    onChange: (start: string, end: string) => void;
     accent: Accent;
     issues: EditIssue[];
+    /** 끝 날짜는 시작 날짜보다 최소 며칠 뒤여야 하는지 (외박: 출발일 다음 날부터 복귀 가능 → 1, 휴가 → 0) */
+    minGapDays: number;
+    /** 날짜가 비어 있을 때 처음 보여 줄 달 */
+    defaultMonthIso: string;
+    /** 이번 편집 기간 (달력에 옅게 표시) */
+    periodRange?: { start: string; end: string } | null;
 }
 
-function DateField({ field, label, value, onChange, accent, issues }: DateFieldProps) {
-    const tone = issueTone(issues);
-    const formatDateDisplay = (isoStr: string) => {
-        if (!isoStr) return '날짜 선택';
-        const parts = isoStr.split('-');
-        if (parts.length === 3) {
-            const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-            const dayKo = ['일', '월', '화', '수', '목', '금', '토'][d.getDay()];
-            return `${parseInt(parts[1], 10)}월 ${parseInt(parts[2], 10)}일 (${dayKo})`;
-        }
-        return isoStr;
+/**
+ * 항공권·숙소 예약처럼 달력에서 시작과 끝을 차례로 눌러 한 번에 고른다.
+ * 첫 번째 누름 = 시작, 두 번째 누름 = 끝. 끝이 시작보다 이르면(또는 최소 간격보다 가까우면) 그 날을 새 시작으로 본다.
+ */
+function DateRangeField({
+    startField, endField, startLabel, endLabel, start, end, onChange,
+    accent, issues, minGapDays, defaultMonthIso, periodRange
+}: DateRangeFieldProps) {
+    const [open, setOpen] = useState(false);
+    const [pending, setPending] = useState<string | null>(null);
+    const [month, setMonth] = useState(() => {
+        const d = parseIso(start || defaultMonthIso);
+        return new Date(d.getFullYear(), d.getMonth(), 1);
+    });
+
+    const startIssues = getFieldIssues(issues, startField);
+    const endIssues = getFieldIssues(issues, endField);
+    const tone = issueTone([...startIssues, ...endIssues]);
+    const startTone = issueTone(startIssues);
+    const endTone = issueTone(endIssues);
+
+    const openPicker = () => {
+        const d = parseIso(start || defaultMonthIso);
+        setMonth(new Date(d.getFullYear(), d.getMonth(), 1));
+        setPending(null);
+        setOpen(true);
     };
 
+    const pick = (iso: string) => {
+        if (!pending) {
+            setPending(iso);
+            return;
+        }
+        if (iso < addDaysIso(pending, minGapDays)) {
+            setPending(iso);
+            return;
+        }
+        onChange(pending, iso);
+        setPending(null);
+        setOpen(false);
+    };
+
+    // 달력 칸: 그 달 1일이 있는 주의 일요일부터 6주
+    const first = new Date(month.getFullYear(), month.getMonth(), 1);
+    const gridStart = new Date(first);
+    gridStart.setDate(1 - first.getDay());
+    const cells = Array.from({ length: 42 }, (_, i) => {
+        const d = new Date(gridStart);
+        d.setDate(gridStart.getDate() + i);
+        return d;
+    });
+    const lastRowNeeded = cells.slice(35).some(d => d.getMonth() === month.getMonth());
+    const visibleCells = lastRowNeeded ? cells : cells.slice(0, 35);
+
+    const shownStart = pending ?? start;
+    const shownEnd = pending ? '' : end;
+    const todayIso = toIso(new Date());
+
+    const slotClass = (slotTone: 'error' | 'warning' | null, active: boolean) => cn(
+        'flex-1 min-w-0 text-left px-3 py-2.5',
+        slotTone === 'error' ? 'bg-red-50' : slotTone === 'warning' ? 'bg-amber-50' : active ? 'bg-gray-50' : 'bg-white'
+    );
+
     return (
-        <div id={fieldDomId(field)} className="min-w-0" data-invalid={tone === 'error' || undefined}>
-            <label className={cn(
-                'text-xs font-bold block mb-1.5',
-                tone === 'error' ? 'text-red-600' : 'text-gray-600'
-            )}>
-                {label}
-            </label>
-            <div className={cn(
-                'relative flex items-center justify-between w-full min-w-0 overflow-hidden px-3 py-2.5 bg-white border rounded-xl transition-all shadow-sm',
-                tone === 'error'
-                    ? 'border-red-500 bg-red-50 ring-2 ring-red-200'
-                    : tone === 'warning'
-                        ? 'border-amber-400 bg-amber-50'
-                        : cn('border-gray-300', ACCENT[accent].ring)
-            )}>
-                <span className={cn(
-                    'text-sm font-semibold truncate pointer-events-none select-none',
-                    value ? (tone === 'error' ? 'text-red-700' : 'text-gray-900') : 'text-gray-400'
-                )}>
-                    {formatDateDisplay(value)}
-                </span>
-                <Calendar className={cn('w-4 h-4 shrink-0 ml-1 pointer-events-none', tone === 'error' ? 'text-red-400' : 'text-gray-400')} />
-                <input
-                    type="date"
-                    value={value}
-                    aria-invalid={tone === 'error'}
-                    onChange={(e) => onChange(e.target.value)}
-                    onClick={(e) => {
-                        try {
-                            e.currentTarget.showPicker?.();
-                        } catch { /* showPicker 미지원 브라우저 */ }
-                    }}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10 m-0 p-0 border-0"
-                    style={{ fontSize: '16px' }}
-                />
+        <div className="min-w-0">
+            <div
+                className={cn(
+                    'flex items-stretch w-full overflow-hidden border rounded-xl shadow-sm divide-x transition-all',
+                    tone === 'error'
+                        ? 'border-red-500 ring-2 ring-red-200 divide-red-200'
+                        : tone === 'warning'
+                            ? 'border-amber-400 divide-amber-200'
+                            : cn('border-gray-300 divide-gray-200', open && ACCENT[accent].ring)
+                )}
+            >
+                {([
+                    { field: startField, label: startLabel, value: start, slotTone: startTone },
+                    { field: endField, label: endLabel, value: end, slotTone: endTone },
+                ] as const).map(slot => (
+                    <button
+                        key={slot.field}
+                        id={fieldDomId(slot.field)}
+                        type="button"
+                        data-invalid={slot.slotTone === 'error' || undefined}
+                        aria-invalid={slot.slotTone === 'error'}
+                        onClick={() => (open ? setOpen(false) : openPicker())}
+                        className={slotClass(slot.slotTone, open)}
+                    >
+                        <span className={cn('block text-[11px] font-bold', slot.slotTone === 'error' ? 'text-red-600' : 'text-gray-500')}>
+                            {slot.label}
+                        </span>
+                        <span className={cn(
+                            'block text-sm font-semibold truncate',
+                            slot.value ? (slot.slotTone === 'error' ? 'text-red-700' : 'text-gray-900') : 'text-gray-400'
+                        )}>
+                            {slot.value ? formatDateKo(slot.value) : '날짜 선택'}
+                        </span>
+                    </button>
+                ))}
+                <button
+                    type="button"
+                    aria-label={open ? '달력 닫기' : '달력 열기'}
+                    onClick={() => (open ? setOpen(false) : openPicker())}
+                    className="px-3 flex items-center bg-white"
+                >
+                    <Calendar className={cn('w-4 h-4', tone === 'error' ? 'text-red-400' : 'text-gray-400')} />
+                </button>
             </div>
-            <IssueText field={field} issues={issues} />
+
+            {open && (
+                <div className="mt-2 border border-gray-200 rounded-xl bg-white shadow-md p-3">
+                    <div className="flex items-center justify-between mb-2">
+                        <button
+                            type="button"
+                            aria-label="이전 달"
+                            onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}
+                            className="p-1.5 rounded-lg hover:bg-gray-100"
+                        >
+                            <ChevronLeft className="w-4 h-4 text-gray-600" />
+                        </button>
+                        <span className="text-sm font-black text-gray-900">
+                            {month.getFullYear()}년 {month.getMonth() + 1}월
+                        </span>
+                        <button
+                            type="button"
+                            aria-label="다음 달"
+                            onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}
+                            className="p-1.5 rounded-lg hover:bg-gray-100"
+                        >
+                            <ChevronRight className="w-4 h-4 text-gray-600" />
+                        </button>
+                    </div>
+                    <p className="text-xs font-bold text-gray-500 mb-2 text-center">
+                        {pending
+                            ? `${startLabel} ${formatDateKo(pending)} · 이제 ${endLabel}을 고르세요`
+                            : `${startLabel}을 고르세요`}
+                    </p>
+                    <div className="grid grid-cols-7 text-center text-[11px] font-bold mb-1">
+                        {WEEKDAY_KO.map((w, i) => (
+                            <span key={w} className={i === 0 ? 'text-red-500' : i === 6 ? 'text-blue-500' : 'text-gray-400'}>{w}</span>
+                        ))}
+                    </div>
+                    <div className="grid grid-cols-7 gap-y-1">
+                        {visibleCells.map(d => {
+                            const iso = toIso(d);
+                            const inMonth = d.getMonth() === month.getMonth();
+                            const isStart = iso === shownStart;
+                            const isEnd = iso === shownEnd;
+                            const inSel = !!(shownStart && shownEnd && iso > shownStart && iso < shownEnd);
+                            const inPeriod = !!(periodRange && iso >= periodRange.start && iso <= periodRange.end);
+                            const tooClose = !!(pending && iso > pending && iso < addDaysIso(pending, minGapDays));
+                            return (
+                                <button
+                                    key={iso}
+                                    type="button"
+                                    onClick={() => pick(iso)}
+                                    className={cn(
+                                        'h-9 text-sm font-semibold transition-colors',
+                                        inSel && (accent === 'blue' ? 'bg-blue-100' : 'bg-orange-100'),
+                                        !inSel && !isStart && !isEnd && inPeriod && 'bg-gray-100',
+                                        isStart && shownEnd && 'rounded-l-lg',
+                                        isEnd && 'rounded-r-lg',
+                                        (isStart || isEnd)
+                                            ? cn(ACCENT[accent].selected, !shownEnd && 'rounded-lg')
+                                            : inMonth ? 'text-gray-800 hover:bg-gray-200 rounded-lg' : 'text-gray-300 hover:bg-gray-100 rounded-lg',
+                                        tooClose && 'text-gray-300',
+                                        iso === todayIso && !isStart && !isEnd && 'underline underline-offset-4'
+                                    )}
+                                >
+                                    {d.getDate()}
+                                </button>
+                            );
+                        })}
+                    </div>
+                    {periodRange && (
+                        <p className="mt-2 text-[11px] text-gray-400 text-center">회색 칸은 이번 편집 기간입니다.</p>
+                    )}
+                </div>
+            )}
+            <IssueText field={startField} issues={issues} />
+            <IssueText field={endField} issues={issues} />
         </div>
     );
 }
@@ -591,12 +745,17 @@ interface MovementSectionProps {
     reasonField: EditField;
     startLabel: string;
     endLabel: string;
+    /** 달력에 보여 주는 시작·끝 (외박은 출발일·복귀일, 휴가는 출발일·복귀일) */
     start: string;
     end: string;
+    /** 제목 옆에 보여 줄 일수 */
+    days: number;
     reasonChoice: ReasonChoice;
     reasonPreview: string;
-    onStartChange: (v: string) => void;
-    onEndChange: (v: string) => void;
+    onRangeChange: (start: string, end: string) => void;
+    minGapDays: number;
+    defaultMonthIso: string;
+    periodRange?: { start: string; end: string } | null;
     onReasonChoiceChange: (choice: ReasonChoice) => void;
     options: string[];
     detail?: DetailConfig | null;
@@ -611,12 +770,11 @@ interface MovementSectionProps {
 function MovementSection({
     title, accent, enabled, onToggle,
     startField, endField, reasonField, startLabel, endLabel,
-    start, end, reasonChoice, reasonPreview, onStartChange, onEndChange, onReasonChoiceChange,
+    start, end, days, reasonChoice, reasonPreview, onRangeChange, minGapDays, defaultMonthIso, periodRange, onReasonChoiceChange,
     options, detail = null, holidayOptions, customPlaceholder, issues, footer, note
 }: MovementSectionProps) {
     const sectionIssues = issues.filter(i => i.fields.some(f => f === startField || f === endField || f === reasonField));
     const tone = issueTone(sectionIssues);
-    const days = start && end && start <= end ? countDaysInclusive(start, end) : 0;
 
     return (
         <section className={cn(
@@ -657,24 +815,20 @@ function MovementSection({
 
             {enabled ? (
                 <div className="px-4 sm:px-5 py-4 space-y-5">
-                    <div className="grid grid-cols-2 gap-3">
-                        <DateField
-                            field={startField}
-                            label={startLabel}
-                            value={start}
-                            onChange={onStartChange}
-                            accent={accent}
-                            issues={getFieldIssues(issues, startField)}
-                        />
-                        <DateField
-                            field={endField}
-                            label={endLabel}
-                            value={end}
-                            onChange={onEndChange}
-                            accent={accent}
-                            issues={getFieldIssues(issues, endField)}
-                        />
-                    </div>
+                    <DateRangeField
+                        startField={startField}
+                        endField={endField}
+                        startLabel={startLabel}
+                        endLabel={endLabel}
+                        start={start}
+                        end={end}
+                        onChange={onRangeChange}
+                        accent={accent}
+                        issues={issues}
+                        minGapDays={minGapDays}
+                        defaultMonthIso={defaultMonthIso}
+                        periodRange={periodRange}
+                    />
                     <ReasonPicker
                         field={reasonField}
                         options={options}
@@ -1333,7 +1487,7 @@ export function MovementEditPage({
             : '저장 및 시트 반영';
 
     const page = (
-        <div className="fixed inset-0 z-[100] flex flex-col bg-slate-50 animate-in fade-in duration-150">
+        <div className="safe-area-top-always fixed inset-0 z-[100] flex flex-col bg-slate-50 animate-in fade-in duration-150">
             {/* Header */}
             <header className="shrink-0 bg-white border-b border-gray-200">
                 <div className="max-w-5xl mx-auto flex items-center gap-3 px-4 sm:px-6 h-14 sm:h-16">
@@ -1407,18 +1561,20 @@ export function MovementEditPage({
                             startField="passStart"
                             endField="passEnd"
                             reasonField="passReason"
-                            startLabel="외박 시작일"
+                            startLabel="외박 출발일"
                             endLabel="복귀일"
-                            start={passStart}
+                            start={passStart ? addDaysIso(passStart, -1) : ''}
                             end={passEnd}
+                            days={passDays}
+                            minGapDays={1}
+                            defaultMonthIso={coreStartIso}
+                            periodRange={{ start: coreStartIso, end: coreEndIso }}
                             reasonChoice={passChoice}
                             reasonPreview={passReason}
-                            onStartChange={(v) => {
-                                setPassStart(v);
-                                setPassAutoNote(null);
-                            }}
-                            onEndChange={(v) => {
-                                setPassEnd(v);
+                            onRangeChange={(depart, ret) => {
+                                // 외박 첫날(시작일) = 출발일 다음 날
+                                setPassStart(addDaysIso(depart, 1));
+                                setPassEnd(ret);
                                 setPassAutoNote(null);
                             }}
                             onReasonChoiceChange={handlePassChoiceChange}
@@ -1455,10 +1611,16 @@ export function MovementEditPage({
                             endLabel="복귀일"
                             start={vacationStart}
                             end={vacationEnd}
+                            days={vacationDays}
+                            minGapDays={0}
+                            defaultMonthIso={coreStartIso}
+                            periodRange={{ start: coreStartIso, end: coreEndIso }}
                             reasonChoice={vacationChoice}
                             reasonPreview={vacationReason}
-                            onStartChange={setVacationStart}
-                            onEndChange={setVacationEnd}
+                            onRangeChange={(s, e) => {
+                                setVacationStart(s);
+                                setVacationEnd(e);
+                            }}
                             onReasonChoiceChange={setVacationChoice}
                             detail={vacationDetail}
                             options={vacationOptions}

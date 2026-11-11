@@ -634,7 +634,7 @@ export function DutyTrackerModal({ isOpen, onClose, events, members, currentDate
     };
 
     return createPortal(
-        <div className="fixed inset-y-0 left-1/2 -translate-x-1/2 w-full max-w-md z-[100] flex items-center justify-center bg-black/30 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div className="overlay-safe fixed inset-y-0 left-1/2 -translate-x-1/2 w-full max-w-md z-[100] flex items-center justify-center bg-black/30 backdrop-blur-sm p-4 animate-in fade-in duration-200">
             <div className="w-full max-w-md bg-white rounded-[2.5rem] p-8 space-y-4 shadow-2xl animate-in slide-in-from-bottom-10 max-h-[85vh] flex flex-col">
                 
                 {/* Header */}

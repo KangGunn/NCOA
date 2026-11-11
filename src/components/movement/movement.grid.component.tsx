@@ -338,7 +338,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                     )}
                     <div
                         className={cn(
-                            "bg-white border border-gray-100 rounded-xl px-2 sm:px-3 py-0 shadow-sm transition-all flex items-center gap-2 sm:gap-4 relative h-[56px]",
+                            "bg-white border border-gray-100 rounded-xl px-2 sm:px-3 py-0 shadow-sm transition-all flex items-center gap-1.5 min-[360px]:gap-2 sm:gap-4 relative h-[56px] min-w-0",
                             opensEditorOnCardTap && "cursor-pointer hover:border-gray-200 hover:bg-gray-50/60 active:bg-gray-100/70"
                         )}
                         onClick={opensEditorOnCardTap ? openEditor : undefined}
@@ -352,14 +352,31 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                             }
                         } : undefined}
                     >
-                        <div className="w-20 sm:w-24 shrink-0 flex items-center">
-                            <span className="text-xs sm:text-sm font-black text-gray-900 truncate block">{member.name}</span>
-                        </div>
+                        {/*
+                          화면이 좁으면 이름 칸이 먼저 줄어든다 (잔디와 버튼은 잘리지 않게 고정).
+                          여백·크기를 줄여도 '병장 김원범'(약 60px)이 다 안 들어가면 단계적으로 줄인다:
+                          319px 이하 → 히스토리 버튼 숨김, 289px 이하 → 계급 숨기고 이름만.
+                        */}
+                        {(() => {
+                            const rankSplit = member.name.match(/^(병장|상병|일병|이병)\s*(.+)$/);
+                            return (
+                                <div className="w-20 sm:w-24 min-w-0 flex items-center">
+                                    <span className="text-[11px] min-[360px]:text-xs sm:text-sm font-black text-gray-900 truncate block">
+                                        {rankSplit ? (
+                                            <>
+                                                <span className="max-[289px]:hidden">{rankSplit[1]} </span>
+                                                {rankSplit[2]}
+                                            </>
+                                        ) : member.name}
+                                    </span>
+                                </div>
+                            );
+                        })()}
 
                         <div className="flex-1 flex items-stretch overflow-visible pb-1 no-scrollbar pt-3 h-full">
                             <div 
                                 className={cn(
-                                    "inline-flex items-center gap-1 overflow-visible relative h-full group/timeline",
+                                    "inline-flex items-center gap-0.5 min-[360px]:gap-[3px] sm:gap-1 overflow-visible relative h-full group/timeline",
                                     hasReason && "cursor-pointer"
                                 )}
                                 onClick={(e) => {
@@ -580,7 +597,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                     <div key={tIdx} className="flex flex-col items-center gap-1 relative">
                                         <div
                                             className={cn(
-                                                "w-4 h-4 rounded-sm transition-all duration-300",
+                                                "w-3 h-3 min-[360px]:w-3.5 min-[360px]:h-3.5 sm:w-4 sm:h-4 rounded-sm transition-all duration-300",
                                                 status === 'none' && "bg-gray-100",
                                                 status === 'pass' && "bg-blue-500 shadow-[0_0_6px_rgba(59,130,246,0.3)]",
                                                 status === 'pass-depart' && "",
@@ -641,7 +658,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-1 shrink-0">
+                        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
@@ -649,7 +666,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                                     const formattedName = rankMatch ? `${rankMatch[2]} ${rankMatch[1]}` : member.name;
                                     setHistoryMember({ name: cleanName, fullName: formattedName });
                                 }}
-                                className="flex items-center justify-center p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0"
+                                className="flex max-[319px]:hidden items-center justify-center p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0"
                                 title="출타 히스토리"
                             >
                                 <History className="w-4 h-4" />

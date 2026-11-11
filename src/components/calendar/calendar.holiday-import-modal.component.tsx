@@ -142,7 +142,7 @@ export function HolidayImportModal({ isOpen, onClose, events }: HolidayImportMod
     if (!isOpen) return null;
 
     return createPortal(
-        <div className="fixed inset-y-0 left-1/2 -translate-x-1/2 w-full max-w-md z-[100] flex items-end sm:items-center justify-center bg-black/30 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div className="overlay-safe fixed inset-y-0 left-1/2 -translate-x-1/2 w-full max-w-md z-[100] flex items-end sm:items-center justify-center bg-black/30 backdrop-blur-sm p-4 animate-in fade-in duration-200">
             <div className="w-full max-w-md bg-white rounded-[2.5rem] p-6 sm:p-8 space-y-4 shadow-2xl animate-in slide-in-from-bottom-10 flex flex-col max-h-[90vh]">
                 <div className="flex items-start justify-between gap-3 shrink-0">
                     <div className="min-w-0">

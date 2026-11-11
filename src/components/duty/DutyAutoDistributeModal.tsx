@@ -298,7 +298,7 @@ export function DutyAutoDistributeModal({
     const isOverBudget = totalTarget > daysInMonth;
 
     return createPortal(
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200">
+        <div className="overlay-safe fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200">
             <div className="relative w-[740px] max-h-[90vh] bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden">
                 {/* 로딩/진행률 오버레이 */}
                 {isRunning && (

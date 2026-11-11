@@ -13,7 +13,7 @@ import { PenaltyDutyModal } from '../calendar/calendar.penalty-duty-modal.compon
 import { HolidayImportModal } from '../calendar/calendar.holiday-import-modal.component';
 import {
     getKtaReferenceDate, getKtaReferenceBatch, getKtaReferenceType,
-    getBlcReferenceDate, getBlcReferenceBatch
+    getBlcReferenceDate, getBlcReferenceBatch, nextDayOf
 } from '../../utils/calendar.utils';
 
 interface CalendarTabProps {
@@ -237,9 +237,9 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
                 removeEventFromTemplate={removeEventFromTemplate}
                 handleKtaSave={handleKtaSave}
                 isKTASaving={isKTASaving}
-                ktaReferenceBatch={getKtaReferenceBatch(events)}
-                ktaReferenceType={getKtaReferenceType(events)}
-                ktaReferenceDate={getKtaReferenceDate(events)}
+                ktaReferenceBatch={getKtaReferenceBatch(events, nextDayOf(baseDate))}
+                ktaReferenceType={getKtaReferenceType(events, nextDayOf(baseDate))}
+                ktaReferenceDate={getKtaReferenceDate(events, nextDayOf(baseDate))}
             />
 
             <BlcTemplateModal
@@ -252,8 +252,8 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
                 removeEventFromBlcTemplate={removeEventFromBlcTemplate}
                 handleBlcSave={handleBlcSave}
                 isBLCSaving={isBLCSaving}
-                blcReferenceBatch={getBlcReferenceBatch(events)}
-                blcReferenceDate={getBlcReferenceDate(events)}
+                blcReferenceBatch={getBlcReferenceBatch(events, nextDayOf(baseDate))}
+                blcReferenceDate={getBlcReferenceDate(events, nextDayOf(baseDate))}
                 isHolidayDate={isHolidayDate}
             />
 

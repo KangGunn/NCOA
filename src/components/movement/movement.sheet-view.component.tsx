@@ -2030,12 +2030,12 @@ export function MovementSheetView({
                 </div>
             )}
 
-            <div className="flex flex-row items-center justify-between bg-white border border-gray-200 rounded-2xl p-2 sm:p-3 shadow-sm gap-2 sm:gap-4 overflow-visible">
+            <div className="flex flex-row items-center justify-between bg-white border border-gray-200 rounded-2xl p-2 sm:p-3 shadow-sm gap-1.5 min-[360px]:gap-2 sm:gap-4 overflow-visible min-w-0">
                 {/* Left: Copy Table button */}
                 <div className="flex gap-2 shrink-0">
                     <button
                         onClick={handleCopyTable}
-                        className="flex items-center justify-center gap-1.5 px-2.5 sm:px-4 h-[44px] bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 hover:border-indigo-200 rounded-xl text-xs sm:text-sm font-bold text-indigo-600 transition-all shadow-sm w-auto whitespace-nowrap"
+                        className="flex items-center justify-center gap-1 min-[360px]:gap-1.5 px-2 min-[360px]:px-2.5 sm:px-4 h-[44px] bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 hover:border-indigo-200 rounded-xl text-xs sm:text-sm font-bold text-indigo-600 transition-all shadow-sm w-auto whitespace-nowrap"
                     >
                         <Copy className="w-4 h-4 shrink-0" />
                         <span>패스지</span>
@@ -2043,12 +2043,12 @@ export function MovementSheetView({
                 </div>
 
                 {/* Center: Date Range */}
-                <div className="text-[15px] sm:text-lg md:text-xl font-black text-gray-900 tracking-tight text-center whitespace-nowrap shrink-0">
+                <div className="text-[13px] min-[360px]:text-[15px] sm:text-lg md:text-xl font-black text-gray-900 tracking-tight text-center whitespace-nowrap min-w-0 truncate">
                     {currentWeek.startDate} ~ {currentWeek.endDate}
                 </div>
 
                 {/* Right: Navigation buttons side-by-side */}
-                <div className="flex items-center justify-center gap-1.5 shrink-0">
+                <div className="flex items-center justify-center gap-1 min-[360px]:gap-1.5 shrink-0">
                     <button
                         onClick={() => setCurrentWeekIndex(i => Math.max(0, i - 1))}
                         disabled={currentWeekIndex === 0}
