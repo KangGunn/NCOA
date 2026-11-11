@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings } from 'lucide-react';
+import { Settings, FileUp } from 'lucide-react';
 import { useCalendarSync } from '../../hooks/calendar/calendar.sync.hook';
 import { useCalendarSchedule } from '../../hooks/calendar/calendar.schedule.hook';
 import { useCalendarTemplate } from '../../hooks/calendar/calendar.template.hook';
@@ -10,6 +10,7 @@ import { BatchDutyModal } from '../calendar/calendar.batch-duty-modal.component'
 import { KtaTemplateModal, BlcTemplateModal } from '../calendar/calendar.template-modals.component';
 import { DutyTrackerModal } from '../calendar/calendar.tracker-modal.component';
 import { PenaltyDutyModal } from '../calendar/calendar.penalty-duty-modal.component';
+import { HolidayImportModal } from '../calendar/calendar.holiday-import-modal.component';
 import {
     getKtaReferenceDate, getKtaReferenceBatch, getKtaReferenceType,
     getBlcReferenceDate, getBlcReferenceBatch
@@ -23,6 +24,7 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [isTrackerOpen, setIsTrackerOpen] = useState(false);
     const [isPenaltyModalOpen, setIsPenaltyModalOpen] = useState(false);
+    const [isHolidayImportOpen, setIsHolidayImportOpen] = useState(false);
     const [calendarMode, setCalendarMode] = useState<'schedule' | 'duty'>(() => {
         const saved = localStorage.getItem('ncoa_calendar_mode');
         return (saved === 'schedule' || saved === 'duty') ? saved : 'schedule';
@@ -81,7 +83,7 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
 
     // Stop scrolling when modals are open
     useEffect(() => {
-        if (isAdding || isBatchDutyAdding || isKTAScheduleAdding || isBLCScheduleAdding || isTrackerOpen || isPenaltyModalOpen) {
+        if (isAdding || isBatchDutyAdding || isKTAScheduleAdding || isBLCScheduleAdding || isTrackerOpen || isPenaltyModalOpen || isHolidayImportOpen) {
             document.documentElement.style.overflow = 'hidden';
             document.body.style.overflow = 'hidden';
         } else {
@@ -92,7 +94,7 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
             document.documentElement.style.overflow = '';
             document.body.style.overflow = '';
         };
-    }, [isAdding, isBatchDutyAdding, isKTAScheduleAdding, isBLCScheduleAdding, isTrackerOpen, isPenaltyModalOpen]);
+    }, [isAdding, isBatchDutyAdding, isKTAScheduleAdding, isBLCScheduleAdding, isTrackerOpen, isPenaltyModalOpen, isHolidayImportOpen]);
 
     const prevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1));
     const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1));
@@ -164,6 +166,14 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
                 >
                     <Settings className="w-3.5 h-3.5" />
                     <span>BLC 일정 템플릿</span>
+                </button>
+                <button
+                    onClick={() => setIsHolidayImportOpen(true)}
+                    style={{ height: '44px' }}
+                    className="col-span-2 px-4 bg-gray-50 text-gray-700 rounded-xl text-sm font-black hover:bg-gray-100 transition-colors border border-gray-200/60 flex items-center justify-center gap-1.5 whitespace-nowrap"
+                >
+                    <FileUp className="w-3.5 h-3.5" />
+                    <span>휴일표 PDF로 당직 휴일 추가</span>
                 </button>
             </div>
 
@@ -259,6 +269,12 @@ export default function CalendarTab({ baseDate }: CalendarTabProps) {
                 isOpen={isPenaltyModalOpen}
                 onClose={() => setIsPenaltyModalOpen(false)}
                 members={members}
+            />
+
+            <HolidayImportModal
+                isOpen={isHolidayImportOpen}
+                onClose={() => setIsHolidayImportOpen(false)}
+                events={events}
             />
         </div>
     );
