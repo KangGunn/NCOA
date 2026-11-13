@@ -34,11 +34,14 @@ export function parseSheetEvents(prevData: any[], currData: any[], nextData: any
             if (!c || !c.includes("외박") && !c.includes("휴가") && !c.includes("연계")) return;
 
             const type = c.includes("휴가") ? "vacation" : "pass";
+            // 셀에는 그날 일이 여러 개 들어갈 수 있다(예: '외박복귀/휴가출발'). 종류에 맞는 단어로만 출발·복귀를 판단한다.
+            const departWord = type === "vacation" ? "휴가출발" : "외박출발";
+            const returnWord = type === "vacation" ? "휴가복귀" : "외박복귀";
 
             let startIdx = idx;
             for (let k = idx; k >= 0 && k >= idx - 14; k--) {
                 const pc = rowDays[k].cell;
-                if (pc.includes("출발")) {
+                if (pc.includes(departWord) || (k < idx && pc.includes("출발"))) {
                     startIdx = type === "vacation" ? k : Math.min(k + 1, rowDays.length - 1);
                     break;
                 }
@@ -51,7 +54,7 @@ export function parseSheetEvents(prevData: any[], currData: any[], nextData: any
             let endIdx = idx;
             for (let k = idx; k < rowDays.length && k <= idx + 14; k++) {
                 const nc = rowDays[k].cell;
-                if (nc.includes("복귀") || (k > idx && nc.includes("출발"))) { endIdx = k; break; }
+                if (nc.includes(returnWord) || (k > idx && nc.includes("출발"))) { endIdx = k; break; }
                 if (!nc.includes("외박") && !nc.includes("휴가") && !nc.includes("연계")) { endIdx = k - 1; break; }
                 if (k === rowDays.length - 1) endIdx = rowDays.length - 1;
             }
@@ -65,17 +68,18 @@ export function parseSheetEvents(prevData: any[], currData: any[], nextData: any
                 id: `sheet-${type}-${name}-${day.dateStr}`,
                 type, memo: name,
                 startDate: day.dateStr, endDate: day.dateStr,
-                isReturnDay: c.includes("복귀"),
+                isReturnDay: c.includes(returnWord),
                 isDepartDay: c.includes("출발"),
-                isConsecutive: c.includes("연계"),
+                // 외휴연계: 외박 복귀일에 휴가 출발 (새 표기 '외박복귀/휴가출발', 예전 '휴가출발(연계)')
+                isConsecutive: c.includes("외박복귀/휴가출발") || c.includes("휴가출발(연계)"),
                 dateText,
             });
 
             // 휴가 복귀일에 외박 출발인 경우(휴외연계): 당일 저녁점호부터 외박 처리를 위해 pass-depart 이벤트 추가
             const nextDay = rowDays[idx + 1];
-            const isVacationReturn = type === "vacation" && c.includes("복귀");
-            const hasPassNextDay = nextDay && nextDay.cell && nextDay.cell.includes("외박");
-            const hasPassToday = c.includes("외박") && c.includes("출발");
+            const isVacationReturn = type === "vacation" && c.includes("휴가복귀");
+            const hasPassNextDay = nextDay && nextDay.cell && nextDay.cell.includes("외박") && !nextDay.cell.startsWith("외박복귀");
+            const hasPassToday = c.includes("외박출발");
 
             if (isVacationReturn && (hasPassNextDay || hasPassToday)) {
                 let passDateText = "";

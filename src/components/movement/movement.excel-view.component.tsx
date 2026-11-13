@@ -101,6 +101,9 @@ export function MovementExcelView({
         return records;
     });
 
+    // 경고(요일 불일치, 휴가 일수 불일치, 당직자 불일치)가 하나라도 있으면 반영하지 않는다
+    const hasWarnings = parsedData.some((item: any) => item.warning);
+
     return (
         <div className="space-y-4 animate-in zoom-in-95 duration-300">
             <div className="bg-green-50 border border-green-100 rounded-2xl p-4 flex items-center justify-between gap-3 text-green-700">
@@ -113,7 +116,8 @@ export function MovementExcelView({
                 <div className="flex gap-2">
                     <button
                         onClick={() => handleSync()}
-                        disabled={syncing}
+                        disabled={syncing || hasWarnings}
+                        title={hasWarnings ? '경고가 있는 항목을 고친 뒤 다시 올려 주세요' : undefined}
                         className="px-4 py-2 bg-green-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-green-200 active:scale-95 transition-all flex items-center gap-2 disabled:opacity-50 whitespace-nowrap"
                     >
                         {syncing ? (
@@ -132,11 +136,11 @@ export function MovementExcelView({
                 </div>
             </div>
 
-            {parsedData.some((item: any) => item.warning) && (
+            {hasWarnings && (
                 <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-amber-800 space-y-2 animate-in slide-in-from-top-2">
                     <div className="flex items-center gap-2 font-bold text-amber-900">
                         <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
-                        <span>기간과 사유의 일수가 일치하지 않는 항목이 있습니다:</span>
+                        <span>경고가 있어 반영할 수 없습니다. 엑셀을 고친 뒤 다시 올려 주세요.</span>
                     </div>
                     <ul className="list-disc pl-5 text-xs sm:text-sm space-y-1 text-amber-700">
                         {parsedData.filter((item: any) => item.warning).map((item: any, idx: number) => (

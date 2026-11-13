@@ -10,6 +10,7 @@
  * 날짜는 'YYYY-MM-DD', 시트/잔디 키는 'M.D'.
  */
 import { addDaysIso } from './movement.edit-validation.ts';
+import { composeSheetCell } from './movement.sheet-cell.ts';
 
 export interface DateRange {
     start: string;
@@ -216,10 +217,8 @@ export interface CellUpdateContext extends StatusContext {
 }
 
 function vacationCellValue(iso: string, v: DateRange, linkedStart: boolean): string {
-    if (iso === v.start) {
-        if (linkedStart) return '휴가출발(연계)';
-        return v.start === v.end ? '휴가' : '휴가출발';
-    }
+    // 출발일: 외휴연계면 '외박복귀/휴가출발', 당일 휴가면 '휴가출발/휴가복귀' (둘 다면 '외박복귀/휴가출발/휴가복귀')
+    if (iso === v.start) return composeSheetCell({ passReturn: linkedStart, vacationDepart: true, vacationReturn: v.start === v.end }, false);
     if (iso === v.end) return '휴가복귀';
     return '휴가';
 }
@@ -234,7 +233,6 @@ export function buildCellUpdates(ctx: CellUpdateContext): Record<string, string>
     const vac = editedVacation(ctx);
     const isLinked = !!(pass && vac && pass.end === vac.start);
     const passDepart = pass ? addDaysIso(pass.start, -1) : '';
-    const linkDepartValue = ctx.allowVacationPassLink ? '외박출발(연계)' : '외박 휴가복귀/외박출발';
 
     // 1. 원래 차지하던 날 중 새 값이 덮지 않는 날 비우기 (다른 기간 기록에 속하면 그 값으로 되돌림)
     for (const iso of ctx.ownedOriginalDates) {
@@ -259,29 +257,42 @@ export function buildCellUpdates(ctx: CellUpdateContext): Record<string, string>
     // 2. 새 외박
     if (pass) {
         // 시작 전날이 당직이면 리커버리 날(외박 첫날)에 바로 출발한다. 당직 칸에 '외박출발'을 쓰지 않는다.
-        cells[isoToMD(passDepart)] = '외박출발';
+        // 다른 기간 외박이 출발일에 복귀하면 '외박복귀/외박출발'
+        cells[isoToMD(passDepart)] = composeSheetCell({ passReturn: ctx.retainedPasses.some(p => p.end === passDepart), passDepart: true }, false);
         for (const iso of eachIsoDate(pass.start, pass.end)) {
-            cells[isoToMD(iso)] = iso === pass.end ? (isLinked ? '휴가출발(연계)' : '외박복귀') : '외박';
+            if (iso !== pass.end) {
+                cells[isoToMD(iso)] = '외박';
+                continue;
+            }
+            // 복귀일: 외휴연계면 휴가출발까지(당일 휴가면 휴가복귀까지), 다음 외박이 그날 출발하면 외박출발까지 함께 적는다
+            cells[isoToMD(iso)] = composeSheetCell({
+                passReturn: true,
+                vacationDepart: isLinked,
+                vacationReturn: isLinked && vac!.start === vac!.end,
+                passDepart: !isLinked && ctx.retainedPasses.some(p => addDaysIso(p.start, -1) === iso),
+            }, false);
         }
     }
 
     // 3. 새 휴가
     if (vac) {
         for (const iso of eachIsoDate(vac.start, vac.end)) {
-            if (iso === vac.start && isLinked) continue; // 외박 복귀일 칸('휴가출발(연계)')을 그대로 둔다
+            if (iso === vac.start && isLinked) continue; // 외박 복귀일 칸('외박복귀/휴가출발')을 그대로 둔다
             cells[isoToMD(iso)] = vacationCellValue(iso, vac, false);
         }
     }
 
     // 4. 휴외연계: 휴가 복귀일에 외박 출발 (이번 기간 휴가 또는 다른 기간 휴가)
     if (pass) {
-        const returnsOnDepart = [...(vac ? [vac] : []), ...ctx.retainedVacations]
-            .some(v => v.end === passDepart || v.end === pass.start);
-        if (returnsOnDepart) {
-            const departCell = [...(vac ? [vac] : []), ...ctx.retainedVacations].some(v => v.end === pass.start)
-                ? pass.start
-                : passDepart;
-            cells[isoToMD(departCell)] = linkDepartValue;
+        const vacations = [...(vac ? [vac] : []), ...ctx.retainedVacations];
+        const returning = vacations.find(v => v.end === pass.start) || vacations.find(v => v.end === passDepart);
+        if (returning) {
+            const departCell = returning.end;
+            // 휴가복귀/외박출발 (허용이면 '휴가복귀(연계)/외박출발'), 당일 휴가면 '휴가출발/휴가복귀/외박출발'
+            cells[isoToMD(departCell)] = composeSheetCell(
+                { vacationDepart: returning.start === returning.end, vacationReturn: true, passDepart: true },
+                ctx.allowVacationPassLink,
+            );
         }
     }
 

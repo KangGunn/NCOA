@@ -36,7 +36,8 @@ export type IssueCode =
     | 'pass-vacation-overlap'
     | 'pass-overlaps-existing'
     | 'vacation-overlaps-existing'
-    | 'vacation-pass-link-disabled';
+    | 'vacation-pass-link-disabled'
+    | 'linked-one-day-vacation';
 
 export interface EditIssue {
     code: IssueCode;
@@ -272,6 +273,16 @@ export function validateMovementEdit(input: MovementEditInput): EditIssue[] {
                 severity: 'error',
                 fields: ['passStart', 'passEnd', 'vacationStart', 'vacationEnd'],
                 message: `외박(${rangeLabel(input.passStart, input.passEnd)})과 휴가(${rangeLabel(input.vacationStart, input.vacationEnd)}) 기간이 겹칩니다.`
+            });
+        }
+
+        // 외박 복귀일에 당일 휴가(같은 날 휴가 출발·복귀)는 없는 일이다
+        if (input.passEnd === input.vacationStart && input.vacationStart === input.vacationEnd) {
+            issues.push({
+                code: 'linked-one-day-vacation',
+                severity: 'error',
+                fields: ['vacationStart', 'vacationEnd'],
+                message: '외박 복귀일에는 당일 휴가를 쓸 수 없습니다. 휴가 날짜를 확인하세요.'
             });
         }
 

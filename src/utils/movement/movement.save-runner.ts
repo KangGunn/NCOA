@@ -46,7 +46,12 @@ export interface SaveJobView {
     label: string;
     status: 'pending' | 'running' | 'failed';
     done: { firestore?: boolean; sheet?: boolean };
+    /** 실패 이유 (무엇을 고쳐야 하는지) */
     lastError?: string;
+    /** 원래 오류 문구 */
+    errorDetail?: string;
+    /** 서버가 처리를 시작한 시각 (ms) */
+    startedAt?: number;
 }
 
 export interface SaveQueueState {
@@ -63,9 +68,17 @@ let lastCompletedAt = 0;
 let started = false;
 const listeners = new Set<(s: SaveQueueState) => void>();
 
+/** 서버 처리 시간 한도(2분)를 넘겨도 '처리 중'이면 멈춘 것으로 본다 */
+const STALE_RUNNING_MS = 3 * 60 * 1000;
+
 const currentJobs = (): SaveJobView[] => {
     const ids = new Set(serverJobs.map(j => j.id));
-    return [...serverJobs, ...[...localJobs.values()].filter(j => !ids.has(j.id))];
+    const now = Date.now();
+    return [...serverJobs, ...[...localJobs.values()].filter(j => !ids.has(j.id))].map(j =>
+        j.status === 'running' && j.startedAt && now - j.startedAt > STALE_RUNNING_MS
+            ? { ...j, status: 'failed' as const, lastError: '서버 처리 시간이 초과되었습니다. 다시 시도해 주세요.' }
+            : j
+    );
 };
 
 function getState(): SaveQueueState {
@@ -93,6 +106,8 @@ function start() {
                     status: data.status,
                     done: data.done || {},
                     lastError: data.lastError,
+                    errorDetail: data.errorDetail,
+                    startedAt: data.startedAt?.toMillis ? data.startedAt.toMillis() : undefined,
                 };
             });
             // 서버 목록에 들어온 요청은 로컬 표시에서 뺀다 (서버 목록에서 빠지면 끝난 것)
@@ -141,7 +156,7 @@ export const movementSaveQueue = {
     /** 실패한 요청을 서버가 다시 처리하게 한다 (끝난 단계는 건너뛴다) */
     retry(id: string) {
         if (localJobs.has(id) && !serverJobs.some(j => j.id === id)) return; // 서버에 닿지도 못한 요청은 다시 시도할 문서가 없다
-        void updateDoc(doc(db, JOBS, id), { status: 'pending', attempts: 0, lastError: deleteField() });
+        void updateDoc(doc(db, JOBS, id), { status: 'pending', attempts: 0, lastError: deleteField(), errorDetail: deleteField() });
     },
     /** 실패한 요청을 버린다 (화면 값은 새로고침하면 서버 값으로 돌아간다) */
     discard(id: string) {

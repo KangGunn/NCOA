@@ -3,11 +3,15 @@ import { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
 import axios from 'axios';
-import { doc, onSnapshot, setDoc, serverTimestamp, collection, getDoc, writeBatch, getDocs, query, where } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, serverTimestamp, collection, getDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import type { MovementRecord } from '../../types/movement/movement.type';
 import { extractDayCountFromText, extractPureMemberName } from '../../utils/movement.utils';
+import { stayWeekendMD } from '../../utils/movement/movement.stay-weekend';
+import { submitMovementImport } from '../../utils/movement/movement.import-job';
+import { nearestYearDate, rangeEndDate, toIsoDate } from '../../utils/movement/movement.year';
 import { movementSaveQueue } from '../../utils/movement/movement.save-runner';
+import { sheetCellToStatus } from '../../utils/movement/movement.sheet-cell';
 
 
 /** 이 기기에서 저장한 뒤 이 시간 안에 오는 시트 갱신 신호는 조용히 다시 읽는다 */
@@ -119,6 +123,8 @@ export function useMovementSync(baseDate?: Date) {
 
     // 이 기기에서 저장한 직후 시트 갱신 신호가 오면, 화면은 이미 최신이므로 로딩 화면 없이 뒤에서만 다시 읽는다
     const selfUpdateUntilRef = useRef(0);
+    // 마지막으로 파싱한 엑셀의 기준 주말 (서버가 월.일의 연도를 정할 때 쓴다)
+    const parsedAnchorIsoRef = useRef<string>('');
 
     const handleLocalScheduleUpdate = (cleanName: string, updatedStatuses: Record<string, string>, savedMovement?: any) => {
         recentEditsRef.current.set(cleanName, { dayStatuses: updatedStatuses, timestamp: Date.now() });
@@ -374,25 +380,8 @@ export function useMovementSync(baseDate?: Date) {
 
                             blockCols.forEach((c, idx) => {
                                 const cell = row[c.col] || '';
-                                let status = 'none';
-                                if (cell.includes('외박')) {
-                                    if (cell.includes('출발')) status = 'pass-depart';
-                                    else status = 'pass';
-                                }
-                                if (cell.includes('휴가')) {
-                                    status = 'vacation';
-                                }
-                                if (cell.includes('외박출발') && cell.includes('연계')) {
-                                    status = 'vacation-pass-depart';
-                                } else if (cell.includes('휴가') && cell.includes('외박')) {
-                                    status = 'vacation-pass-depart';
-                                }
-                                if (cell.includes('당직')) status = 'duty';
-                                if (cell.includes('휴가출발') && cell.includes('연계')) {
-                                    status = 'linked';
-                                } else if (cell.includes('연계') && !cell.includes('외박')) {
-                                    status = 'linked';
-                                }
+                                // 새 값('외박복귀/휴가출발' 등)과 예전 값('휴가출발(연계)' 등)을 모두 읽는다
+                                let status = sheetCellToStatus(cell);
 
                                 if (status === 'none' && idx > 0) {
                                     const yesterdayCell = row[blockCols[idx - 1].col] || '';
@@ -503,7 +492,9 @@ export function useMovementSync(baseDate?: Date) {
                 const rawData = XLSX.utils.sheet_to_json(ws) as any[];
 
                 const extractedData: any[] = [];
-                const currentYear = new Date().getFullYear();
+                // 댓글에는 연도가 없으므로 월.일마다 기준일(점호 날짜, 없으면 오늘)에서 가장 가까운 연도를 쓴다
+                const yearRef = baseDate ? new Date(baseDate) : new Date();
+                const dateOf = (m: number, d: number) => nearestYearDate(m, d, yearRef);
 
                 const dayOfWeekMap: Record<string, number> = {
                     '일': 0, '일당': 0,
@@ -545,8 +536,8 @@ export function useMovementSync(baseDate?: Date) {
                             const endD = parseInt(rangeMatch[4]);
                             allDetectedMonths.push(startM, endM);
                             allDetectedDates.push(
-                                new Date(currentYear, startM - 1, startD, 12, 0, 0, 0),
-                                new Date(currentYear, endM - 1, endD, 12, 0, 0, 0)
+                                dateOf(startM, startD),
+                                rangeEndDate(dateOf(startM, startD), endM, endD)
                             );
                         } else {
                             const splitGlobalRegex = /(\d{1,2})[./](\d{1,2})/g;
@@ -556,7 +547,7 @@ export function useMovementSync(baseDate?: Date) {
                                 const m = parseInt(sMatch[1]);
                                 const d = parseInt(sMatch[2]);
                                 allDetectedMonths.push(m);
-                                allDetectedDates.push(new Date(currentYear, m - 1, d, 12, 0, 0, 0));
+                                allDetectedDates.push(dateOf(m, d));
                                 foundAny = true;
                             }
                             if (!foundAny) {
@@ -565,7 +556,7 @@ export function useMovementSync(baseDate?: Date) {
                                     const m = parseInt(singleMatch[1]);
                                     const d = parseInt(singleMatch[2]);
                                     allDetectedMonths.push(m);
-                                    allDetectedDates.push(new Date(currentYear, m - 1, d, 12, 0, 0, 0));
+                                    allDetectedDates.push(dateOf(m, d));
                                 }
                             }
                         }
@@ -580,14 +571,14 @@ export function useMovementSync(baseDate?: Date) {
                                 const vD2 = parseInt(vRangeMatch[4]);
                                 allDetectedMonths.push(vM1, vM2);
                                 allDetectedDates.push(
-                                    new Date(currentYear, vM1 - 1, vD1, 12, 0, 0, 0),
-                                    new Date(currentYear, vM2 - 1, vD2, 12, 0, 0, 0)
+                                    dateOf(vM1, vD1),
+                                    rangeEndDate(dateOf(vM1, vD1), vM2, vD2)
                                 );
                             } else if (vSingleMatch) {
                                 const vM = parseInt(vSingleMatch[1]);
                                 const vD = parseInt(vSingleMatch[2]);
                                 allDetectedMonths.push(vM);
-                                allDetectedDates.push(new Date(currentYear, vM - 1, vD, 12, 0, 0, 0));
+                                allDetectedDates.push(dateOf(vM, vD));
                             }
                         }
                     });
@@ -721,14 +712,14 @@ export function useMovementSync(baseDate?: Date) {
                     const warnings: string[] = [];
 
                     if (d !== null && m !== null) {
-                        const targetDate = new Date(currentYear, m - 1, d, 12, 0, 0, 0);
+                        const targetDate = dateOf(m, d);
                         const actualDayIndex = targetDate.getDay();
 
                         if (expectedDayIndex !== null && actualDayIndex !== expectedDayIndex) {
                             warnings.push(`${m}.${d}일은 ${dayNames[actualDayIndex]}요일이나, 댓글에는 '${specDayOfWeek}'(으)로 표기되어 일치하지 않습니다.`);
                         }
 
-                        const targetDateISO = `${currentYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                        const targetDateISO = toIsoDate(targetDate);
                         const savedDuty = dutySchedules.find((s: any) => (s.type === 'duty' || !s.type) && s.startDate === targetDateISO);
                         if (savedDuty && savedDuty.memo) {
                             const excelNameClean = extractPureMemberName(name);
@@ -766,8 +757,8 @@ export function useMovementSync(baseDate?: Date) {
                     const vM2 = vRangeMatch ? (vRangeMatch[3] ? parseInt(vRangeMatch[3]) : vM1) : vM1;
                     const vD2 = vRangeMatch ? parseInt(vRangeMatch[4]) : vD1;
 
-                    const vStartDate = new Date(currentYear, vM1 - 1, vD1, 12, 0, 0, 0);
-                    const vEndDate = new Date(currentYear, vM2 - 1, vD2, 12, 0, 0, 0);
+                    const vStartDate = dateOf(vM1, vD1);
+                    const vEndDate = rangeEndDate(dateOf(vM1, vD1), vM2, vD2);
 
                     const vStartStr = `${vM1}.${vD1}`;
                     const vEndStr = `${vM2}.${vD2}`;
@@ -869,7 +860,7 @@ export function useMovementSync(baseDate?: Date) {
                                 splitMatches.forEach(item => {
                                     const m = item.m;
                                     const d = item.d;
-                                    const endDate = new Date(currentYear, m - 1, d, 12, 0, 0, 0);
+                                    const endDate = dateOf(m, d);
                                     const departDate = new Date(endDate);
                                     departDate.setDate(endDate.getDate() - 1);
                                     departDate.setHours(12, 0, 0, 0);
@@ -911,8 +902,8 @@ export function useMovementSync(baseDate?: Date) {
                                 const endM = rangeMatch[3] ? parseInt(rangeMatch[3]) : startM;
                                 const endD = parseInt(rangeMatch[4]);
 
-                                const startDate = new Date(currentYear, startM - 1, startD, 12, 0, 0, 0);
-                                const endDate = new Date(currentYear, endM - 1, endD, 12, 0, 0, 0);
+                                const startDate = dateOf(startM, startD);
+                                const endDate = rangeEndDate(dateOf(startM, startD), endM, endD);
                                 const departDate = new Date(startDate);
                                 departDate.setDate(startDate.getDate() - 1);
                                 departDate.setHours(12, 0, 0, 0);
@@ -944,7 +935,7 @@ export function useMovementSync(baseDate?: Date) {
                                     const m = parseInt(singleMatch[1]);
                                     const d = parseInt(singleMatch[2]);
 
-                                    const endDate = new Date(currentYear, m - 1, d, 12, 0, 0, 0);
+                                    const endDate = dateOf(m, d);
                                     const departDate = new Date(endDate);
                                     departDate.setDate(endDate.getDate() - 1);
                                     departDate.setHours(12, 0, 0, 0);
@@ -1029,7 +1020,10 @@ export function useMovementSync(baseDate?: Date) {
                     });
                 }
 
-                setParsedData(extractedData);
+                // 잔류 기록 기간은 항상 기준 주의 토요일~일요일
+                const stayWeek = stayWeekendMD(anchorWeekend);
+                parsedAnchorIsoRef.current = toIsoDate(anchorWeekend);
+                setParsedData(extractedData.map((item: any) => (item.type === '잔류' ? { ...item, stayStart: stayWeek.start, stayEnd: stayWeek.end } : item)));
                 setLoading(false);
             } catch (err) {
                 console.error('Error parsing excel:', err);
@@ -1050,291 +1044,57 @@ export function useMovementSync(baseDate?: Date) {
     const handleSync = async (resolvedData?: any[]) => {
         const targetData = resolvedData || parsedData;
         if (!targetData) return;
+        // 경고가 있는 항목이 하나라도 있으면 반영하지 않는다 (엑셀을 고쳐 다시 올린다)
+        const warned = targetData.filter((m: any) => m.warning);
+        if (warned.length > 0) {
+            setError(`경고가 있는 항목 ${warned.length}건이 있어 반영하지 않았습니다. 엑셀을 고친 뒤 다시 올려 주세요.`);
+            return;
+        }
         if (!confirm('분석된 데이터를 스프레드시트에 반영할까요?')) return;
 
         setSyncing(true);
         setError(null);
         setSuccess(null);
 
+        // 동명이인에서 고른 이름을 반영한다
+        const movementsToSync = targetData.map(m => ({ ...m, name: resolutions[m.name] || m.name }));
         try {
-            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-            const baseUrl = isLocal
-                ? (import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:5001/seniorkatusa-aa594/asia-northeast3')
-                : 'https://asia-northeast3-seniorkatusa-aa594.cloudfunctions.net';
-
-            const movementsToSync = targetData.map(m => {
-                const resolvedName = resolutions[m.name] || m.name;
-                return { ...m, name: resolvedName };
-            });
-
-            const response = await axios.post(`${baseUrl}/syncMovementToSheet`, {
-                movements: movementsToSync
-            });
-
-            if (response.data.status === "ambiguous") {
-                setAmbiguousMembers(response.data.ambiguousMembers);
+            // 시트와 Firestore 기록은 서버가 처리한다 (앱을 닫아도 계속된다). 결과만 받아 화면에 보여 준다.
+            await submitMovementImport(movementsToSync, parsedAnchorIsoRef.current || toIsoDate(new Date()), (state) => {
+                if (state.status === 'pending' || state.status === 'running') return;
                 setSyncing(false);
-                return;
-            }
-
-            if (response.data.status === 'success') {
-                const currentYear = new Date().getFullYear();
-                const toISODate = (monthDayStr: string) => {
-                    if (!monthDayStr) return '';
-                    const clean = monthDayStr.replace(/\(원데이\)/, '').trim();
-                    const parts = clean.split(/[./~-]/).map(p => p.trim());
-                    if (parts.length < 2) return '';
-                    const m = parseInt(parts[0]);
-                    const d = parseInt(parts[1]);
-                    if (isNaN(m) || isNaN(d)) return '';
-                    return `${currentYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                };
-
-                // Find date range of sync and names
-                let minDate = '9999-12-31';
-                let maxDate = '0000-01-01';
-                const namesToSync = new Set<string>();
-
-                movementsToSync.forEach(m => {
-                    const cleanName = m.name.replace(/^(병장|상병|일병|이병)\s*/, '');
-                    namesToSync.add(cleanName);
-
-                    if (m.period && m.type === '외박') {
-                        const [startStr, endStr] = m.period.split(/[~-]/).map((s: string) => s.trim());
-                        const startDate = toISODate(startStr);
-                        const endDate = endStr ? toISODate(endStr) : startDate;
-                        if (startDate && startDate < minDate) minDate = startDate;
-                        if (endDate && endDate > maxDate) maxDate = endDate;
-                    }
-                    if (m.vacation) {
-                        const startDate = toISODate(m.vacation.depart);
-                        const endDate = toISODate(m.vacation.return);
-                        if (startDate && startDate < minDate) minDate = startDate;
-                        if (endDate && endDate > maxDate) maxDate = endDate;
-                    }
-                });
-
-                // Determine the main pass dates of this synced batch (most frequent pass period)
-                const passPeriods: Record<string, number> = {};
-                movementsToSync.forEach(m => {
-                    if (m.type === '외박' && m.period && !m.period.includes('원데이')) {
-                        passPeriods[m.period] = (passPeriods[m.period] || 0) + 1;
-                    }
-                });
-                let maxPeriodCount = 0;
-                let mainPassPeriod = '';
-                Object.entries(passPeriods).forEach(([p, count]) => {
-                    if (count > maxPeriodCount) {
-                        maxPeriodCount = count;
-                        mainPassPeriod = p;
-                    }
-                });
-
-                let mainPassStart = '';
-                let mainPassEnd = '';
-                if (mainPassPeriod) {
-                    const [startStr, endStr] = mainPassPeriod.split(/[~-]/).map((s: string) => s.trim());
-                    mainPassStart = toISODate(startStr);
-                    mainPassEnd = endStr ? toISODate(endStr) : mainPassStart;
-                    if (mainPassStart && mainPassEnd && mainPassEnd < mainPassStart) {
-                        const [y, m, d] = mainPassEnd.split('-').map(Number);
-                        mainPassEnd = `${y + 1}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                    }
-                }
-                if (!mainPassStart && minDate !== '9999-12-31' && maxDate !== '0000-01-01') {
-                    mainPassStart = minDate;
-                    mainPassEnd = maxDate;
-                }
-
-                // Build specific intervals being synced for each member to prevent deleting outside ranges
-                const intervalsByMember = new Map<string, { start: string, end: string }[]>();
-                movementsToSync.forEach(m => {
-                    const cleanName = m.name.replace(/^(병장|상병|일병|이병)\s*/, '');
-                    if (!intervalsByMember.has(cleanName)) {
-                        intervalsByMember.set(cleanName, []);
-                    }
-                    const list = intervalsByMember.get(cleanName)!;
-
-                    if (m.period && m.type === '외박') {
-                        const [startStr, endStr] = m.period.split(/[~-]/).map((s: string) => s.trim());
-                        const startDate = toISODate(startStr);
-                        const endDate = endStr ? toISODate(endStr) : startDate;
-                        if (startDate && endDate) {
-                            list.push({ start: startDate, end: endDate });
-                        }
-                    }
-                    if (m.type === '잔류' && mainPassStart && mainPassEnd) {
-                        list.push({ start: mainPassStart, end: mainPassEnd });
-                    }
-                    if (m.vacation) {
-                        const startDate = toISODate(m.vacation.depart);
-                        const endDate = toISODate(m.vacation.return);
-                        if (startDate && endDate) {
-                            list.push({ start: startDate, end: endDate });
-                        }
-                    }
-                });
-
-                // 1. Delete existing movements for these names that overlap with this range
-                if (namesToSync.size > 0 && minDate !== '9999-12-31' && maxDate !== '0000-01-01') {
-                    const namesArray = Array.from(namesToSync);
-                    const chunkSize = 30;
-                    const existingDocs: any[] = [];
-
-                    for (let i = 0; i < namesArray.length; i += chunkSize) {
-                        const chunk = namesArray.slice(i, i + chunkSize);
-                        const qExisting = query(
-                            collection(db, 'movements'),
-                            where('name', 'in', chunk)
-                        );
-                        const snapExisting = await getDocs(qExisting);
-                        existingDocs.push(...snapExisting.docs);
-                    }
-
-                    const deleteBatch = writeBatch(db);
-                    let shouldCommitDelete = false;
-
-                    existingDocs.forEach(docSnap => {
-                        const data = docSnap.data();
-                        const cleanName = data.name;
-                        const existStart = data.startDate;
-                        const existEnd = data.endDate;
-                        const existType = data.type; // 'pass', 'stay', 'vacation'
-
-                        // Find overlapping movements in the Excel data
-                        const matchingSyncMovs = movementsToSync.filter(m => {
-                            const mCleanName = m.name.replace(/^(병장|상병|일병|이병)\s*/, '');
-                            if (mCleanName !== cleanName) return false;
-
-                            let mStart = '';
-                            let mEnd = '';
-                            let mType = '';
-                            if (m.type === '외박' && m.period) {
-                                const [s, e] = m.period.split(/[~-]/).map((x: string) => x.trim());
-                                mStart = toISODate(s);
-                                mEnd = e ? toISODate(e) : mStart;
-                                mType = 'pass';
-                            } else if (m.vacation) {
-                                mStart = toISODate(m.vacation.depart);
-                                mEnd = toISODate(m.vacation.return);
-                                mType = 'vacation';
-                            } else if (m.type === '잔류') {
-                                mStart = mainPassStart;
-                                mEnd = mainPassEnd;
-                                mType = 'stay';
-                            }
-
-                            // A vacation should ONLY match and delete an incoming vacation!
-                            // A pass or stay should ONLY match and delete an incoming pass/stay!
-                            if (existType === 'vacation') {
-                                if (mType !== 'vacation') return false;
-                            } else {
-                                if (mType === 'vacation') return false;
-                            }
-
-                            if (mStart && mEnd) {
-                                return existStart <= mEnd && existEnd >= mStart;
-                            }
-                            return false;
+                if (state.status === 'done') {
+                    setSuccess(`${state.count ?? 0}개의 셀이 성공적으로 업데이트되었습니다!`);
+                    setAmbiguousMembers(null);
+                    setResolutions({});
+                    if (sheetMode) fetchSpreadsheet(sheetMode);
+                } else if (state.status === 'ambiguous') {
+                    setAmbiguousMembers(state.ambiguousMembers || []);
+                } else if (state.status === 'warning') {
+                    // 시트에 없는 이름·날짜: 아무것도 쓰지 않았다. 해당 항목에 경고를 붙여 검토 화면에 보여 주고 반영을 막는다.
+                    const warnings = state.warnings || [];
+                    const reverse = new Map(Object.entries(resolutions).map(([excel, sheet]) => [sheet, excel]));
+                    setParsedData(prev => {
+                        if (!prev) return prev;
+                        const used = new Set<number>();
+                        const next = prev.map((item: any) => ({ ...item }));
+                        warnings.forEach(w => {
+                            const idx = next.findIndex((item: any, i: number) => !used.has(i) && (item.name === w.name || item.name === reverse.get(w.name)));
+                            if (idx === -1) return;
+                            used.add(idx);
+                            next[idx].warning = next[idx].warning ? `${next[idx].warning} / ${w.message}` : w.message;
                         });
-
-                        if (matchingSyncMovs.length > 0) {
-                            deleteBatch.delete(docSnap.ref);
-                            shouldCommitDelete = true;
-                        } else if (existType !== 'vacation') {
-                            // Check stay overlaps only for non-vacation movements!
-                            const list = intervalsByMember.get(cleanName) || [];
-                            const overlaps = list.some(interval => {
-                                return existStart <= interval.end && existEnd >= interval.start;
-                            });
-                            if (overlaps) {
-                                deleteBatch.delete(docSnap.ref);
-                                shouldCommitDelete = true;
-                            }
-                        }
+                        return next;
                     });
-
-                    if (shouldCommitDelete) {
-                        await deleteBatch.commit();
-                    }
+                    setError(`시트와 맞지 않는 항목 ${warnings.length}건이 있어 반영하지 않았습니다. 아래 경고를 확인하세요.`);
+                } else if (state.status === 'failed') {
+                    const detail = state.errorDetail && state.errorDetail !== state.lastError ? ` (원인: ${state.errorDetail})` : '';
+                    setError(`반영 실패: ${state.lastError || '알 수 없는 오류'}${detail}`);
                 }
-
-                // 2. Add new movements to Firestore
-                const addBatch = writeBatch(db);
-                let shouldCommitAdd = false;
-
-                movementsToSync.forEach(m => {
-                    const cleanName = m.name.replace(/^(병장|상병|일병|이병)\s*/, '');
-
-                    // Save pass movement
-                    if (m.period && m.type === '외박') {
-                        const [startStr, endStr] = m.period.split(/[~-]/).map((s: string) => s.trim());
-                        const startDate = toISODate(startStr);
-                        const endDate = endStr ? toISODate(endStr) : startDate;
-
-                        if (startDate && endDate) {
-                            const docRef = doc(collection(db, 'movements'));
-                            addBatch.set(docRef, {
-                                name: cleanName,
-                                type: 'pass',
-                                startDate,
-                                endDate,
-                                reason: m.reason || '',
-                                createdAt: serverTimestamp()
-                            });
-                            shouldCommitAdd = true;
-                        }
-                    }
-
-                    // Save stayback movement
-                    if (m.type === '잔류' && mainPassStart && mainPassEnd) {
-                        const docRef = doc(collection(db, 'movements'));
-                        addBatch.set(docRef, {
-                            name: cleanName,
-                            type: 'stay',
-                            startDate: mainPassStart,
-                            endDate: mainPassEnd,
-                            reason: m.detail || '잔류',
-                            createdAt: serverTimestamp()
-                        });
-                        shouldCommitAdd = true;
-                    }
-
-                    // Save vacation movement
-                    if (m.vacation) {
-                        const startDate = toISODate(m.vacation.depart);
-                        const endDate = toISODate(m.vacation.return);
-
-                        if (startDate && endDate) {
-                            const docRef = doc(collection(db, 'movements'));
-                            addBatch.set(docRef, {
-                                name: cleanName,
-                                type: 'vacation',
-                                startDate,
-                                endDate,
-                                reason: m.vacation.reason || '',
-                                createdAt: serverTimestamp()
-                            });
-                            shouldCommitAdd = true;
-                        }
-                    }
-                });
-
-                if (shouldCommitAdd) {
-                    await addBatch.commit();
-                }
-
-                setSuccess(`${response.data.count}개의 셀이 성공적으로 업데이트되었습니다!`);
-                setAmbiguousMembers(null);
-                setResolutions({});
-                if (sheetMode) fetchSpreadsheet(sheetMode);
-            } else {
-                throw new Error(response.data.message);
-            }
+            });
         } catch (err: any) {
             console.error('Sync error:', err);
-            setError(`동기화 실패: ${err.response?.data?.message || err.message}`);
-        } finally {
+            setError(`동기화 실패: ${err.message}`);
             setSyncing(false);
         }
     };
@@ -1360,10 +1120,11 @@ export function useMovementSync(baseDate?: Date) {
             if (d.date) allDates.push(d.date);
         });
 
-        const currentYear = baseDate ? baseDate.getFullYear() : new Date().getFullYear();
+        // 연말을 넘는 날짜도 순서대로 놓이도록, 엑셀 기준 주말(없으면 점호 날짜)에서 가장 가까운 연도를 쓴다
+        const yearRef = parsedAnchorIsoRef.current ? new Date(`${parsedAnchorIsoRef.current}T12:00:00`) : (baseDate ? new Date(baseDate) : new Date());
         const dateObjects = Array.from(new Set(allDates)).map(d => {
             const [m, day] = d.split('.').map(Number);
-            return { str: d, date: new Date(currentYear, m - 1, day, 12, 0, 0, 0) };
+            return { str: d, date: nearestYearDate(m, day, yearRef) };
         }).sort((a, b) => a.date.getTime() - b.date.getTime());
 
         if (dateObjects.length === 0) return { timeline: [], dataList: [] };
