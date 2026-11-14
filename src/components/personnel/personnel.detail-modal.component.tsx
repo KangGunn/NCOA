@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { deleteDoc, doc, collection, query, where, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import {
@@ -33,6 +34,13 @@ export function PersonnelDetailModal({
 }: PersonnelDetailModalProps) {
     const [editing, setEditing] = useState(false);
     const [deleting, setDeleting] = useState(false);
+
+    // 모달이 열려 있는 동안 뒤 화면이 스크롤되지 않게 한다 (수정 화면으로 바뀌어도 잠금은 이어진다)
+    useEffect(() => {
+        const prev = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        return () => { document.body.style.overflow = prev; };
+    }, []);
 
     // 유급생 전용 외박/휴가 목록
     const [memberSchedules, setMemberSchedules] = useState<MemberScheduleItem[]>([]);
@@ -135,7 +143,8 @@ export function PersonnelDetailModal({
         );
     }
 
-    return (
+    // 인원 탭의 등장 애니메이션(transform) 안에서는 fixed 배경이 화면 전체를 덮지 못하므로 body에 띄운다
+    return createPortal(
         <div className="overlay-safe fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
             <div className="w-full max-w-md bg-white rounded-[2rem] p-8 space-y-6 shadow-2xl max-h-[90vh] overflow-y-auto">
                 <div className="flex items-center justify-between">
@@ -369,6 +378,7 @@ export function PersonnelDetailModal({
                     </button>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 }
