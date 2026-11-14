@@ -38,6 +38,10 @@ export interface MovementSaveJobData {
         dayStatuses: Record<string, string>;
         cellUpdates: Record<string, string>;
     };
+    /** 시트에 행이 아직 없는 신병의 인원 id (deferSheet와 함께) */
+    memberId?: string;
+    /** true면 시트에 쓰지 않고 인원 문서에 모아 둔다 (신병 정보가 채워지면 시트에 반영) */
+    deferSheet?: boolean;
     status: "pending" | "running" | "done" | "failed";
     done?: { firestore?: boolean; sheet?: boolean };
     attempts?: number;

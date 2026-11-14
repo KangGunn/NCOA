@@ -4,15 +4,15 @@ import { FieldValue, type DocumentReference } from "firebase-admin/firestore";
 import { db } from "../config/firebase.config";
 import { updateMemberScheduleInSheet } from "./sheetSync.service";
 import { planMovementWrites, type MovementSaveJobData, type MovementDoc } from "../utils/movementSaveJob.util";
+import { explainError } from "../utils/jobError.util";
+import { getKSTDateStr } from "../utils/date.util";
+import { needsSheetRow } from "../utils/recruitSheet.util";
+import { addRecruitToSheet, deferRecruitSheet } from "./recruitSheet.service";
 
 /** 한 번의 처리에서 실패하면 이만큼 기다렸다가 다시 시도한다 (그 뒤에도 실패하면 'failed') */
 const RETRY_DELAYS_MS = [2000, 6000];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-function describeError(err: any): string {
-    return err?.response?.data?.message || err?.message || String(err);
-}
 
 /** 이번 기간의 외박(잔류)·휴가 문서를 요청 값으로 맞춘다 */
 async function writeMovements(job: MovementSaveJobData) {
@@ -38,9 +38,24 @@ async function claim(ref: DocumentReference): Promise<MovementSaveJobData | null
     });
 }
 
+/**
+ * 시트에 행이 아직 없는 신병: 출타 기록은 '신병#<id>' 이름으로 Firestore에 쓰고, 시트 칸은 인원 문서에 모아 둔다.
+ * 그 사이 행이 이미 추가됐으면(실제 이름이 생김) 일반 저장처럼 실제 이름으로 처리하도록 바꾼 요청을 돌려준다.
+ */
+async function resolveDeferredJob(job: MovementSaveJobData): Promise<MovementSaveJobData> {
+    if (!job.deferSheet || !job.memberId) return job;
+    const snap = await db.collection("members").doc(job.memberId).get();
+    const member: any = snap.data();
+    if (member?.sheetRowName && member?.name) {
+        return { ...job, memberName: String(member.name).trim(), deferSheet: false };
+    }
+    return job;
+}
+
 export async function processMovementSaveJob(ref: DocumentReference) {
-    const job = await claim(ref);
-    if (!job) return;
+    const claimed = await claim(ref);
+    if (!claimed) return;
+    const job = await resolveDeferredJob(claimed);
 
     const done = { ...(job.done || {}) };
     let attempts = job.attempts || 0;
@@ -48,32 +63,52 @@ export async function processMovementSaveJob(ref: DocumentReference) {
 
     for (let round = 0; ; round++) {
         try {
-            if (!done.firestore) {
-                await writeMovements(job);
-                done.firestore = true;
-                await ref.update({ "done.firestore": true });
+            if (job.deferSheet && job.memberId) {
+                // 시트에 행이 없는 신병: 기록 먼저, 시트 칸은 인원 문서에 모아 둔다
+                if (!done.firestore) {
+                    await writeMovements(job);
+                    done.firestore = true;
+                    await ref.update({ "done.firestore": true });
+                }
+                if (!done.sheet) {
+                    const deferred = await deferRecruitSheet(job.memberId, job.sheet);
+                    done.sheet = true;
+                    await ref.update({ "done.sheet": true, sheetDeferred: true });
+                    // 정보가 이미 다 채워졌는데 행 추가가 아직이면(예: 전에 실패) 지금 추가한다
+                    if (!deferred.sheetRowName && needsSheetRow(deferred.member, getKSTDateStr())) {
+                        await addRecruitToSheet(job.memberId);
+                    }
+                }
             }
+            // 시트를 먼저 쓴다: 시트에 없는 이름·날짜면 여기서 멈추므로 기록만 따로 남지 않는다
             if (!done.sheet) {
                 await updateMemberScheduleInSheet(job.memberName, job.sheet?.dayStatuses || {}, job.sheet?.cellUpdates || {});
                 done.sheet = true;
+                await ref.update({ "done.sheet": true });
+            }
+            if (!done.firestore) {
+                await writeMovements(job);
+                done.firestore = true;
             }
             await ref.update({
                 status: "done",
-                "done.sheet": true,
+                "done.firestore": true,
                 lastError: FieldValue.delete(),
+                errorDetail: FieldValue.delete(),
                 finishedAt: FieldValue.serverTimestamp(),
             });
             return;
         } catch (err: any) {
             attempts += 1;
-            const message = describeError(err);
-            logger.warn(`movement save job ${ref.id} failed (attempt ${attempts}): ${message}`);
-            if (round < RETRY_DELAYS_MS.length) {
-                await ref.update({ attempts, lastError: message });
+            const ex = explainError(err);
+            logger.warn(`movement save job ${ref.id} failed (attempt ${attempts}): ${ex.detail}`);
+            // 일시 오류만 다시 시도한다. 사람이 고쳐야 하는 오류는 바로 실패로 두고 이유를 남긴다.
+            if (!ex.permanent && round < RETRY_DELAYS_MS.length) {
+                await ref.update({ attempts, lastError: ex.message, errorDetail: ex.detail });
                 await sleep(RETRY_DELAYS_MS[round]);
                 continue;
             }
-            await ref.update({ status: "failed", attempts, lastError: message, finishedAt: FieldValue.serverTimestamp() });
+            await ref.update({ status: "failed", attempts, lastError: ex.message, errorDetail: ex.detail, finishedAt: FieldValue.serverTimestamp() });
             return;
         }
     }

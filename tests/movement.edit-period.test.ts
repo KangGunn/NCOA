@@ -126,7 +126,7 @@ test('removing a pass that departed on a retained vacation return day restores �
     assert.deepEqual(buildCellUpdates({ ...ctx, allowVacationPassLink: false }), { '11.19': '휴가복귀', '11.20': '', '11.21': '' });
 });
 
-test('pass departing on vacation return day uses the link cell value', () => {
+test('pass departing on vacation return day writes 휴가복귀/외박출발 (no link mark)', () => {
     const cells = buildCellUpdates({
         ...empty,
         hasPass: true, passStart: '2026-11-14', passEnd: '2026-11-15',
@@ -134,11 +134,11 @@ test('pass departing on vacation return day uses the link cell value', () => {
         ownedOriginalDates: [], retainedVacations: [], retainedPasses: [], isDutyOn: noDuty,
         allowVacationPassLink: true,
     });
-    assert.equal(cells['11.13'], '외박출발(연계)');
+    assert.equal(cells['11.13'], '휴가복귀/외박출발');
     assert.equal(cells['11.12'], '휴가');
 });
 
-test('외휴연계 keeps 휴가출발(연계) on the pass return day', () => {
+test('외휴연계 writes 외박복귀/휴가출발 on the pass return day', () => {
     const cells = buildCellUpdates({
         ...empty,
         hasPass: true, passStart: '2026-11-14', passEnd: '2026-11-15',
@@ -146,7 +146,7 @@ test('외휴연계 keeps 휴가출발(연계) on the pass return day', () => {
         ownedOriginalDates: [], retainedVacations: [], retainedPasses: [], isDutyOn: noDuty,
         allowVacationPassLink: false,
     });
-    assert.equal(cells['11.15'], '휴가출발(연계)');
+    assert.equal(cells['11.15'], '외박복귀/휴가출발');
     assert.equal(cells['11.16'], '휴가');
     assert.equal(cells['11.18'], '휴가복귀');
 });

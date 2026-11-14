@@ -7,3 +7,5 @@ export * from "./controllers/chatbot.controller";
 export * from "./controllers/sheet.controller";
 export * from "./controllers/rankSync.controller";
 export * from "./controllers/movementSaveJob.controller";
+export * from "./controllers/movementImport.controller";
+export * from "./controllers/recruitSheet.controller";

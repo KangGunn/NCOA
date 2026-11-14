@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
     collection,
     addDoc,
@@ -18,6 +19,7 @@ import {
 import { X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { MemberDoc } from '../../hooks/personnel/personnel.hook';
+import { isPlaceholderRecruitName } from '../../utils/member/member.recruit';
 
 interface PersonnelFormModalProps {
     title: string;
@@ -36,7 +38,8 @@ export function PersonnelFormModal({
     onClose,
     onSaved,
 }: PersonnelFormModalProps) {
-    const [name, setName] = useState(initial?.name ?? '');
+    // 이름을 비워 두고 저장한 신병('S3 신병' 등)은 이름 칸을 빈 칸으로 연다
+    const [name, setName] = useState(isPlaceholderRecruitName(initial?.name) ? '' : (initial?.name ?? ''));
     const [englishName, setEnglishName] = useState(initial?.englishName ?? '');
     const [phoneNumber, setPhoneNumber] = useState(initial?.phoneNumber ?? '');
     const [enlistmentDate, setEnlistDate] = useState(initial?.enlistmentDate ?? '');
@@ -46,6 +49,12 @@ export function PersonnelFormModal({
     const [earlyPromotion, setEarlyPromotion] = useState<number>(initial?.earlyPromotion ?? 0);
     const availableSections = ['KTA', 'MEDIC', 'BLC', 'S1', 'S3', 'S4', 'S6', 'RSO', 'PAO', 'SK'];
     const [saving, setSaving] = useState(false);
+    // 모달이 열려 있는 동안 뒤 화면이 스크롤되지 않게 한다
+    useEffect(() => {
+        const prev = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        return () => { document.body.style.overflow = prev; };
+    }, []);
 
     const handleSave = async () => {
         let n = name.trim();
@@ -117,7 +126,8 @@ export function PersonnelFormModal({
         }
     };
 
-    return (
+    // 인원 탭은 등장 애니메이션(transform)이 걸려 있어 그 안의 fixed 배경이 화면 전체를 덮지 못한다 → body에 띄운다
+    return createPortal(
         <div className="overlay-safe fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
             <div className="w-full max-w-md bg-white rounded-[2rem] p-8 space-y-6 shadow-2xl max-h-[90vh] overflow-y-auto">
                 <div className="flex items-center justify-between">
@@ -131,13 +141,18 @@ export function PersonnelFormModal({
                     </button>
                 </div>
                 <div className="space-y-4">
+                    {!isRunner && !isHoldover && (
+                        <p className="text-xs text-blue-500 font-bold ml-1">
+                            전입 예정 신병은 이름·영문 이름·전화번호를 비워 두세요.
+                        </p>
+                    )}
                     <div className="space-y-2">
                         <label className="text-sm font-bold text-gray-700 ml-1">이름</label>
                         <input
                             type="text"
                             value={name}
                             onChange={(e) => setName(e.target.value)}
-                            placeholder="홍길동"
+                            placeholder="강건"
                             className="w-full px-4 py-3 sm:px-5 sm:py-4 rounded-2xl bg-gray-50 border border-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-base sm:text-lg font-bold"
                         />
                     </div>
@@ -149,7 +164,7 @@ export function PersonnelFormModal({
                                     type="text"
                                     value={englishName}
                                     onChange={(e) => setEnglishName(e.target.value)}
-                                    placeholder="KANG, DONG MIN"
+                                    placeholder="KANG, GUNN"
                                     className="w-full px-4 py-3 sm:px-5 sm:py-4 rounded-2xl bg-gray-50 border border-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-base sm:text-lg font-bold"
                                 />
                             </div>
@@ -224,7 +239,7 @@ export function PersonnelFormModal({
                         <div className="space-y-3 pt-4 border-t border-gray-100">
                             <label className="text-sm font-bold text-gray-700 ml-1">조기진급 설정</label>
                             <div className="flex gap-2">
-                                {[0, 1, 2].map(months => (
+                                {[0, 1, 2, 3].map(months => (
                                     <button
                                         key={months}
                                         type="button"
@@ -283,6 +298,7 @@ export function PersonnelFormModal({
                     {saving ? '저장 중…' : '저장'}
                 </button>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 }

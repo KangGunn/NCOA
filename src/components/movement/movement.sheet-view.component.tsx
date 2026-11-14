@@ -8,6 +8,7 @@ import { calculateRank, compareMembersByHobong } from '../../lib/rankUtils';
 import { isDateDuringKtaPeriod, isDateDuringBlcPeriod } from '../../utils/duty/dutyAutoDistribute';
 import { useMovementSettings } from '../../hooks/movement/useMovementSettings';
 import { compareTableOrder, getTableSectionInfo, toEnglishRank } from '../../utils/movement/movement.table-order';
+import { isPlaceholderRecruitName, pendingRecruitKey } from '../../utils/member/member.recruit';
 
 interface MovementSheetViewProps {
     sheetWeeks: any[];
@@ -80,7 +81,7 @@ export function MovementSheetView({
         );
         const pendingRecruitNames = new Set(pendingRecruits.map((m: any) => extractPureMemberName(m.name)));
 
-        type DisplayRow = { name: string; dayStatuses: Record<string, string>; noSheetRow?: boolean; pendingRecruit?: boolean; memberId?: string };
+        type DisplayRow = { name: string; dayStatuses: Record<string, string>; noSheetRow?: boolean; pendingRecruit?: boolean; memberId?: string; movementKey?: string };
         const visible: DisplayRow[] = merged.filter(row =>
             // 캘린더 당직 때문에 '일병 신병' 하나로 합쳐 생긴 행은 빼고, 아래에서 신병별로 다시 만든다
             !(pendingRecruitNames.has(extractPureMemberName(row.name)) && !sheetNames.has(extractPureMemberName(row.name))) &&
@@ -105,8 +106,9 @@ export function MovementSheetView({
                 const ownDuties = dutySchedules.filter((s: any) =>
                     (s.type === 'duty' || !s.type) && (s.memberId ? s.memberId === m.id : (s.memo || '').trim() === m.name)
                 );
+                // 시트에 행이 생기기 전에 저장한 출타 잔디는 인원 문서(pendingDayStatuses)에 모여 있다. 그 위에 당직을 겹친다.
                 const [withDuty] = applyDutySchedulesToDataList(
-                    [{ name: extractPureMemberName(m.name), dayStatuses: {} }],
+                    [{ name: extractPureMemberName(m.name), dayStatuses: { ...(m.pendingDayStatuses || {}) } }],
                     timeline,
                     ownDuties,
                     [],
@@ -116,12 +118,17 @@ export function MovementSheetView({
                 const rankWord = m.enlistmentDate
                     ? calculateRank(new Date(m.enlistmentDate), m.earlyPromotion || 0, weekDate).split(' ')[0]
                     : (m.rank || '').split(' ')[0];
+                // 이름을 아직 모르면 '[섹션] 신병' 그대로, 이름이 있으면 '[계급] 이름'
+                const placeholder = isPlaceholderRecruitName(m.name);
                 visible.push({
-                    name: rankWord ? `${rankWord} ${m.name}` : m.name,
+                    name: placeholder || !rankWord ? m.name : `${rankWord} ${m.name}`,
                     dayStatuses: withDuty?.dayStatuses || {},
-                    noSheetRow: true,
+                    // 시트에 행은 없지만 주간 출타는 쓸 수 있다 (시트 반영은 이름·영문 이름·전화번호가 모두 채워진 뒤 서버가 한다)
+                    noSheetRow: false,
                     pendingRecruit: true,
-                    memberId: m.id
+                    memberId: m.id,
+                    // 시트 행을 이미 추가했으면(시트를 다시 읽기 전) 실제 이름으로, 아니면 신병 전용 키로 출타 기록을 찾는다
+                    movementKey: m.sheetRowName ? extractPureMemberName(m.name) : pendingRecruitKey(m.id)
                 });
             });
 
@@ -1140,6 +1147,8 @@ export function MovementSheetView({
 
             let hasKtaCycleSupport = false;
             let hasBlcCycleSupport = false;
+            // 공식 휴일 기간 내에 당직(duty)을 서는 인원이 있는지 (Enclosure의 Staff Duty 줄 표시 조건)
+            let hasStaffDutyInOfficialPeriod = false;
 
             const enclosureItems: any[] = [];
             const remarksPassItems: any[] = [];
@@ -1289,6 +1298,13 @@ export function MovementSheetView({
                             return st === 'duty' || st === 'recovery';
                         });
 
+                        if (officialHolidayIsoDates.some(iso => {
+                            const [, dm, dd] = iso.split('-').map(Number);
+                            return member.dayStatuses[`${dm}.${dd}`] === 'duty';
+                        })) {
+                            hasStaffDutyInOfficialPeriod = true;
+                        }
+
                         const isDutyReduced = (hasDutyKeyword || hasDutyInOfficialPeriod) &&
                             (totalPassDaysSum < holidayDays || (actualPassDaysCount > 0 && actualPassDaysCount < holidayDays));
 
@@ -1312,34 +1328,20 @@ export function MovementSheetView({
                             });
                         }
 
-                        // 공식 휴일 3일 이상일 때 Enclosure 불릿 포인트 조건 판별:
+                        // 공식 휴일 3일 이상일 때 Enclosure Cycle Support 조건 판별:
+                        // 공식 휴일이 기수 기간과 겹치고, 다른 공식 휴일 이름이나 보상외박을 쓰지 않았으며,
+                        // 외박이 줄어든 이유로 KTA 업무 / BLC 업무를 고른 경우에만 해당 기수 Cycle Support 줄을 넣는다.
                         if (matchedHoliday && holidayDays >= 3) {
-                            // 1) 기수 중 일반 투데이를 사용한 경우
-                            if (inKtaBatch && (isKtaMember || isMedicMember) && parsedRemark.isPlainGeneral) {
-                                hasKtaCycleSupport = true;
-                            }
-                            if (inBlcBatch && isBlcMember && parsedRemark.isPlainGeneral) {
-                                hasBlcCycleSupport = true;
-                            }
-
-                            // 2) (A)가 당직 관련 내용이 아닐 때, (A)에 DBIDS, 디비즈, PRT Demo 중 하나를 포함한다면:
-                            // 기수 중(inKtaBatch) 공식 휴일 사유나 다른 보상외박 사유를 사용하지 않는 경우에만 KTA Cycle Support 추가
-                            const isDutyCause = isDutyReduced || parsedRemark.reductionCause === '당직근무' || hasDutyKeyword;
-                            
-                            // 검수는 오직 (A) 원인 부분에서만 수행!
-                            const causePartLower = (parsedRemark.reductionCause || '').toLowerCase();
-                            const rawCausePart = reason.includes('로 인한') ? reason.split(/으로\s*인한|로\s*인한/)[0].toLowerCase() : '';
-                            const hasSupportInA = !isDutyCause && (
-                                /(dbids|디비즈|prt\s*demo|prtdemo|prt\s*데모)/i.test(causePartLower) ||
-                                /(dbids|디비즈|prt\s*demo|prtdemo|prt\s*데모)/i.test(rawCausePart)
-                            );
-
                             const isUsingOfficialHoliday = checkMatchesOfficialHoliday(rawReasonLower, holidayName);
                             const isUsingOtherComp = parsedRemark.isComp || parsedEnclosure.isComp;
-                            const notUsingHolidayOrComp = !isUsingOfficialHoliday && !isUsingOtherComp && parsedRemark.isPlainGeneral;
+                            const noOtherHolidayOrComp = !isUsingOfficialHoliday && !isUsingOtherComp;
+                            const reasonNoSpace = rawReasonLower.replace(/\s+/g, '');
 
-                            if (inKtaBatch && hasSupportInA && notUsingHolidayOrComp) {
+                            if (inKtaBatch && noOtherHolidayOrComp && reasonNoSpace.includes('kta업무')) {
                                 hasKtaCycleSupport = true;
+                            }
+                            if (inBlcBatch && noOtherHolidayOrComp && reasonNoSpace.includes('blc업무')) {
+                                hasBlcCycleSupport = true;
                             }
                         }
 
@@ -1476,19 +1478,23 @@ export function MovementSheetView({
                     const hasExplicitStay = (relevantMov?.type === 'stay') || rawReason.includes('잔류');
 
                     if (!isAllOfficialDaysVacation || hasExplicitStay) {
-                        const hasDutyInOfficialPeriod = officialHolidayIsoDates.some(iso => {
-                            const [, m, d] = iso.split('-').map(Number);
-                            const mD = `${m}.${d}`;
-                            const st = member.dayStatuses[mD];
-                            return st === 'duty' || st === 'recovery';
-                        });
-
                         let shouldIncludeRetention = false;
                         let retentionReasonStr = '';
+                        // 사유는 사용자가 직접 고르거나 입력한 것만 쓴다. 고르지 않으면 '잔류'만 쓴다 (기수 업무 자동 부착 없음).
                         const reasonParts: string[] = [];
-
-                        if (hasDutyInOfficialPeriod) {
-                            if (!reasonParts.includes('당직근무')) reasonParts.push('당직근무');
+                        // 공식 휴일 기간(또는 휴일 전날)에 당직을 서는 날이 있으면 '당직근무'를 앞에 붙인다
+                        const dutyCheckIsos = [...officialHolidayIsoDates];
+                        if (officialHolidayIsoDates.length > 0) {
+                            const [fy, fm, fd] = officialHolidayIsoDates[0].split('-').map(Number);
+                            const eve = new Date(fy, fm - 1, fd - 1);
+                            dutyCheckIsos.push(`${eve.getFullYear()}-${String(eve.getMonth() + 1).padStart(2, '0')}-${String(eve.getDate()).padStart(2, '0')}`);
+                        }
+                        const hasDutyDayInOfficialPeriod = dutyCheckIsos.some(iso => {
+                            const [, dm, dd] = iso.split('-').map(Number);
+                            return member.dayStatuses[`${dm}.${dd}`] === 'duty';
+                        });
+                        if (hasDutyDayInOfficialPeriod) {
+                            reasonParts.push('당직근무');
                         }
                         if (parsedRetention.reductionCause) {
                             const causes = parsedRetention.reductionCause.split(',').map(s => s.trim()).filter(Boolean);
@@ -1523,13 +1529,6 @@ export function MovementSheetView({
                         } else {
                             // 공식 휴일 3일 이상 기간에 잔류
                             if (parsedRetention.isPlainGeneral) {
-                                if ((isKtaMember || isMedicMember) && inKtaBatch) {
-                                    const secName = isMedicMember ? 'MEDIC' : 'KTA';
-                                    reasonParts.push(`${secName} 업무`);
-                                } else if (isBlcMember && inBlcBatch) {
-                                    reasonParts.push('BLC 업무');
-                                }
-
                                 if (reasonParts.length > 0) {
                                     retentionReasonStr = `${attachKoreanRoParticle(reasonParts.join(', '))} 잔류`;
                                 } else {
@@ -1806,7 +1805,10 @@ export function MovementSheetView({
                     return true;
                 });
 
-                enclosureText += `• All KATUSAs would be on the ${holidayName} ${holidayDays} DAY PASS and exceptions are due to:\n\t• Staff Duty\n`;
+                enclosureText += `• All KATUSAs would be on the ${holidayName} ${holidayDays} DAY PASS and exceptions are due to:\n`;
+                if (hasStaffDutyInOfficialPeriod) {
+                    enclosureText += `\t• Staff Duty\n`;
+                }
                 if (hasKtaCycleSupport) {
                     enclosureText += `\t• ${ktaSupportText}\n`;
                 }
@@ -1821,7 +1823,7 @@ export function MovementSheetView({
   <li style="margin: 0; padding: 0; line-height: 1.15; mso-line-height-rule: exactly;">
     All KATUSAs would be on the ${holidayName} ${holidayDays} DAY PASS and exceptions are due to:
     <ul style="margin: 0; padding-left: 1.27cm; list-style-type: circle; line-height: 1.15; mso-line-height-rule: exactly;">
-      <li style="margin: 0; padding: 0; line-height: 1.15; mso-line-height-rule: exactly;">Staff Duty</li>${hasKtaCycleSupport ? `\n      <li style="margin: 0; padding: 0; line-height: 1.15; mso-line-height-rule: exactly;">${ktaSupportText}</li>` : ''}${hasBlcCycleSupport ? `\n      <li style="margin: 0; padding: 0; line-height: 1.15; mso-line-height-rule: exactly;">${blcSupportText}</li>` : ''}${otherCompItems.length > 0 ? '\n      <li style="margin: 0; padding: 0; line-height: 1.15; mso-line-height-rule: exactly;">Personnel choosing to utilize their other compensation</li>' : ''}
+${hasStaffDutyInOfficialPeriod ? '\n      <li style="margin: 0; padding: 0; line-height: 1.15; mso-line-height-rule: exactly;">Staff Duty</li>' : ''}${hasKtaCycleSupport ? `\n      <li style="margin: 0; padding: 0; line-height: 1.15; mso-line-height-rule: exactly;">${ktaSupportText}</li>` : ''}${hasBlcCycleSupport ? `\n      <li style="margin: 0; padding: 0; line-height: 1.15; mso-line-height-rule: exactly;">${blcSupportText}</li>` : ''}${otherCompItems.length > 0 ? '\n      <li style="margin: 0; padding: 0; line-height: 1.15; mso-line-height-rule: exactly;">Personnel choosing to utilize their other compensation</li>' : ''}
     </ul>
   </li>
 </ul>`;

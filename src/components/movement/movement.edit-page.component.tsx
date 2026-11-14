@@ -26,7 +26,7 @@ import {
     BATCH_LOOKBACK_MONTHS,
     findWeekendInRange,
     fitPassAroundDuty,
-    dutyReductionPrefix,
+    reductionCausePrefix,
     dutyDayLabel,
     splitDutyReductionPrefix,
     REWARD_VACATION,
@@ -69,6 +69,8 @@ interface MovementEditPageProps {
     /** 인원의 섹션 목록과 역할 (외박 사유 버튼을 고르는 데 사용) */
     memberSections?: string[];
     memberRole?: string;
+    /** 시트에 행이 아직 없는 신병의 인원 id. 있으면 Firestore에만 저장하고 시트 반영은 서버가 미뤄 둔다 */
+    pendingRecruitId?: string;
     /** 앞뒤 기간으로 이동 (없으면 버튼 비활성) */
     onPrevWeek?: () => void;
     onNextWeek?: () => void;
@@ -431,8 +433,9 @@ function ReasonPicker({ field, options, choice, onChoiceChange, preview, detail,
     const shownHolidays: HolidayOption[] = holidayOptions
         ? (orphan ? [...holidayOptions, { name: orphan, hint: '저장된 사유' }] : holidayOptions)
         : [];
+    // 같은 버튼을 다시 누르면 선택을 취소한다 (직접 입력 글자는 남겨 둔다)
     const pick = (option: string) => onChoiceChange(choice.option === option
-        ? choice
+        ? { ...EMPTY_CHOICE, custom: choice.custom }
         : { ...EMPTY_CHOICE, option, custom: choice.custom });
     // 저장돼 있던 세부값이 지금 목록에 없으면 버튼으로 함께 보여 준다
     const detailOptions = detail
@@ -474,7 +477,9 @@ function ReasonPicker({ field, options, choice, onChoiceChange, preview, detail,
                     <button
                         type="button"
                         aria-pressed={choice.customActive}
-                        onClick={() => onChoiceChange({ ...EMPTY_CHOICE, custom: choice.custom, customActive: true })}
+                        onClick={() => onChoiceChange(choice.customActive
+                            ? EMPTY_CHOICE
+                            : { ...EMPTY_CHOICE, custom: choice.custom, customActive: true })}
                         className={chipClass(choice.customActive, true)}
                     >
                         <PenLine className="w-3.5 h-3.5 shrink-0" />
@@ -584,59 +589,107 @@ function dutyDayText(iso: string): string {
 
 interface DutyReductionQuestionProps {
     dutyDays: string[];
-    /** 외박 일수를 줄인 당직 날짜. null = 아직 안 고름, [] = 상관없음 */
-    value: string[] | null;
+    /** 외박 일수를 줄인 당직 날짜 (고르지 않으면 []) */
+    value: string[];
     onChange: (days: string[]) => void;
-    /** '토당으로 인한' */
-    prefix: string;
-    invalid: boolean;
+    /** 섹션 업무 이름 (KTA 업무 등). 없으면 업무 버튼을 보이지 않는다 */
+    taskLabel: string | null;
+    /** 업무 때문에 외박 일수가 줄었는지 */
+    taskOn: boolean;
+    onTaskChange: (on: boolean) => void;
+    /** 직접 입력한 원인 (예: 사정) */
+    customOn: boolean;
+    custom: string;
+    onCustomOnChange: (on: boolean) => void;
+    onCustomChange: (text: string) => void;
+    accent: Accent;
+    customPlaceholder: string;
 }
 
 /**
- * 이번 기간 당직을 요일과 함께 보여 주고, 그중 외박 일수를 줄인 당직을 고르게 한다.
+ * 외박 사유 바로 아래의 '줄어든 원인'. 사유 칸과 같은 칩 스타일로 보여 준다.
+ * 당직 날짜 줄은 이번 기간에 당직이 있을 때만 나타나고(공식 휴일 줄과 같은 방식),
+ * 업무와 직접 입력 칩은 항상 같은 자리에 있다. 저장 문자열 미리보기는 사유 칸이 맡는다.
  * 보상외박처럼 당직과 상관없는 경우가 있으므로 자동으로 판단하지 않는다.
  */
-function DutyReductionQuestion({ dutyDays, value, onChange, prefix, invalid }: DutyReductionQuestionProps) {
-    const chip = (selected: boolean) => cn(
-        'min-h-[40px] px-3.5 py-2 rounded-xl border text-sm font-bold transition-all active:scale-95',
-        selected ? 'bg-gray-900 border-gray-900 text-white' : 'bg-white border-gray-300 text-gray-700 hover:border-gray-400'
+function DutyReductionQuestion({ dutyDays, value, onChange, taskLabel, taskOn, onTaskChange, customOn, custom, onCustomOnChange, onCustomChange, accent, customPlaceholder }: DutyReductionQuestionProps) {
+    const chipClass = (selected: boolean, dashed = false) => cn(
+        'w-full min-w-0 h-10 px-2 rounded-xl border text-sm font-bold transition-all active:scale-95 truncate',
+        dashed && 'border-dashed flex items-center justify-center gap-1.5',
+        selected ? ACCENT[accent].selected : ACCENT[accent].idle
+    );
+    const inputClass = cn(
+        'mt-3 w-full text-sm px-3 py-2.5 bg-white border rounded-xl focus:outline-none focus:ring-2',
+        cn('border-gray-300', ACCENT[accent].input)
     );
     const toggleDay = (iso: string) => {
         const current = value || [];
         onChange(current.includes(iso) ? current.filter(d => d !== iso) : [...current, iso].sort());
     };
+    const hasDuty = dutyDays.length > 0;
+
     return (
-        <div className={cn(
-            'rounded-xl border px-3 py-3 space-y-2',
-            invalid ? 'border-red-400 bg-red-50 ring-2 ring-red-200' : 'border-gray-200 bg-gray-50'
-        )}>
-            <p className={cn('text-xs font-bold', invalid ? 'text-red-600' : 'text-gray-700')}>
-                이번 기간에 당직이 있습니다. 외박 일수를 줄인 당직을 고르세요.
-            </p>
-            <div className="flex flex-wrap gap-2">
-                {dutyDays.map(iso => (
+        <div>
+            <span className="block text-xs font-bold text-gray-600 mb-1.5">줄어든 원인</span>
+            <div className="space-y-2">
+                {hasDuty && (
+                    <div>
+                        <span className="block text-[11px] font-bold text-gray-500 mb-1">당직</span>
+                        <div className="grid grid-cols-3 gap-2">
+                            {dutyDays.map(iso => {
+                                const selected = !!value?.includes(iso);
+                                return (
+                                    <button
+                                        key={iso}
+                                        type="button"
+                                        aria-pressed={selected}
+                                        onClick={() => toggleDay(iso)}
+                                        className={chipClass(selected)}
+                                    >
+                                        {dutyDayText(iso)}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+                <div>
+                    <span className="block text-[11px] font-bold text-gray-500 mb-1">업무</span>
+                <div className="grid grid-cols-3 gap-2">
+                    {taskLabel && (
+                        <button
+                            type="button"
+                            aria-pressed={taskOn}
+                            title={taskLabel}
+                            onClick={() => onTaskChange(!taskOn)}
+                            className={chipClass(taskOn)}
+                        >
+                            {taskLabel}
+                        </button>
+                    )}
                     <button
-                        key={iso}
                         type="button"
-                        aria-pressed={!!value?.includes(iso)}
-                        onClick={() => toggleDay(iso)}
-                        className={chip(!!value?.includes(iso))}
+                        aria-pressed={customOn}
+                        onClick={() => onCustomOnChange(!customOn)}
+                        className={chipClass(customOn, true)}
                     >
-                        {dutyDayText(iso)}
+                        <PenLine className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">직접 입력</span>
                     </button>
-                ))}
-                <button
-                    type="button"
-                    aria-pressed={value !== null && value.length === 0}
-                    onClick={() => onChange([])}
-                    className={chip(value !== null && value.length === 0)}
-                >
-                    상관없음
-                </button>
+                </div>
+                </div>
+                {customOn && (
+                    <input
+                        type="text"
+                        autoFocus={!custom}
+                        value={custom}
+                        placeholder={customPlaceholder}
+                        onChange={(e) => onCustomChange(e.target.value)}
+                        className={inputClass}
+                        style={{ fontSize: '16px' }}
+                    />
+                )}
             </div>
-            {value && value.length > 0 && (
-                <p className="text-[11px] text-gray-500">사유 앞에 '{prefix}'이 붙습니다.</p>
-            )}
         </div>
     );
 }
@@ -702,7 +755,7 @@ function StayReasonBlock({ range, dutyDays, choice, onChange, preview, taskLabel
             )}
 
             <div>
-                <span className="block text-xs font-bold text-gray-600 mb-1.5">사유</span>
+                <span className="block text-xs font-bold text-gray-600 mb-1.5">업무</span>
                 <div className="grid grid-cols-2 gap-2">
                     {taskLabel && (
                         <button type="button" aria-pressed={choice.task} onClick={() => onChange({ ...choice, task: !choice.task })} className={chip(choice.task)}>
@@ -913,6 +966,7 @@ export function MovementEditPage({
     sectionLabel,
     memberSections = [],
     memberRole = '',
+    pendingRecruitId,
     onPrevWeek,
     onNextWeek,
     dutySchedules = [],
@@ -968,7 +1022,9 @@ export function MovementEditPage({
     // 당직: 캘린더 당직 일정(우선) + 시트/잔디의 '당직' 칸
     const calendarDutyIsoDates = new Set(
         dutySchedules
-            .filter((s: any) => (s.type === 'duty' || !s.type) && s.startDate && extractPureMemberName(s.memo) === cleanName)
+            .filter((s: any) => (s.type === 'duty' || !s.type) && s.startDate && (
+                pendingRecruitId && s.memberId ? s.memberId === pendingRecruitId : extractPureMemberName(s.memo) === cleanName
+            ))
             .map((s: any) => s.startDate as string)
     );
     const isDutyOn = (iso: string) => calendarDutyIsoDates.has(iso) || statusOnIso(iso) === 'duty';
@@ -1067,13 +1123,20 @@ export function MovementEditPage({
     const [passChoice, setPassChoice] = useState<ReasonChoice>(() =>
         choiceFromReason(savedDutySplit ? savedDutySplit.rest : savedPassReason, passOptionNames)
     );
-    // 외박 일수를 줄인 당직 날짜 (사용자가 고름): null = 아직 안 고름, [] = 상관없음.
+    // 업무(KTA 업무 등) 때문에 외박 일수가 줄었는지
+    const [passTaskReduced, setPassTaskReduced] = useState<boolean>(() => !!savedDutySplit?.task);
+    // 직접 입력한 축소 원인 (예: 사정). 저장된 사유에 들어 있으면 사유 칸에 그대로 남는다.
+    const [passReductionCustomOn, setPassReductionCustomOn] = useState<boolean>(false);
+    const [passReductionCustom, setPassReductionCustom] = useState<string>('');
+    // 외박 일수를 줄인 당직 날짜 (사용자가 고름). 고르지 않으면 []. null은 저장된 사유가 없을 때만.
     // 저장된 외박이 있으면 그 사유로 판단하고, 새로 쓰면 아직 안 고른 상태로 연다.
     const [passDutyReducedDays, setPassDutyReducedDays] = useState<string[] | null>(() => {
         if (!savedPassReason) return null;
         if (!savedDutySplit) return [];
         const initialDutyDays = eachIsoDate(addDaysIso(coreStartIso, -1), coreEndIso).filter(isDutyOn);
         const named = initialDutyDays.filter(iso => savedDutySplit.cause.includes(dutyDayLabel(iso)));
+        // 업무만 있으면 당직 날짜는 고르지 않은 것으로 본다
+        if (savedDutySplit.task && named.length === 0 && !/당직/.test(savedDutySplit.cause)) return [];
         // '당직근무'처럼 요일이 없으면 이번 기간 당직 전부로 본다
         return named.length > 0 ? named : initialDutyDays;
     });
@@ -1091,20 +1154,9 @@ export function MovementEditPage({
     const hasPass = passOn;
     const hasVacation = vacationOn;
 
-    // 잔류: 외박이 없고, 휴가가 외박 기본 기간(3일 이상 공식 휴일, 없으면 주말)을 전부 덮지 않으면 잔류 사유를 받는다.
-    // 휴가가 기본 기간을 전부 덮으면 잔류가 아니고, 덮지 않은 날만 잔류 날짜가 된다.
-    const stayBaseLong = [...periodHolidays]
-        .filter(h => eachIsoDate(h.start, h.end).length >= 3)
-        .sort((a, b) => eachIsoDate(b.start, b.end).length - eachIsoDate(a.start, a.end).length)[0];
-    const stayBase = stayBaseLong ? { start: stayBaseLong.start, end: stayBaseLong.end } : periodWeekend;
-    const stayBaseDays = stayBase ? eachIsoDate(stayBase.start, stayBase.end) : [];
-    const coveringVacation = hasVacation && vacationStart && vacationEnd && vacationStart <= vacationEnd
-        ? { start: vacationStart, end: vacationEnd }
-        : null;
-    const stayDays = stayBaseDays.filter(d => !inRange(d, coveringVacation));
-    // 외박 스위치가 꺼져 있고, 휴가 스위치가 꺼져 있거나 날짜가 정해져 있을 때만 잔류 (휴가를 켰는데 날짜가 없으면 입력 오류)
-    const vacationRangeSet = !!coveringVacation;
-    const stayMode = !passOn && (!hasVacation || vacationRangeSet) && stayDays.length > 0;
+    // 잔류: 외박도 휴가도 없을 때만. 잔류 날짜는 항상 이번 기간의 주말(토~일)이다.
+    const stayDays = periodWeekend ? eachIsoDate(periodWeekend.start, periodWeekend.end) : [];
+    const stayMode = !passOn && !hasVacation && stayDays.length > 0;
     const stayRange = stayDays.length > 0 ? { start: stayDays[0], end: stayDays[stayDays.length - 1] } : null;
 
     // 외박 사유 버튼을 고르면: '일반'은 이번 기간 주말(토~일), 당직 휴일은 저장된 그 휴일 기간을 외박 날짜로 채운다.
@@ -1142,18 +1194,23 @@ export function MovementEditPage({
     // 이번 기간(수~화, 첫 출발일 포함)의 당직: 이것 때문에 외박 일수가 줄었는지 사용자가 고른다
     const periodDutyDays = eachIsoDate(addDaysIso(coreStartIso, -1), coreEndIso).filter(isDutyOn);
     const hasDutyQuestion = periodDutyDays.length > 0;
+    // 당직이 없어도 섹션 업무가 있으면 같은 질문을 보인다
+    const hasReductionQuestion = hasDutyQuestion || !!stayTaskLabel;
     const passReasonCore = reasonFromChoice(passChoice, passDays, 'pass');
     // '줄었음'이면 기존 형식대로 '토당으로 인한 …'을 앞에 붙인다 (직접 입력에 이미 '인한'이 있으면 그대로)
     const reducingDutyDays = (passDutyReducedDays || []).filter(iso => periodDutyDays.includes(iso));
-    const passReasonPicked = hasDutyQuestion && reducingDutyDays.length > 0 && passReasonCore && !passReasonCore.includes('인한')
-        ? `${dutyReductionPrefix(reducingDutyDays)} ${passReasonCore}`
+    const taskOn = passTaskReduced && !!stayTaskLabel;
+    const customCause = passReductionCustomOn ? passReductionCustom.trim() : '';
+    const reductionPrefix = reductionCausePrefix(reducingDutyDays, taskOn ? stayTaskLabel : null, customCause);
+    const passReasonPicked = hasReductionQuestion && (reducingDutyDays.length > 0 || taskOn || !!customCause) && passReasonCore && !passReasonCore.includes('인한')
+        ? `${reductionPrefix} ${passReasonCore}`
         : passReasonCore;
     // 잔류 기록: 외박을 나가지 않는다. 날짜는 잔류 날짜, 사유는 당직·사유 버튼으로 만든다. 시트에는 외박 칸을 쓰지 않는다.
     const stayReasonText = stayMode ? composeStayReason(stayChoice, periodDutyDays, stayTaskLabel) : '';
     const passReason = stayMode ? stayReasonText : passReasonPicked;
     const passIsStay = stayMode;
     const sheetHasPass = hasPass && !passIsStay;
-    const passDutyReductionMissing = sheetHasPass && hasDutyQuestion && passDutyReducedDays === null;
+    // 고르지 않으면 당직·업무로 줄지 않은 것으로 본다 (입력 필수 아님)
     const vacationReason = reasonFromChoice(vacationChoice, vacationDays, 'vacation');
 
     // 수료·DBIDS는 기수를 고른다 (외박 출발일 기준 3개월 안에 Day 0이 있는 기수, 또는 직접 입력)
@@ -1242,7 +1299,6 @@ export function MovementEditPage({
             passEnd,
             passReason,
             passBatchMissing,
-            passDutyReductionMissing,
             stayReasonMissing: stayMode && !stayReasonText,
             hasVacation,
             vacationStart,
@@ -1317,7 +1373,8 @@ export function MovementEditPage({
             periodWindow,
             pass: passRecord,
             vacation: vacationRecord,
-            sheet: { dayStatuses, cellUpdates }
+            sheet: { dayStatuses, cellUpdates },
+            ...(pendingRecruitId ? { memberId: pendingRecruitId, deferSheet: true } : {})
         });
 
         // 화면에는 바로 반영한다
@@ -1443,13 +1500,29 @@ export function MovementEditPage({
                             holidayOptions={passHolidayOptions}
                             customPlaceholder="외박 사유 입력 (예: BLC 01-27기 컴펜 투데이)"
                             issues={issues}
-                            footer={hasDutyQuestion && !passIsStay ? (
+                            footer={hasReductionQuestion && !passIsStay ? (
                                 <DutyReductionQuestion
                                     dutyDays={periodDutyDays}
-                                    value={passDutyReducedDays === null ? null : reducingDutyDays}
-                                    onChange={setPassDutyReducedDays}
-                                    prefix={dutyReductionPrefix(reducingDutyDays)}
-                                    invalid={issues.some(i => i.code === 'pass-duty-reduction-missing')}
+                                    value={reducingDutyDays}
+                                    onChange={(days) => { setPassDutyReducedDays(days); }}
+                                    taskLabel={stayTaskLabel}
+                                    taskOn={taskOn}
+                                    onTaskChange={(on) => {
+                                        setPassTaskReduced(on);
+                                        if (on && passDutyReducedDays === null) setPassDutyReducedDays([]);
+                                    }}
+                                    customOn={passReductionCustomOn}
+                                    custom={passReductionCustom}
+                                    onCustomOnChange={(on) => {
+                                        setPassReductionCustomOn(on);
+                                        if (on && passDutyReducedDays === null) setPassDutyReducedDays([]);
+                                    }}
+                                    onCustomChange={(text) => {
+                                        setPassReductionCustom(text);
+                                        if (passDutyReducedDays === null) setPassDutyReducedDays([]);
+                                    }}
+                                    accent="blue"
+                                    customPlaceholder="줄어든 원인 입력 (예: 사정)"
                                 />
                             ) : undefined}
                             note={passAutoNote ? (

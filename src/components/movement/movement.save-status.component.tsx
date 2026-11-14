@@ -63,9 +63,14 @@ export function MovementSaveStatus() {
                         <div className="flex-1 min-w-0">
                             <p className="text-sm font-black text-gray-900">{job.label} 저장 실패</p>
                             <p className="text-xs text-gray-500 break-words">
-                                {job.done.firestore ? '기록은 저장됐고 시트 반영이 안 됐습니다.' : '기록과 시트 모두 저장되지 않았습니다.'}
-                                {job.lastError ? ` (${job.lastError})` : ''}
+                                {job.done.sheet ? '시트에는 반영됐고 기록 저장이 안 됐습니다.' : '시트와 기록 모두 저장되지 않았습니다.'}
                             </p>
+                            {job.lastError && (
+                                <p className="text-xs font-semibold text-red-600 mt-1 break-words">{job.lastError}</p>
+                            )}
+                            {job.errorDetail && job.errorDetail !== job.lastError && (
+                                <p className="text-[11px] text-gray-400 mt-0.5 break-words">원인: {job.errorDetail}</p>
+                            )}
                             <div className="flex gap-2 mt-2">
                                 <button
                                     type="button"
