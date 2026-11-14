@@ -38,6 +38,10 @@ export interface SaveJobInput {
     pass: PassRecordInput | null;
     vacation: VacationRecordInput | null;
     sheet: { dayStatuses: Record<string, string>; cellUpdates: Record<string, string> };
+    /** 시트에 행이 아직 없는 신병의 인원 id (deferSheet와 함께) */
+    memberId?: string;
+    /** true면 서버가 시트에 쓰지 않고 인원 문서에 모아 둔다. 이름·영문 이름·전화번호가 채워지면 시트에 반영된다 */
+    deferSheet?: boolean;
 }
 
 export interface SaveJobView {

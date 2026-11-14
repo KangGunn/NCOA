@@ -186,7 +186,7 @@ export function validateMovementEdit(input: MovementEditInput): EditIssue[] {
         } else if (input.passBatchMissing) {
             issues.push({ code: 'pass-batch-missing', severity: 'error', fields: ['passReason'], message: '기수를 선택하세요.' });
         } else if (input.passDutyReductionMissing) {
-            issues.push({ code: 'pass-duty-reduction-missing', severity: 'error', fields: ['passReason'], message: '당직 때문에 외박 일수가 줄었는지 선택하세요.' });
+            issues.push({ code: 'pass-duty-reduction-missing', severity: 'error', fields: ['passReason'], message: '외박 일수가 당직이나 업무 때문에 줄었는지 선택하세요.' });
         } else if (passRangeOk) {
             const expected = extractPassDaysFromReason(reason);
             const actual = countDaysInclusive(input.passStart, input.passEnd);

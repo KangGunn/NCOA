@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { getGoogleSheetsInstance, getSpreadsheetIdForMode } from "../repositories/sheet.repository";
 import { getSpreadsheetSetting, getMovementSetting, refreshSpreadsheetUpdatedAt } from "../repositories/setting.repository";
-import { planMovementCells, planMemberCells } from "../utils/sheetPlan.util";
+import { planMovementCells, planMemberCells, nameOnly, a1 } from "../utils/sheetPlan.util";
+import { findFreeMemberRow } from "../utils/recruitSheet.util";
 import { JobError } from "../utils/jobError.util";
 import * as logger from "firebase-functions/logger";
 
@@ -69,7 +70,8 @@ export async function syncMovements(movements: any[]) {
 export async function updateMemberScheduleInSheet(
     memberName: string,
     dayStatuses: Record<string, string>,
-    cellUpdates?: Record<string, string>
+    cellUpdates?: Record<string, string>,
+    options: { ignoreMissingDates?: boolean } = {}
 ) {
     const { sheets, spreadsheetId, sheetMode, dateRow, nameColumn, allowVacationPassLink } = await readSheetIndex();
     logger.info(`updateMemberScheduleInSheet: using ${sheetMode} mode (${spreadsheetId}) for ${memberName}`);
@@ -79,11 +81,34 @@ export async function updateMemberScheduleInSheet(
         throw new JobError(`시트에서 '${memberName}' 대원을 찾을 수 없습니다. 시트의 이름을 확인하세요.`);
     }
     if (plan.missingDates.length > 0) {
-        throw new JobError(`시트에 ${plan.missingDates.join(", ")} 날짜 칸이 없습니다. 시트의 날짜 범위를 확인하세요.`);
+        // 미뤄 둔 신병 출타를 반영할 때는 시트 범위를 벗어난 지난 날짜를 건너뛴다
+        if (!options.ignoreMissingDates) {
+            throw new JobError(`시트에 ${plan.missingDates.join(", ")} 날짜 칸이 없습니다. 시트의 날짜 범위를 확인하세요.`);
+        }
+        logger.warn(`updateMemberScheduleInSheet: ${memberName} 시트에 없는 날짜 건너뜀: ${plan.missingDates.join(", ")}`);
     }
     if (plan.updateData.length > 0) {
         await writeCells(sheets, spreadsheetId, sheetMode, plan.updateData);
         return { status: "success", count: plan.updateData.length };
     }
     return { status: "success", message: "변경할 항목이 없습니다." };
+}
+
+/**
+ * 시트 인원 칸(3~22행)의 첫 빈 행에 '계급 이름'을 쓴다. 같은 이름이 이미 있으면 쓰지 않고 그 행을 돌려준다.
+ * 빈 행이 없으면 사람이 시트를 정리해야 하므로 JobError.
+ */
+export async function addMemberRowToSheet(rowLabel: string): Promise<{ rowIdx: number; added: boolean }> {
+    const { sheets, spreadsheetId, sheetMode, nameColumn } = await readSheetIndex();
+    const target = nameOnly(rowLabel);
+    const existing = nameColumn.findIndex((n) => !!n && nameOnly(n) === target);
+    if (existing !== -1) return { rowIdx: existing, added: false };
+
+    const rowIdx = findFreeMemberRow(nameColumn);
+    if (rowIdx === -1) {
+        throw new JobError(`'${SHEET_NAME}' 탭 인원 칸(3~22행)에 빈 행이 없어 '${rowLabel}'을(를) 추가하지 못했습니다.`);
+    }
+    await writeCells(sheets, spreadsheetId, sheetMode, [{ range: a1(0, rowIdx, SHEET_NAME), values: [[rowLabel]] }]);
+    logger.info(`addMemberRowToSheet: '${rowLabel}' → row ${rowIdx + 1} (${sheetMode})`);
+    return { rowIdx, added: true };
 }

@@ -125,10 +125,12 @@ test('duty reduction prefix uses the weekday shorthand', () => {
 });
 
 test('saved reasons with a duty cause are split back', () => {
-    assert.deepEqual(splitDutyReductionPrefix('토당으로 인한 일반 원데이'), { cause: '토당', rest: '일반 원데이' });
-    assert.deepEqual(splitDutyReductionPrefix('금당, 토당으로 인한 Staff Duty 원데이'), { cause: '금당, 토당', rest: 'Staff Duty 원데이' });
-    assert.deepEqual(splitDutyReductionPrefix('일요일 당직으로 인한 일반 원데이'), { cause: '일요일 당직', rest: '일반 원데이' });
-    assert.deepEqual(splitDutyReductionPrefix('당직근무로 인한 일반 원데이'), { cause: '당직근무', rest: '일반 원데이' });
+    assert.deepEqual(splitDutyReductionPrefix('토당으로 인한 일반 원데이'), { cause: '토당', rest: '일반 원데이', task: null });
+    assert.deepEqual(splitDutyReductionPrefix('금당, 토당으로 인한 Staff Duty 원데이'), { cause: '금당, 토당', rest: 'Staff Duty 원데이', task: null });
+    assert.deepEqual(splitDutyReductionPrefix('일요일 당직으로 인한 일반 원데이'), { cause: '일요일 당직', rest: '일반 원데이', task: null });
+    assert.deepEqual(splitDutyReductionPrefix('당직근무로 인한 일반 원데이'), { cause: '당직근무', rest: '일반 원데이', task: null });
+    assert.deepEqual(splitDutyReductionPrefix('KTA 업무로 인한 일반 원데이'), { cause: 'KTA 업무', rest: '일반 원데이', task: 'KTA 업무' });
+    assert.deepEqual(splitDutyReductionPrefix('토당, BLC 업무로 인한 일반 투데이'), { cause: '토당, BLC 업무', rest: '일반 투데이', task: 'BLC 업무' });
     // 당직이 아닌 원인은 그대로 둔다
     assert.equal(splitDutyReductionPrefix('DBIDS로 인한 일반 원데이'), null);
     assert.equal(splitDutyReductionPrefix('일반 투데이'), null);

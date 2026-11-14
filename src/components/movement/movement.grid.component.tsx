@@ -13,9 +13,8 @@ import {
 } from '../../utils/movement/movement.table-order';
 import { MovementHistoryModal } from './movement.history-modal.component';
 import { MovementEditPage } from './movement.edit-page.component';
+import { PENDING_RECRUIT_KEY_PREFIX } from '../../utils/member/member.recruit';
 
-/** 이름이 정해지지 않아 시트에 아직 없는 신병 카드 묶음 */
-const PENDING_RECRUIT_GROUP = '전입 예정';
 
 export interface DbMember {
     id?: string;
@@ -35,8 +34,9 @@ interface MovementGridProps {
      * noSheetRow: 시트에 이 인원의 행이 없음 (카드만 보여 주고 수정은 막는다)
      * pendingRecruit: 이름이 정해지지 않아 시트에 아직 없는 신병 ('전입 예정' 묶음)
      * memberId: 인원 DB id (이름만으로 인원을 찾을 수 없을 때)
+     * movementKey: 출타 기록(movements.name)을 찾는 이름. 시트에 행이 없는 신병은 '신병#<인원 id>'
      */
-    dataList: { name: string; dayStatuses: Record<string, string>; noSheetRow?: boolean; pendingRecruit?: boolean; memberId?: string }[];
+    dataList: { name: string; dayStatuses: Record<string, string>; noSheetRow?: boolean; pendingRecruit?: boolean; memberId?: string; movementKey?: string }[];
     dbMembers: DbMember[];
     baseDate?: Date;
     movements?: MovementRecord[];
@@ -58,6 +58,8 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
         role: string;
         /** 지금 보고 있는 주차 기준으로 몇 주 앞/뒤를 편집 중인지 */
         weekOffset: number;
+        /** 시트에 행이 아직 없는 신병의 인원 id (시트 반영을 미뤄 둔다) */
+        pendingMemberId?: string;
     } | null>(null);
 
     useEffect(() => {
@@ -99,9 +101,8 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
             rankEnglish: toEnglishRank(rankStr, member.name),
             englishName: dbMember?.englishName || cleanName
         };
-        const sectionLabel = member.pendingRecruit
-            ? PENDING_RECRUIT_GROUP
-            : sectionInfo.mainSec === 'HQ' ? 'HQ' : getTableSectionLabel(sectionInfo);
+        // 전입 예정 신병도 자기 섹션에 배정한다 (섹션이 없으면 섹션 미지정)
+        const sectionLabel = sectionInfo.mainSec === 'HQ' ? 'HQ' : getTableSectionLabel(sectionInfo);
         return { member, orderKey, sectionLabel, detailLabel: getTableSectionLabel(sectionInfo) };
     }).sort((a, b) => compareTableOrder(a.orderKey, b.orderKey));
 
@@ -110,7 +111,6 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
     keyedEntries.forEach(entry => {
         if (!groupRank.has(entry.sectionLabel)) groupRank.set(entry.sectionLabel, groupRank.size);
     });
-    if (groupRank.has(PENDING_RECRUIT_GROUP)) groupRank.set(PENDING_RECRUIT_GROUP, Number.MAX_SAFE_INTEGER);
     const groupedEntries = keyedEntries
         .map((entry, order) => ({ entry, order }))
         .sort((a, b) => (groupRank.get(a.entry.sectionLabel)! - groupRank.get(b.entry.sectionLabel)!) || a.order - b.order)
@@ -123,7 +123,8 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
     return (
         <div className="grid gap-2">
             {sortedEntries.map((member, idx) => {
-                const cleanName = extractPureMemberName(member.name);
+                // 출타 기록을 찾는 이름 (시트에 행이 없는 신병은 '신병#<인원 id>')
+                const cleanName = member.movementKey || extractPureMemberName(member.name);
                 const { sectionLabel, detailLabel } = groupedEntries[idx];
                 const isGroupStart = idx === 0 || groupedEntries[idx - 1].sectionLabel !== sectionLabel;
 
@@ -307,21 +308,25 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                     }
                 }
 
-                const hasReason = memberMovements.length > 0;
+                // 내용이 있는 출타만 센다. 사유 없는 잔류('잔류' 또는 빈 사유)는 비어 있는 것과 같으므로 카드를 눌러 입력할 수 있게 둔다.
+                const hasReason = memberMovements.some(m => m.type !== 'stay' || (!!m.reason && m.reason.trim() !== '잔류'));
 
                 // 출타 및 잔디 수정 화면 열기 (연필 버튼, 그리고 출타 내용이 없는 카드 자체)
                 const openEditor = () => {
                     if (member.noSheetRow) return;
                     const rankMatch = member.name.match(/^(병장|상병|일병|이병)\s*(.*)$/);
                     const formattedName = rankMatch ? `${rankMatch[2]} ${rankMatch[1]}` : member.name;
-                    const dbMember = dbMembers.find(m => m.name === cleanName);
+                    const dbMember = member.memberId
+                        ? dbMembers.find(m => m.id === member.memberId)
+                        : dbMembers.find(m => m.name === cleanName);
                     setEditingMember({
                         name: cleanName,
                         fullName: formattedName,
                         sectionLabel: detailLabel === '섹션 미지정' ? '' : detailLabel,
                         sections: dbMember?.sections || [],
                         role: dbMember?.role || '',
-                        weekOffset: 0
+                        weekOffset: 0,
+                        pendingMemberId: member.memberId && cleanName.startsWith(PENDING_RECRUIT_KEY_PREFIX) ? member.memberId : undefined
                     });
                 };
                 // 출타 내용이 있으면 카드(잔디)를 눌러 내용을 보고, 없으면 카드 어디를 눌러도 바로 수정 화면
@@ -708,7 +713,8 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                 const weekRows = targetWeek
                     ? applyDutySchedulesToDataList(targetWeek.data || [], editTimeline, dutySchedules, dbMembers, baseDate, sheetWeeks)
                     : dataList;
-                const memberRow = weekRows.find(r => extractPureMemberName(r.name) === editingMember.name);
+                const rowKey = (r: any) => r.movementKey || extractPureMemberName(r.name);
+                const memberRow = weekRows.find(r => rowKey(r) === editingMember.name);
                 const canMove = (delta: number) => baseWeekIdx !== -1 && !!sheetWeeks[targetIdx + delta];
                 const move = (delta: number) => () =>
                     setEditingMember(m => (m ? { ...m, weekOffset: m.weekOffset + delta } : m));
@@ -721,6 +727,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                     sectionLabel={editingMember.sectionLabel}
                     memberSections={editingMember.sections}
                     memberRole={editingMember.role}
+                    pendingRecruitId={editingMember.pendingMemberId}
                     onPrevWeek={canMove(-1) ? move(-1) : undefined}
                     onNextWeek={canMove(1) ? move(1) : undefined}
                     dutySchedules={dutySchedules}
@@ -732,7 +739,7 @@ export function MovementGrid({ timeline, dataList, dbMembers, baseDate, movement
                     onClose={() => setEditingMember(null)}
                     onSaveSuccess={(updatedStatuses, savedMovement) => {
                         if (!targetWeek) {
-                            const target = dataList.find(d => extractPureMemberName(d.name) === editingMember.name);
+                            const target = dataList.find(d => rowKey(d) === editingMember.name);
                             if (target) {
                                 target.dayStatuses = { ...target.dayStatuses, ...updatedStatuses };
                             }

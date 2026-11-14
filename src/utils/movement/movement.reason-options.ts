@@ -253,24 +253,37 @@ export function dutyDayLabel(iso: string): string {
     return `${WEEKDAY_KO_SHORT[weekdayIndexOf(iso)]}당`;
 }
 
-/** 외박 사유 앞에 붙일 축소 원인: ['2026-11-21'] → '토당으로 인한', 여러 날이면 '금당, 토당으로 인한' */
-export function dutyReductionPrefix(dutyIsoDates: string[]): string {
+/**
+ * 외박 사유 앞에 붙일 축소 원인. 당직 날짜와 업무(KTA 업무 등)를 함께 쓸 수 있다.
+ * ['2026-11-21'] → '토당으로 인한', 업무만 → 'KTA 업무로 인한', 둘 다 → '토당, KTA 업무로 인한'
+ */
+export function reductionCausePrefix(dutyIsoDates: string[], task: string | null, custom = ''): string {
     const labels = [...new Set([...dutyIsoDates].sort().map(dutyDayLabel))];
+    if (task) labels.push(task);
+    const text = custom.trim();
+    if (text) labels.push(text);
     return labels.length > 0 ? `${labels.join(', ')}으로 인한` : '';
 }
 
+/** 당직 날짜만으로 만든 축소 원인 (업무 없음) */
+export function dutyReductionPrefix(dutyIsoDates: string[]): string {
+    return reductionCausePrefix(dutyIsoDates, null);
+}
+
 const DUTY_CAUSE_TOKEN = /^(?:[월화수목금토일](?:요일)?\s*당(?:직)?(?:근무)?|당직(?:근무)?)$/;
+const isCauseToken = (t: string) => DUTY_CAUSE_TOKEN.test(t) || STAY_TASK_LABELS.includes(t);
 
 /**
  * 저장된 외박 사유에서 당직 축소 원인을 떼어 낸다: '토당으로 인한 일반 원데이' → { rest: '일반 원데이' }.
  * 원인이 당직이 아니면(예: 'DBIDS로 인한 …') null.
  */
-export function splitDutyReductionPrefix(reason: string): { cause: string; rest: string } | null {
+export function splitDutyReductionPrefix(reason: string): { cause: string; rest: string; task: string | null } | null {
     const m = /^(.+?)\s*(?:으로|로)\s*인한\s+(.+)$/.exec((reason || '').trim());
     if (!m) return null;
     const tokens = m[1].split(/\s*,\s*/).map(t => t.trim()).filter(Boolean);
-    if (tokens.length === 0 || !tokens.every(t => DUTY_CAUSE_TOKEN.test(t))) return null;
-    return { cause: m[1].trim(), rest: m[2].trim() };
+    if (tokens.length === 0 || !tokens.every(isCauseToken)) return null;
+    const task = tokens.find(t => STAY_TASK_LABELS.includes(t)) || null;
+    return { cause: m[1].trim(), rest: m[2].trim(), task };
 }
 
 /**
